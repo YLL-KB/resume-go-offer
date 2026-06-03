@@ -35,7 +35,35 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	/**
+	 * Environment Variables
+	 * 注意: AUTHING_APP_SECRET 是敏感信息，生产环境用 `wrangler secret put AUTHING_APP_SECRET`
+	 */
+	"vars": {
+		"AUTHING_APP_ID": "你的AppID",
+		"NEXT_PUBLIC_APP_URL": "https://你的域名.com"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "resume-go-offer-db",
+			"database_id": "d0fced6c-9e86-4ddb-9d6f-ca15a859bb60"
+		},
+		{
+			"binding": "resume_go_offer_db",
+			"database_name": "resume-go-offer-db",
+			"database_id": "d0fced6c-9e86-4ddb-9d6f-ca15a859bb60",
+			"remote": true
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "RESUME_GO_OFFER_KV",
+			"id": "1a50b47e187e48c49867bb298dde2fef",
+			"remote": false
+		}
+	]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

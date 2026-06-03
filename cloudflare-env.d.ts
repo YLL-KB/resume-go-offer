@@ -6,6 +6,8 @@ interface __BaseEnv_CloudflareEnv {
 	ASSETS: Fetcher;
 	NEXTJS_ENV: string;
 	WORKER_SELF_REFERENCE: Fetcher /* resume-go-offer */;
+	DB: D1Database;
+	RESUME_GO_OFFER_KV: KVNamespace;
 }
 declare namespace Cloudflare {
 	interface Env extends __BaseEnv_CloudflareEnv {}
@@ -10029,7 +10031,7 @@ type AIGatewayHeaders = {
     [key: string]: string | number | boolean | object;
 };
 type AIGatewayUniversalRequest = {
-    provider: AIGatewayProviders | string; // eslint-disable-line
+    provider: AIGatewayProviders | string;  
     endpoint: string;
     headers: Partial<AIGatewayHeaders>;
     query: unknown;
@@ -10046,7 +10048,7 @@ declare abstract class AiGateway {
         extraHeaders?: object;
         signal?: AbortSignal;
     }): Promise<Response>;
-    getUrl(provider?: AIGatewayProviders | string): Promise<string>; // eslint-disable-line
+    getUrl(provider?: AIGatewayProviders | string): Promise<string>;  
 }
 // Copyright (c) 2022-2025 Cloudflare, Inc.
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
