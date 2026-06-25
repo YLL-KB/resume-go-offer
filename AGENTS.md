@@ -1,159 +1,192 @@
-# AGENTS.md — resume-go-offer
+# AGENTS.md — Resume Go Offer
 
-AI 编程助手指导文件。描述项目目标、技术决策、代码规范和约定。
+## 项目信息
 
-## 项目概述
+- **项目根：** `/Users/loong/code/resume-go-offer`
+- **框架：** Next.js 16 App Router
+- **数据库：** Cloudflare D1（本地开发用 wrangler d1）
+- **包管理：** `pnpm`
+- **开发命令：** `pnpm dev`（端口 3000）
+- **构建命令：** `pnpm build`
 
-**resume-go-offer** 是一个在线简历生成与管理工具，帮助求职者快速创建专业简历、管理多个版本，并追踪投递状态。
+## 启动流程
 
-### 核心功能规划
+每次在这个项目工作时，先确认：
 
-- 简历编辑器：分步表单填写（个人信息、教育经历、工作经历、项目经验、技能标签）
-- 多模板切换：至少 3 套简历模板，支持实时预览
-- 版本管理：每份简历可保存多个版本，支持版本对比与回滚
-- 投递追踪：记录投递公司、职位、时间、状态（已投/初筛/面试/Offer/已拒）
-- 导出：PDF 导出（浏览器端）
-
-### 用户故事
-
-1. 用户填写表单 → 实时预览简历 → 切换模板看效果 → 导出 PDF
-2. 用户管理多份简历（如前端岗、全栈岗各一份）
-3. 用户记录每次投递 → 看板视图追踪进度
-
-## 技术决策
-
-### 已确定
-
-| 决策     | 选择                                                   | 原因                  |
-| -------- | ------------------------------------------------------ | --------------------- |
-| 框架     | Next.js 16 App Router                                  | 项目已初始化          |
-| 运行时   | Cloudflare Pages                                       | 免费额度、全球 CDN    |
-| 样式方案 | Tailwind CSS v4                                        | 项目已配置            |
-| 组件库   | shadcn/ui (radix-nova)                                 | AGENTS.md 约定        |
-| 表单     | react-hook-form + zod                                  | 复杂表单场景          |
-| 图标     | lucide-react                                           | AGENTS.md 约定        |
-| Toast    | sonner                                                 | AGENTS.md 约定        |
-| 数据库   | Cloudflare D1                                          | 免费额度、SQLite 兼容 |
-| ORM      | Drizzle ORM                                            | 类型安全、轻量        |
-| PDF 导出 | 浏览器端（html2canvas + jspdf 或 @react-pdf/renderer） | 避免服务端依赖        |
-
-### 待确定
-
-- 认证方案（Cloudflare Access / Clerk / NextAuth ？）
-- 富文本编辑是否需要（技能描述、项目描述是否需要富文本？）
-
-## 路由规划
-
-```
-/                          # 落地页（产品介绍）
-/login                     # 登录页
-/dashboard                 # 用户仪表盘（简历列表 + 投递看板）
-/resume/[id]               # 简历详情/预览
-/resume/[id]/edit          # 简历编辑器
-/resume/new                # 新建简历
-/tracker                   # 投递追踪看板
-/settings                  # 用户设置
-```
-
-## 数据模型（草案）
-
-```typescript
-// 简历
-interface Resume {
-  id: string
-  userId: string
-  title: string           // 如"前端开发-3年"
-  templateId: string
-  data: ResumeData        // JSON 存储的表单数据
-  version: number
-  createdAt: Date
-  updatedAt: Date
-}
-
-// 简历数据
-interface ResumeData {
-  basic: { name, email, phone, location, website, avatar }
-  summary: string
-  education: { school, degree, major, startDate, endDate, gpa }[]
-  experience: { company, title, startDate, endDate, description, highlights }[]
-  projects: { name, description, url, techStack, highlights }[]
-  skills: { name, level }[]   // level: beginner | intermediate | advanced | expert
-  languages: { name, proficiency }[]
-  certifications: { name, issuer, date }[]
-}
-
-// 投递记录
-interface Application {
-  id: string
-  userId: string
-  resumeId: string
-  company: string
-  position: string
-  status: 'applied' | 'screening' | 'interview' | 'offer' | 'rejected'
-  appliedAt: Date
-  notes: string
-  interviewRounds: InterviewRound[]
-}
+```bash
+cd /Users/loong/code/resume-go-offer
+pnpm dev   # 非 wrangler dev。wrangler dev 会连 Cloudflare 远程代理，本机无需
 ```
 
 ## 代码规范
 
-沿用上游 AGENTS.md（`/Users/loong/code/AGENTS.md`）的全部约定，额外补充：
+### 1. 返回按钮
 
-### 组件组织
+所有页面顶部「返回」按钮必须用 `router.back()`，禁止硬编码 `<Link href="...">`。
+
+```tsx
+// ✓ 正确
+import { useRouter } from "next/navigation";
+const router = useRouter();
+<button type="button" onClick={() => router.back()}>返回</button>
+
+// ✗ 错误
+<Link href="/">返回</Link>
+<Link href="/dashboard">返回</Link>
+```
+
+**例外：** 页面 Logo / 品牌名链接保留 `<Link href="/">`，这不是返回按钮。
+
+### 2. UI 组件
+
+页面内所有交互 UI 必须使用 `@/components/ui/` 中的 shadcn/ui 组件，禁止使用原生 HTML 交互标签。
+
+**可用组件：**
+`Button` `Card` `CardContent` `Dialog` `DialogContent` `DialogHeader` `DialogTitle` `DialogDescription` `DialogFooter` `Badge` `Skeleton` `Separator` `Sheet` `Input` `Label` `ScrollArea`
+
+| 标签 | 规则 |
+|------|------|
+| `div` | 仅做布局容器 |
+| `p` `span` `h1`~`h6` | 仅做纯文本排版 |
+| `button` `input` `select` `textarea` | ❌ 禁止，用 UI 组件替代 |
+| `iframe` | 仅 PDF 预览可用，外层必须用 `Dialog` 包裹 |
+| `nav` `header` `main` `footer` `section` | ❌ 禁止，用 `div` + className |
+
+```tsx
+// ✓ 正确
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+
+// ✗ 错误
+<button>提交</button>
+<div className="modal">...</div>
+<span className="tag">推荐</span>
+```
+
+### 3. API 路由
+
+```ts
+// 每个需要 Node.js 运行时（fs、path 等）的 API 路由顶部必须声明：
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+```
+
+**注意事项：**
+- `fs.readFile` 在 OpenNext workerd 下可能直接失败
+- 需要提供文件的 API → 优先用 `public/` 目录作为静态文件服务
+- 需要返回 PDF → API 路由做 302 重定向到 `/uploads/xxx.pdf`，不在路由内读文件响应
+- 文件修改后 Next.js 热更新自动生效，无需重启
+
+### 4. 模版系统
+
+**上传：**
+- 仅接受 PDF 文件
+- mime type（`application/pdf`）+ 扩展名（`.pdf`）双重校验
+- 单文件 ≤ 10MB
+
+**存储：**
+- 路径：`public/uploads/templates/{uuid}.pdf`
+- 元数据：同目录 `{uuid}.meta.json`
+- ID 格式：UUID v4，由 `crypto.randomUUID()` 生成
+
+**API 路由：**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/templates` | 返回所有用户上传的模版列表 |
+| POST | `/api/templates/upload` | 上传新模版 |
+| GET | `/api/templates/[id]` | 预览（302 重定向到静态 PDF） |
+| DELETE | `/api/templates/[id]` | 删除模版（仅管理员/仅用户上传的） |
+| POST | `/api/templates/[id]/summary` | AI 提取简历标题和摘要 |
+
+**预览/下载：**
+- 预览：API 302 重定向 → `/uploads/templates/{id}.pdf`
+- 下载：直接 `<a href="/uploads/templates/{id}.pdf" download>`
+- iframe 片段（`#view=FitH`）不会随 302 传递，需在静态 URL 上加
+
+**权限：**
+- 删除接口预留了管理员校验
+- 当前硬编码 `isAdmin = true`，后续接入用户系统后替换
+
+### 5. 导航结构
+
+| 路径 | 页面 | 说明 |
+|------|------|------|
+| `/` | 首页 | |
+| `/resume/new` | 新建简历 | 支持 `?template=xxx` 参数 |
+| `/resume/[id]` | 简历预览 | |
+| `/resume/[id]/edit` | 编辑简历 | |
+| `/analyze` | 简历分析 | AI 分析评分 |
+| `/templates` | 模版管理 | 上传/预览/删除模版 |
+
+## 架构决策
+
+### D1 vs 本地文件
+
+- **用户数据和简历内容** → D1 数据库（applications、resumes 表）
+- **模版文件** → 本地文件系统 `public/uploads/templates/`
+- 原因：D1 不适合存储大文件，PDF 作为静态资源更高效
+
+### 开发环境
+
+- **`pnpm dev`** 而非 `wrangler dev`
+  - `wrangler dev` 会尝试连接 Cloudflare 远程代理，本机因无有效 token 会失败
+  - `pnpm dev` 仅启动 Next.js，API 路由中 `runtime = "nodejs"` 正常生效
+  - D1 本地数据库由 wrangler 后台自动管理
+
+### AI 调用
+
+- 封装在 `src/lib/ai/index.ts`
+- 基于 OpenAI 兼容 SDK，支持 DeepSeek / 通义千问 等
+- 通过 `.env.local` 切换 `OPENAI_BASE_URL` 和 `AI_MODEL`
+
+## 关键文件索引
 
 ```
 src/
-├── app/                  # Next.js App Router 页面（仅路由 + 布局）
+├── app/
+│   ├── page.tsx                    # 首页
+│   ├── layout.tsx                  # 根布局
+│   ├── resume/
+│   │   ├── new/page.tsx            # 新建简历（左表单 + 右预览）
+│   │   └── [id]/
+│   │       ├── page.tsx            # 简历预览
+│   │       └── edit/page.tsx       # 编辑简历
+│   ├── templates/page.tsx          # 模版管理页
+│   ├── analyze/page.tsx            # 简历分析页
+│   └── api/
+│       ├── templates/
+│       │   ├── route.ts            # GET 列表
+│       │   ├── upload/route.ts     # POST 上传
+│       │   └── [id]/
+│       │       ├── route.ts        # GET 预览 + DELETE 删除
+│       │       └── summary/route.ts # POST AI 摘要
+│       └── ai/
+│           └── analyze-resume/route.ts
 ├── components/
-│   ├── ui/               # shadcn/ui 基础组件
-│   ├── resume/           # 简历相关组件（模板、编辑器、预览）
-│   ├── tracker/          # 投递追踪组件
-│   └── shared/           # 跨模块共享组件
-├── lib/
-│   ├── db/               # Drizzle schema、migrations、queries
-│   ├── validators/       # Zod schema
-│   └── utils.ts          # cn() 等工具函数
-├── hooks/                # 自定义 hooks
-└── styles/               # 额外样式（如有）
+│   ├── ui/                         # shadcn/ui 组件库
+│   └── resume/                     # 简历相关组件
+├── hooks/
+│   └── use-resume-form.ts          # 简历表单状态管理
+└── lib/
+    ├── ai/index.ts                 # AI SDK 封装
+    └── validators/                 # Zod 校验
 ```
 
-### 命名约定
+## 常见问题
 
-- 简历模板组件：`TemplateClassic.tsx`、`TemplateModern.tsx`、`TemplateMinimal.tsx`
-- 数据库操作函数：`getResumeById`、`listResumesByUser`、`createApplication`
-- Zod schema 文件：`resume.schema.ts`、`application.schema.ts`
+**Q: `pnpm dev` 报 Cloudflare API 错误？**
+A: 不影响使用。那是 wrangler 后台尝试连 Cloudflare 远程代理，本地不需要。忽略即可。
 
-### 状态管理
+**Q: 上传 PDF 后预览不了？**
+A: 确认 `pnpm dev` 而非 `wrangler dev`。API 路由用 302 重定向到 `/uploads/templates/{id}.pdf`。
 
-- 表单状态：`react-hook-form`
-- 服务端状态：React Server Components + Server Actions
-- 客户端全局状态：暂不需要（页面级状态即可）
+**Q: 如何新增一个 UI 组件？**
+A: `pnpm dlx shadcn@latest add <component-name>`，然后用 `@/components/ui` 导入。
 
-## 开发阶段
+**Q: 如何切换 AI 模型？**
+A: 修改 `.env.local` 中的 `OPENAI_BASE_URL` 和 `AI_MODEL`。
 
-### Phase 1 — 脚手架（当前）
-- [ ] 安装 shadcn/ui、lucide-react、react-hook-form、zod、sonner
-- [ ] 搭建路由骨架
-- [ ] 配置 D1 + Drizzle
-
-### Phase 2 — 简历编辑器
-- [ ] 表单步骤（基本信息 → 教育 → 经历 → 项目 → 技能）
-- [ ] 实时预览
-- [ ] 模板切换
-
-### Phase 3 — 仪表盘
-- [ ] 简历列表
-- [ ] 投递看板
-
-### Phase 4 — 导出与发布
-- [ ] PDF 导出
-- [ ] 公开分享链接
-
-## 给 AI 的提示
-
-- 这个项目目前是 Phase 1，刚刚初始化完 Next.js 模板
-- 所有变更先读 AGENTS.md 的规范，再动手
-- 数据模型还在草案阶段，可以调整
-- 优先保证代码能跑通（`npm run dev` 不报错），再谈优化
-- 不要安装未列入技术决策的依赖，除非有充分理由
+**Q: 删除模版接口提示 403？**
+A: 检查 `src/app/api/templates/[id]/route.ts` 中 DELETE 方法的内置模版保护逻辑。

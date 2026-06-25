@@ -50,7 +50,9 @@ export function isAuthingConfigured(): boolean {
 // ============================================================
 
 export function getAuthorizationUrl(redirectUri: string, state?: string) {
-  const { appId, authorizationEndpoint } = getAuthingConfig();
+  const cfg = getAuthingConfig();
+  if (!cfg) throw new Error("Authing 配置不完整");
+  const { appId, authorizationEndpoint } = cfg;
   const params = new URLSearchParams({
     client_id: appId,
     redirect_uri: redirectUri,
@@ -74,7 +76,9 @@ interface TokenResponse {
 }
 
 export async function exchangeCodeForToken(code: string, redirectUri: string): Promise<TokenResponse> {
-  const { appId, appSecret, tokenEndpoint } = getAuthingConfig();
+  const cfg2 = getAuthingConfig();
+  if (!cfg2) throw new Error("Authing 配置不完整");
+  const { appId, appSecret, tokenEndpoint } = cfg2;
 
   const res = await fetch(tokenEndpoint, {
     method: "POST",
@@ -113,7 +117,9 @@ export interface AuthingUser {
 }
 
 export async function getUserInfo(accessToken: string): Promise<AuthingUser> {
-  const { userinfoEndpoint } = getAuthingConfig();
+  const cfg3 = getAuthingConfig();
+  if (!cfg3) throw new Error("Authing 配置不完整");
+  const { userinfoEndpoint } = cfg3;
 
   const res = await fetch(userinfoEndpoint, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -132,7 +138,9 @@ export async function getUserInfo(accessToken: string): Promise<AuthingUser> {
 // ============================================================
 
 export function getLogoutUrl(postLogoutRedirectUri: string, idToken?: string) {
-  const { appId, endSessionEndpoint } = getAuthingConfig();
+  const cfg4 = getAuthingConfig();
+  if (!cfg4) throw new Error("Authing 配置不完整");
+  const { appId, endSessionEndpoint } = cfg4;
   const params = new URLSearchParams({
     client_id: appId,
     post_logout_redirect_uri: postLogoutRedirectUri,

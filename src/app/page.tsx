@@ -18,6 +18,8 @@ import {
   ArrowRight,
   CheckCircle2,
   LogIn,
+  Sparkles,
+  Upload,
 } from "lucide-react";
 
 const fadeUp = {
@@ -67,9 +69,9 @@ const features = [
 ];
 
 const navLinks = [
-  { href: "/dashboard", label: "仪表盘" },
-  { href: "/tracker", label: "投递追踪" },
-  { href: "/settings", label: "设置" },
+  { href: "/resume/new", label: "立即制作简历" },
+  { href: "/analyze", label: "简历分析" },
+  { href: "/templates", label: "选择模版" },
 ];
 
 export default function HomePage() {
@@ -102,13 +104,21 @@ export default function HomePage() {
           <div className="flex items-center gap-3">
             {/* 根据登录状态切换：未登录 → 登录按钮，已登录 → 用户菜单 */}
             {isSignedIn ? (
-              <Button variant="ghost" size="sm" asChild className="hidden sm:inline-flex">
-                <Link href="/dashboard">
-                  {user?.name ?? "我的"}
-                </Link>
+              <Button
+                variant="ghost"
+                size="sm"
+                asChild
+                className="hidden sm:inline-flex"
+              >
+                <Link href="/dashboard">{user?.name ?? "我的"}</Link>
               </Button>
             ) : (
-              <Button variant="ghost" size="sm" asChild className="hidden sm:inline-flex">
+              <Button
+                variant="ghost"
+                size="sm"
+                asChild
+                className="hidden sm:inline-flex"
+              >
                 <Link href="/login">
                   <LogIn className="mr-1.5 size-4" />
                   登录
@@ -117,6 +127,12 @@ export default function HomePage() {
             )}
             <Button asChild size="sm" className="hidden sm:inline-flex">
               <Link href="/resume/new">开始制作</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+              <Link href="/templates">
+                <Upload className="mr-1.5 size-4" />
+                上传模版
+              </Link>
             </Button>
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild className="sm:hidden">
@@ -157,13 +173,26 @@ export default function HomePage() {
                     </Link>
                   )}
                   <Separator />
-                  <Button
-                    asChild
-                    size="lg"
-                    onClick={() => setMobileOpen(false)}
-                  >
-                    <Link href="/resume/new">开始制作</Link>
-                  </Button>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      asChild
+                      size="lg"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      <Link href="/resume/new">开始制作</Link>
+                    </Button>
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="lg"
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      <Link href="/templates">
+                        <Upload className="mr-1.5 size-4" />
+                        上传模版
+                      </Link>
+                    </Button>
+                  </div>
                 </nav>
               </SheetContent>
             </Sheet>
@@ -198,6 +227,17 @@ export default function HomePage() {
             <Button asChild size="lg" className="w-full sm:w-auto">
               <Link href="/resume/new">
                 立即制作简历 <ArrowRight className="ml-2 size-4" />
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="lg"
+              className="w-full sm:w-auto"
+            >
+              <Link href="/analyze">
+                <Sparkles className="mr-2 size-4" />
+                AI 简历分析
               </Link>
             </Button>
             <p className="text-xs text-muted-foreground">

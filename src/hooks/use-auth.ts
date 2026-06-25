@@ -34,7 +34,7 @@ export function useAuth() {
   const refresh = useCallback(() => {
     setState((prev) => ({ ...prev, isLoading: true }));
     fetch("/api/auth/me")
-      .then((res) => res.json())
+      .then(async (res) => (await res.json()) as { user: AuthUser | null; isSignedIn?: boolean })
       .then((data) =>
         setState({
           user: data.user,
@@ -49,7 +49,7 @@ export function useAuth() {
 
   useEffect(() => {
     fetch("/api/auth/me")
-      .then((res) => res.json())
+      .then(async (res) => (await res.json()) as { user: AuthUser | null; isSignedIn?: boolean })
       .then((data) =>
         setState({
           user: data.user,
