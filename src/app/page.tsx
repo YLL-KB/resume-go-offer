@@ -69,7 +69,6 @@ const features = [
 ];
 
 const navLinks = [
-  { href: "/resume/new", label: "立即制作简历" },
   { href: "/analyze", label: "简历分析" },
   { href: "/templates", label: "选择模版" },
 ];
@@ -128,7 +127,12 @@ export default function HomePage() {
             <Button asChild size="sm" className="hidden sm:inline-flex">
               <Link href="/resume/new">开始制作</Link>
             </Button>
-            <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="hidden sm:inline-flex"
+            >
               <Link href="/templates">
                 <Upload className="mr-1.5 size-4" />
                 上传模版

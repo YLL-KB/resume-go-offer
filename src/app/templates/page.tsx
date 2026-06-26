@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
+import { useRequest } from "ahooks";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,23 +26,18 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-
-interface TemplateItem {
-  id: string;
-  name: string;
-  desc: string;
-  builtIn: boolean;
-  url?: string;
-  uploadedAt?: string;
-  popular?: boolean;
-}
+import type { TemplateItem } from "@/lib/api/templates";
+import {
+  getTemplates,
+  getTemplateSummary,
+  uploadTemplateFile,
+  deleteTemplateById,
+} from "@/lib/api/templates";
 
 export default function TemplatesPage() {
   const [selected, setSelected] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<TemplateItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<TemplateItem | null>(null);
   const [pdfPreview, setPdfPreview] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
@@ -57,47 +53,53 @@ export default function TemplatesPage() {
   // ============================================================
   const isAdmin = true; // TODO: 从用户信息获取
 
-  const fetchTemplates = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await fetch("/api/templates");
-      const data: TemplateItem[] = await res.json();
-      setTemplates(data);
-    } catch {
-      toast.error("加载模版失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const {
+    data: templates = [],
+    loading,
+    refresh,
+  } = useRequest(getTemplates, {
+    onError: () => toast.error("加载模版失败"),
+  });
 
-  useEffect(() => {
-    fetchTemplates();
-  }, [fetchTemplates]);
+  // 摘要
+  const { runAsync: runSummary } = useRequest(getTemplateSummary, {
+    manual: true,
+  });
+
+  // 上传
+  const { runAsync: runUploadFile } = useRequest(uploadTemplateFile, {
+    manual: true,
+  });
+
+  // 删除
+  const { runAsync: runDelete } = useRequest(deleteTemplateById, {
+    manual: true,
+  });
 
   // 打开预览 + 调用 AI 提取标题和摘要
-  const handlePreview = useCallback(async (t: TemplateItem) => {
-    setPdfPreview(t.url!);
-    setPreviewId(t.id);
-    setTemplateSummary({ title: "", summary: "", loading: true });
+  const handlePreview = useCallback(
+    async (t: TemplateItem) => {
+      setPdfPreview(t.url!);
+      setPreviewId(t.id);
+      setTemplateSummary({ title: "", summary: "", loading: true });
 
-    try {
-      const res = await fetch(`/api/templates/${t.id}/summary`, {
-        method: "POST",
-      });
-      const data = (await res.json()) as { title?: string; summary?: string };
-      setTemplateSummary({
-        title: data.title ?? t.name,
-        summary: data.summary ?? "",
-        loading: false,
-      });
-    } catch {
-      setTemplateSummary({
-        title: t.name,
-        summary: "AI 摘要获取失败",
-        loading: false,
-      });
-    }
-  }, []);
+      try {
+        const data = await runSummary(t.id);
+        setTemplateSummary({
+          title: data.title ?? t.name,
+          summary: data.summary ?? "",
+          loading: false,
+        });
+      } catch {
+        setTemplateSummary({
+          title: t.name,
+          summary: "AI 摘要获取失败",
+          loading: false,
+        });
+      }
+    },
+    [runSummary],
+  );
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -116,27 +118,10 @@ export default function TemplatesPage() {
     setUploading(true);
     try {
       for (const file of valid) {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const res = await fetch("/api/templates/upload", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!res.ok) {
-          const err = (await res.json().catch(() => ({}))) as Record<
-            string,
-            unknown
-          >;
-          throw new Error((err.error as string) ?? "上传失败");
-        }
-
-        const result = (await res.json()) as Record<string, unknown>;
+        const result = await runUploadFile(file);
         toast.success(`「${result.name}」上传成功`);
       }
-
-      await fetchTemplates();
+      refresh();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "上传失败";
       toast.error(msg);
@@ -147,35 +132,28 @@ export default function TemplatesPage() {
   };
 
   // 删除模版（仅管理员 / 仅用户上传的模版）
-  const handleDelete = async (t: TemplateItem) => {
-    if (t.builtIn) {
-      toast.error("内置模版不可删除");
-      return;
-    }
-
-    setDeleting(t.id);
-    setConfirmDelete(null);
-    try {
-      const res = await fetch(`/api/templates/${t.id}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as Record<
-          string,
-          unknown
-        >;
-        throw new Error((err.error as string) ?? "删除失败");
+  const handleDelete = useCallback(
+    async (t: TemplateItem) => {
+      if (t.builtIn) {
+        toast.error("内置模版不可删除");
+        return;
       }
-      toast.success(`已删除「${t.name}」`);
-      await fetchTemplates();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "删除失败";
-      toast.error(msg);
-    } finally {
-      setDeleting(null);
-    }
-  };
 
+      setDeletingId(t.id);
+      setConfirmDelete(null);
+      try {
+        await runDelete(t.id);
+        toast.success(`已删除「${t.name}」`);
+        refresh();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "删除失败";
+        toast.error(msg);
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [runDelete, refresh],
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -190,12 +168,6 @@ export default function TemplatesPage() {
             Resume Go Offer
           </Link>
           <nav className="hidden items-center gap-6 text-sm text-muted-foreground sm:flex">
-            <Link
-              href="/resume/new"
-              className="hover:text-foreground transition-colors"
-            >
-              立即制作简历
-            </Link>
             <Link
               href="/analyze"
               className="hover:text-foreground transition-colors"
@@ -219,8 +191,7 @@ export default function TemplatesPage() {
 
       <main className="mx-auto max-w-6xl px-4 py-8">
         {/* 页面标题 */}
-        <div className="mb-8 flex items-start justify-between"
-        >
+        <div className="mb-8 flex items-start justify-between">
           <div>
             <h1 className="text-2xl font-bold sm:text-3xl">选择模版</h1>
             <p className="mt-2 text-muted-foreground">
@@ -293,8 +264,7 @@ export default function TemplatesPage() {
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {templates.map((t, i) => (
-              <div key={t.id}
-              >
+              <div key={t.id}>
                 <Card
                   className={`cursor-pointer border-2 transition-all hover:shadow-md ${
                     selected === t.id
@@ -389,13 +359,13 @@ export default function TemplatesPage() {
                         variant="ghost"
                         size="sm"
                         className="w-full mt-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-                        disabled={deleting === t.id}
+                        disabled={deletingId === t.id}
                         onClick={(e) => {
                           e.stopPropagation();
                           setConfirmDelete(t);
                         }}
                       >
-                        {deleting === t.id ? (
+                        {deletingId === t.id ? (
                           <Loader2 className="mr-1.5 size-4 animate-spin" />
                         ) : (
                           <Trash2 className="mr-1.5 size-4" />
@@ -545,12 +515,12 @@ export default function TemplatesPage() {
               取消
             </Button>
             <Button
-              disabled={deleting === confirmDelete?.id}
+              disabled={deletingId === confirmDelete?.id}
               onClick={() => {
                 if (confirmDelete) handleDelete(confirmDelete);
               }}
             >
-              {deleting === confirmDelete?.id ? (
+              {deletingId === confirmDelete?.id ? (
                 <Loader2 className="mr-1.5 size-4 animate-spin" />
               ) : (
                 <Trash2 className="mr-1.5 size-4" />
