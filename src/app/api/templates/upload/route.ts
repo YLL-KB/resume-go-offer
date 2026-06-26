@@ -52,11 +52,13 @@ export async function POST(request: NextRequest) {
 
     // 保存元数据
     const customName = formData.get("name")?.toString().trim();
+    const layoutField = formData.get("layout")?.toString().trim() || "classic";
     const meta = {
       id,
       name: customName || file.name.replace(/\.pdf$/i, ""),
       fileName: file.name,
       size: file.size,
+      layout: layoutField,
       uploadedAt: new Date().toISOString(),
     };
     await fs.writeFile(

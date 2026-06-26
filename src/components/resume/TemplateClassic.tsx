@@ -11,9 +11,9 @@ export function TemplateClassic({ data }: TemplateClassicProps) {
   const { basic, summary, education, experience, projects, skills } = data;
 
   return (
-    <div className="bg-white text-gray-900 p-8 font-sans min-h-[297mm] max-w-[210mm] mx-auto text-sm leading-relaxed shadow-lg print:shadow-none">
+    <div className="bg-white text-gray-900 p-8 font-sans min-h-[297mm] max-w-[210mm] mx-auto text-sm leading-relaxed shadow-lg print:shadow-none cursor-default">
       {/* Header */}
-      <header className="text-center pb-4 border-b border-gray-300">
+      <header data-resume-section-id="basic" className="text-center pb-4 border-b border-gray-300">
         <h1 className="text-2xl font-bold tracking-tight">{basic.name || "你的姓名"}</h1>
         {basic.title && <p className="text-base text-gray-600 mt-1">{basic.title}</p>}
         <div className="flex flex-wrap justify-center gap-3 mt-2 text-xs text-gray-500">
@@ -34,7 +34,7 @@ export function TemplateClassic({ data }: TemplateClassicProps) {
 
       {/* Summary */}
       {summary && (
-        <section className="py-3 border-b border-gray-200">
+        <section data-resume-section-id="summary" className="py-3 border-b border-gray-200">
           <h2 className="text-sm font-bold uppercase tracking-wider text-gray-700 mb-1">个人总结</h2>
           <p className="text-gray-600">{summary}</p>
         </section>
@@ -42,7 +42,7 @@ export function TemplateClassic({ data }: TemplateClassicProps) {
 
       {/* Experience */}
       {experience.length > 0 && (
-        <section className="py-3 border-b border-gray-200">
+        <section data-resume-section-id="experience" className="py-3 border-b border-gray-200">
           <h2 className="text-sm font-bold uppercase tracking-wider text-gray-700 mb-2">工作经历</h2>
           {experience.map((exp, i) => (
             <div key={i} className="mb-3">
@@ -61,7 +61,7 @@ export function TemplateClassic({ data }: TemplateClassicProps) {
 
       {/* Projects */}
       {projects.length > 0 && (
-        <section className="py-3 border-b border-gray-200">
+        <section data-resume-section-id="projects" className="py-3 border-b border-gray-200">
           <h2 className="text-sm font-bold uppercase tracking-wider text-gray-700 mb-2">项目经验</h2>
           {projects.map((proj, i) => (
             <div key={i} className="mb-3">
@@ -82,7 +82,7 @@ export function TemplateClassic({ data }: TemplateClassicProps) {
 
       {/* Education */}
       {education.length > 0 && (
-        <section className="py-3 border-b border-gray-200">
+        <section data-resume-section-id="education" className="py-3 border-b border-gray-200">
           <h2 className="text-sm font-bold uppercase tracking-wider text-gray-700 mb-2">教育经历</h2>
           {education.map((edu, i) => (
             <div key={i} className="mb-2">
@@ -103,7 +103,7 @@ export function TemplateClassic({ data }: TemplateClassicProps) {
 
       {/* Skills */}
       {skills.length > 0 && (
-        <section className="py-3">
+        <section data-resume-section-id="skills" className="py-3">
           <h2 className="text-sm font-bold uppercase tracking-wider text-gray-700 mb-2">技能</h2>
           <div className="flex flex-wrap gap-1.5">
             {skills.map((skill, i) => (

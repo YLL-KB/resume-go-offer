@@ -53,18 +53,23 @@ export function SkillsStep({ form }: Props) {
 
       {fields.length > 0 ? (
         <div className="flex flex-wrap gap-2">
-          {fields.map((field: any, i: number) => (
-            <Badge key={field.id} variant="secondary" className="gap-1 pr-1">
-              {field.value ?? field}
-              <button
-                type="button"
-                onClick={() => remove(i)}
-                className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
-              >
-                <X className="size-3" />
-              </button>
-            </Badge>
-          ))}
+          {fields.map((field: any, i: number) => {
+            // skill —— string[] 类型，从 form 原始值取，不用 field.value
+            const values = form.getValues('skills') as string[];
+            const skill = values?.[i] ?? '';
+            return (
+              <Badge key={field.id} variant="secondary" className="gap-1 pr-1">
+                {skill}
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
+                >
+                  <X className="size-3" />
+                </button>
+              </Badge>
+            );
+          })}
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">还没有添加技能。输入后按回车或点击 + 添加。</p>

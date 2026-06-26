@@ -31,6 +31,7 @@ export async function GET() {
             url: `/api/templates/${meta.id}`,
             builtIn: false,
             uploadedAt: meta.uploadedAt,
+            layout: meta.layout ?? "classic",
           });
         } catch {
           // 跳过损坏的元数据

@@ -3,5 +3,70 @@
   "name": "单页003-简约",
   "fileName": "单页003-简约.pdf",
   "size": 470039,
-  "uploadedAt": "2026-06-25T05:45:31.261Z"
+  "uploadedAt": "2026-06-25T05:45:31.261Z",
+  "analysis": {
+    "layout": "single-column",
+    "sections": [
+      {
+        "id": "header",
+        "label": "个人信息",
+        "order": 0,
+        "type": "header",
+        "description": "包含姓名、联系方式等基本信息"
+      },
+      {
+        "id": "summary",
+        "label": "个人简介",
+        "order": 1,
+        "type": "summary",
+        "description": "简要介绍个人背景和职业目标"
+      },
+      {
+        "id": "experience",
+        "label": "工作经历",
+        "order": 2,
+        "type": "experience",
+        "description": "列出过往工作经历，包括公司、职位和时间"
+      },
+      {
+        "id": "education",
+        "label": "教育背景",
+        "order": 3,
+        "type": "education",
+        "description": "列出教育经历，包括学校、专业和学位"
+      },
+      {
+        "id": "projects",
+        "label": "项目经验",
+        "order": 4,
+        "type": "projects",
+        "description": "描述参与的项目及其成果"
+      },
+      {
+        "id": "skills",
+        "label": "技能",
+        "order": 5,
+        "type": "skills",
+        "description": "列出专业技能和工具"
+      },
+      {
+        "id": "certificates",
+        "label": "证书",
+        "order": 6,
+        "type": "certificates",
+        "description": "列出获得的证书和资质"
+      },
+      {
+        "id": "custom",
+        "label": "自定义模块",
+        "order": 7,
+        "type": "custom",
+        "description": "其他自定义内容，如兴趣爱好或附加信息"
+      }
+    ],
+    "style_hints": {
+      "has_photo_area": false,
+      "section_separator": "line"
+    }
+  }
 }
