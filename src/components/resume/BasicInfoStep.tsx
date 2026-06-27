@@ -19,8 +19,10 @@ export function BasicInfoStep({ form }: Props) {
         <div className="space-y-2">
           <Label htmlFor="name">姓名 *</Label>
           <Input id="name" {...register("basic.name")} placeholder="张三" />
-          {errors.basic?.name && (
-            <p className="text-xs text-destructive">{errors.basic?.name?.message as string}</p>
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {(errors as any).basic?.name && (
+            /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+            <p className="text-xs text-destructive">{(errors as any).basic?.name?.message}</p>
           )}
         </div>
         <div className="space-y-2">

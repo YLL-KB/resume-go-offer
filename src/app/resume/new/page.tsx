@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useSearchParams } from "next/navigation";
@@ -16,40 +17,34 @@ import {
   FileText,
   Loader2,
   Save,
+  Download,
   Check,
-  User,
-  Briefcase,
-  FolderGit2,
-  GraduationCap,
-  Wrench,
-  Sparkles,
-  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SectionEditor } from "@/components/editor/SectionEditor";
-import { getTemplates, parseResumeText, fillTemplatePdf } from "@/lib/api/templates";
+import { RichTextEditor } from "@/components/editor/RichTextEditor";
+import { ModuleList } from "@/components/editor/ModuleList";
+import {
+  getTemplates,
+  parseResumeText,
+  fillTemplatePdf,
+} from "@/lib/api/templates";
 import { createResume, updateResume } from "@/lib/api/resume";
-import type { TemplateItem, TemplateSection, ParsedSection } from "@/lib/api/templates";
+import type { TemplateItem, ParsedSection } from "@/lib/api/templates";
 import type { TextBlock } from "@/components/preview/ClickablePdfView";
 import type { ResumeData } from "@/lib/validators/resume.schema";
+import { detectModules, getModuleByBlockIndex, getModuleBlockIndices } from "@/lib/pdf/module-detector";
+import type { Module } from "@/lib/pdf/module-detector";
+import { buildModuleHtml, parseModuleHtml } from "@/lib/editor/html-parser";
 import { SAMPLE_RESUME_DATA } from "./sample-data";
 
 // ── ClickablePdfView 动态导入 ──
 const ClickablePdfView = dynamic(
-  () => import("@/components/preview/ClickablePdfView").then((m) => m.ClickablePdfView),
+  () =>
+    import("@/components/preview/ClickablePdfView").then(
+      (m) => m.ClickablePdfView,
+    ),
   { ssr: false },
 );
-
-// ── 模块类型 → 颜色 & 图标 ──
-const SECTION_META: Record<string, { color: string; icon: typeof User }> = {
-  header: { color: "bg-blue-400", icon: User },
-  summary: { color: "bg-purple-400", icon: Sparkles },
-  experience: { color: "bg-emerald-400", icon: Briefcase },
-  projects: { color: "bg-orange-400", icon: FolderGit2 },
-  education: { color: "bg-amber-400", icon: GraduationCap },
-  skills: { color: "bg-pink-400", icon: Wrench },
-  certificates: { color: "bg-teal-400", icon: FileText },
-};
 
 // ── 从 PDF 提取原始文本 ──
 async function extractPdfText(url: string): Promise<string> {
@@ -71,8 +66,14 @@ async function extractPdfText(url: string): Promise<string> {
 
 // ── AI 解析结果 → ResumeData ──
 function parsedSectionsToResumeData(sections: ParsedSection[]): ResumeData {
+  console.log("parsedSectionsToResumeData", sections);
   const basic: ResumeData["basic"] = {
-    name: "", email: "", phone: "", location: "", website: "", title: "",
+    name: "",
+    email: "",
+    phone: "",
+    location: "",
+    website: "",
+    title: "",
   };
   let summary = "";
   const education: ResumeData["education"] = [];
@@ -97,7 +98,9 @@ function parsedSectionsToResumeData(sections: ParsedSection[]): ResumeData {
       case "list": {
         const items = sec.items ?? [];
         if (items.length === 0) break;
-        const firstKeys = new Set(items[0].fields.map((f) => f.key.toLowerCase()));
+        const firstKeys = new Set(
+          items[0].fields.map((f) => f.key.toLowerCase()),
+        );
 
         const mapItem = (item: (typeof items)[0]) => {
           const obj: Record<string, string> = {};
@@ -108,6 +111,7 @@ function parsedSectionsToResumeData(sections: ParsedSection[]): ResumeData {
         if (firstKeys.has("company") || firstKeys.has("title")) {
           for (const item of items) {
             const m = mapItem(item);
+            console.log("mapItem", m);
             experience.push({
               company: m.company ?? m.公司 ?? "",
               title: m.title ?? m.职位 ?? "",
@@ -155,83 +159,6 @@ function parsedSectionsToResumeData(sections: ParsedSection[]): ResumeData {
   return { basic, summary, education, experience, projects, skills };
 }
 
-// ── AI 解析结果 → TemplateSection[] ──
-function parsedSectionsToTemplateSections(
-  sections: ParsedSection[],
-): TemplateSection[] {
-  return sections.map((sec, i) => {
-    let type = "custom";
-    if (sec.type === "fields") type = "header";
-    else if (sec.type === "textarea") type = "summary";
-    else if (sec.type === "list") {
-      const keys = new Set(
-        (sec.items?.[0]?.fields ?? []).map((f) => f.key.toLowerCase()),
-      );
-      if (keys.has("company") || keys.has("title")) type = "experience";
-      else if (keys.has("school") || keys.has("degree")) type = "education";
-      else if (keys.has("name") || keys.has("项目")) type = "projects";
-      else type = "skills";
-    }
-    return {
-      id: `ai-sec-${i}`,
-      label: sec.title || `模块 ${i + 1}`,
-      order: i,
-      type,
-    };
-  });
-}
-
-// ── 收集一个 section 的所有文本（用于匹配）──
-function getSectionFullText(sections: ParsedSection[]): { id: string; fullText: string }[] {
-  return sections.map((sec, i) => {
-    const parts: string[] = [sec.title];
-    for (const f of sec.fields ?? []) {
-      parts.push(f.label, f.value);
-    }
-    if (sec.content) parts.push(sec.content);
-    for (const item of sec.items ?? []) {
-      for (const f of item.fields) {
-        parts.push(f.label, f.value);
-      }
-    }
-    return { id: `ai-sec-${i}`, fullText: parts.join(" ").toLowerCase() };
-  });
-}
-
-// ── 根据点击的 TextBlock 匹配到 AI parsed section ──
-function matchBlockToSection(
-  block: TextBlock,
-  sections: ParsedSection[],
-): string | null {
-  if (sections.length === 0) return null;
-
-  const sectionTexts = getSectionFullText(sections);
-  const blockText = block.text.toLowerCase();
-
-  // 分词：中英文混合，按空格和标点拆
-  const tokens = blockText
-    .split(/[\s,，、。：:；;（）()【】\[\]\/\\·]+/)
-    .filter((t) => t.length >= 1);
-
-  let bestId: string | null = null;
-  let bestScore = 0;
-
-  for (const { id, fullText } of sectionTexts) {
-    let score = 0;
-    for (const token of tokens) {
-      // 子串匹配
-      if (fullText.includes(token)) score += token.length;
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestId = id;
-    }
-  }
-
-  // 至少匹配 1 个非数字 token
-  return tokens.some((t) => /\D/.test(t)) && bestScore > 0 ? bestId : null;
-}
-
 // ───────────────────────────────────────────────
 // Content
 // ───────────────────────────────────────────────
@@ -241,14 +168,19 @@ function ResumeNewContent() {
   const templateId = searchParams.get("template") ?? undefined;
 
   const [resumeData, setResumeData] = useState<ResumeData>(SAMPLE_RESUME_DATA);
-  const [parsedSections, setParsedSections] = useState<ParsedSection[] | null>(null);
   const [parsing, setParsing] = useState(false);
-  const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [activeBlockIndex, setActiveBlockIndex] = useState<number | null>(null);
+  const [modules, setModules] = useState<Module[]>([]);
+  const [activeModuleId, setActiveModuleId] = useState<string | null>(null);
+  const [editedModules, setEditedModules] = useState<Record<string, string>>({});
   const [filledPdfUrl, setFilledPdfUrl] = useState<string | null>(null);
   const [resumeId, setResumeId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // 保持初始模版信息，避免 filled PDF 重新提取后覆盖
+  const templateBlocksRef = useRef<TextBlock[]>([]);
+  const templateModulesRef = useRef<Module[]>([]);
+  const templateCaptured = useRef(false);
 
   const { data: uploadedTemplates = [] } = useRequest(getTemplates);
 
@@ -262,15 +194,55 @@ function ResumeNewContent() {
 
   const hasPdf = !!pdfUrl;
 
+  // ── 当前激活的模块 ──
+  const activeModule = useMemo(() => {
+    if (!activeModuleId) return null;
+    return modules.find((m) => m.id === activeModuleId) ?? null;
+  }, [activeModuleId, modules]);
+
+  // ── 当前模块内所有 block 的 globalIndex 集合 ──
+  const activeBlockIndices = useMemo(
+    () => getModuleBlockIndices(activeModule),
+    [activeModule],
+  );
+
+  // ── 已编辑的模块 ID 集合 ──
+  const editedModuleIds = useMemo(() => {
+    return new Set(Object.keys(editedModules));
+  }, [editedModules]);
+
+  // ── 当前模块的编辑 HTML ──
+  const activeModuleHtml = useMemo(() => {
+    if (!activeModule) return "";
+    if (editedModules[activeModule.id] != null) {
+      return editedModules[activeModule.id];
+    }
+    return buildModuleHtml(activeModule.blocks);
+  }, [activeModule, editedModules]);
+
   // ── 上传模版 → 提取文本 → AI 解析 ──
   useEffect(() => {
+    templateBlocksRef.current = [];
+    templateModulesRef.current = [];
+    templateCaptured.current = false;
+
     if (!pdfUrl) {
       queueMicrotask(() => {
         setResumeData(SAMPLE_RESUME_DATA);
-        setParsedSections(null);
+        setModules([]);
+        setActiveModuleId(null);
+        setEditedModules({});
+        setFilledPdfUrl(null);
       });
       return;
     }
+
+    queueMicrotask(() => {
+      setModules([]);
+      setEditedModules({});
+      setActiveModuleId(null);
+      setFilledPdfUrl(null);
+    });
 
     let cancelled = false;
 
@@ -281,12 +253,10 @@ function ResumeNewContent() {
         if (cancelled || text.length === 0) return;
         const parsed = await parseResumeText(text);
         if (cancelled) return;
-        setParsedSections(parsed.sections);
         setResumeData(parsedSectionsToResumeData(parsed.sections));
       } catch {
         if (!cancelled) {
           setResumeData(SAMPLE_RESUME_DATA);
-          setParsedSections(null);
         }
       } finally {
         if (!cancelled) setParsing(false);
@@ -295,69 +265,150 @@ function ResumeNewContent() {
 
     run();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [pdfUrl]);
 
-  // sections 列表
-  const sections = useMemo(() => {
-    if (parsedSections) return parsedSectionsToTemplateSections(parsedSections);
-    return [];
-  }, [parsedSections]);
+  // ── 首次提取文本块时捕获为模版 ──
+  const handleBlocksExtracted = useCallback((blocks: TextBlock[]) => {
+    console.log("[handleBlocksExtracted] blocks:", blocks.length, "captured:", templateCaptured.current);
 
-  const sectionTypeMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const s of sections) map[s.id] = s.type;
-    return map;
-  }, [sections]);
+    if (!templateCaptured.current && blocks.length > 0) {
+      const mods = detectModules(blocks);
+      templateBlocksRef.current = blocks;
+      templateModulesRef.current = mods;
+      templateCaptured.current = true;
+      console.log("[handleBlocksExtracted] 模版已捕获: blocks", blocks.length, "modules", mods.length);
+    }
 
-  const activeSectionType = activeSection
-    ? sectionTypeMap[activeSection] ?? ""
-    : "";
+    // 每次提取后重新检测模块（因为 filled PDF 会重新提取）
+    const mods = detectModules(blocks);
+    setModules(mods);
+  }, []);
 
-  // ── 点击 PDF 文字块 → 匹配 section → 同步编辑器 ──
+  // ── 点击 PDF 文字块 → 选中对应模块 ──
   const handleBlockClick = useCallback(
-    (block: TextBlock, index: number) => {
-      setActiveBlockIndex(index);
-      if (parsedSections) {
-        const secId = matchBlockToSection(block, parsedSections);
-        if (secId) setActiveSection(secId);
+    (block: TextBlock) => {
+      const mod = getModuleByBlockIndex(modules, block.globalIndex);
+      if (mod) {
+        setActiveModuleId(mod.id);
       }
     },
-    [parsedSections],
+    [modules],
+  );
+
+  // ── 从模块列表选中 ──
+  const handleModuleSelect = useCallback((moduleId: string) => {
+    setActiveModuleId(moduleId);
+  }, []);
+
+  // ── 编辑器内容变更 ──
+  const handleModuleTextChange = useCallback(
+    (html: string) => {
+      if (!activeModuleId) return;
+      setEditedModules((prev) => ({ ...prev, [activeModuleId]: html }));
+    },
+    [activeModuleId],
   );
 
   // ── 保存 ──
   const handleSave = useCallback(async () => {
+    console.log("[handleSave] 开始保存...");
     setSaving(true);
     setSaved(false);
     try {
-      if (resumeId) {
-        await updateResume(resumeId, resumeData);
-      } else {
-        const created = await createResume({
-          title: uploadedTemplate?.name ?? "未命名简历",
-          templateId: templateId ?? "classic",
-          data: resumeData,
-        });
-        setResumeId(created.id);
+      // 数据库保存（失败不阻塞 PDF 填充）
+      try {
+        if (resumeId) {
+          const updateResumeData = await updateResume(resumeId, resumeData);
+          console.log("updateResumeData", updateResumeData);
+        } else {
+          const created = await createResume({
+            title: uploadedTemplate?.name ?? "未命名简历",
+            templateId: templateId ?? "classic",
+            data: resumeData,
+          });
+          setResumeId(created.id);
+        }
+      } catch (dbErr) {
+        console.warn("数据库保存失败（不影响 PDF 填充）:", dbErr);
       }
 
-      if (uploadedTemplate) {
-        const result = await fillTemplatePdf(
-          uploadedTemplate.id,
-          resumeData as unknown as Record<string, unknown>,
-        );
-        setFilledPdfUrl(result.url);
+      if (!uploadedTemplate) return;
+
+      const templateModules = templateModulesRef.current;
+      const templateBlocks = templateBlocksRef.current;
+      if (templateBlocks.length === 0) {
+        console.warn("尚未提取文本块，请等待 PDF 加载完成");
+        return;
       }
 
+      const editedModIds = Object.keys(editedModules);
+      if (editedModIds.length === 0) {
+        console.warn("没有编辑任何模块");
+        return;
+      }
+
+      // 收集所有编辑过的 block
+      const allPayloadBlocks: {
+        x: number; y: number; width: number; height: number;
+        text: string; page: number; globalIndex: number;
+        fontSize?: number; textIndent?: boolean;
+      }[] = [];
+
+      for (const modId of editedModIds) {
+        const mod = templateModules.find((m) => m.id === modId);
+        if (!mod) {
+          console.warn("找不到模版模块:", modId);
+          continue;
+        }
+
+        const html = editedModules[modId];
+        if (!html) continue;
+
+        try {
+          const blockData = parseModuleHtml(html, mod.blocks.length);
+          for (let i = 0; i < mod.blocks.length; i++) {
+            const block = mod.blocks[i];
+            const data = blockData[i];
+            allPayloadBlocks.push({
+              x: block.x,
+              y: block.y,
+              width: block.width,
+              height: block.height,
+              text: data.text,
+              page: block.page,
+              globalIndex: block.globalIndex,
+              fontSize: data.fontSize ?? undefined,
+              textIndent: data.textIndent || undefined,
+            });
+          }
+        } catch (parseErr) {
+          console.error("模块解析失败:", mod.label, parseErr);
+          alert(`模块"${mod.label}"：${parseErr instanceof Error ? parseErr.message : "解析失败"}`);
+          setSaving(false);
+          return;
+        }
+      }
+
+      console.log("[handleSave] payload blocks:", allPayloadBlocks.length);
+
+      const result = await fillTemplatePdf(
+        uploadedTemplate.id,
+        allPayloadBlocks as unknown as Record<string, unknown>[],
+      );
+      console.log("[handleSave] fillTemplatePdf 返回:", result);
+
+      setFilledPdfUrl(result.url);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-    } catch {
-      // silently handled
+    } catch (err) {
+      console.error("保存失败:", err);
     } finally {
       setSaving(false);
     }
-  }, [resumeId, resumeData, templateId, uploadedTemplate]);
+  }, [resumeId, resumeData, templateId, uploadedTemplate, editedModules]);
 
   return (
     <div className="h-dvh flex flex-col bg-background">
@@ -391,75 +442,88 @@ function ResumeNewContent() {
           ) : saved ? (
             <>
               <Check className="size-3.5" />
-              已保存
+              已保存 & 已同步
             </>
           ) : (
             <>
               <Save className="size-3.5" />
-              保存
+              保存 & 同步到 PDF
             </>
           )}
         </Button>
+
+        {filledPdfUrl && (
+          <Button size="sm" variant="outline" asChild className="shrink-0 gap-1.5">
+            <a
+              href={filledPdfUrl}
+              download={`${uploadedTemplate?.name ?? "resume"}.pdf`}
+            >
+              <Download className="size-3.5" />
+              下载 PDF
+            </a>
+          </Button>
+        )}
       </header>
 
-      {/* ── 2-column body ── */}
+      {/* ── 3-column body ── */}
       <div className="flex-1 grid grid-cols-1 md:grid-cols-5 min-h-0">
-        {/* ─────── 左侧：内容编辑 ─────── */}
+        {/* ─────── 左侧：模块列表 ─────── */}
+        <section className="hidden md:flex flex-col border-r bg-background min-h-0 md:col-span-1">
+          <ModuleList
+            modules={modules}
+            activeModuleId={activeModuleId}
+            editedModuleIds={editedModuleIds}
+            onSelectModule={handleModuleSelect}
+          />
+        </section>
+
+        {/* ─────── 中间：模块编辑 ─────── */}
         <section className="hidden md:flex flex-col border-r bg-background min-h-0 md:col-span-2">
           {parsing ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-2 text-muted-foreground">
               <Loader2 className="size-5 animate-spin" />
               <p className="text-xs">AI 解析简历内容...</p>
             </div>
-          ) : activeSection && activeSectionType ? (
+          ) : activeModule ? (
             <div className="flex flex-col h-full">
-              <div className="shrink-0 px-4 py-3 border-b flex items-center gap-2">
-                {(() => {
-                  const meta = SECTION_META[activeSectionType] ?? {
-                    color: "bg-gray-400",
-                    icon: FileText,
-                  };
-                  const Icon = meta.icon;
-                  return (
-                    <>
-                      <span className={`size-2.5 shrink-0 rounded-full ${meta.color}`} />
-                      <Icon className="size-4 text-muted-foreground" />
-                    </>
-                  );
-                })()}
+              <div className="shrink-0 px-4 py-2 border-b flex items-center gap-2">
+                <FileText className="size-3.5 text-muted-foreground" />
                 <h3 className="text-sm font-semibold truncate">
-                  {sections.find((s) => s.id === activeSection)?.label ?? "编辑"}
+                  {activeModule.label}
                 </h3>
+                <span className="text-[10px] text-muted-foreground ml-auto">
+                  {activeModule.blocks.length} 个文字块
+                </span>
               </div>
 
               <div className="flex-1 overflow-auto p-4">
-                <SectionEditor
-                  sectionType={activeSectionType}
-                  data={resumeData}
-                  onChange={setResumeData}
+                <RichTextEditor
+                  value={activeModuleHtml}
+                  onChange={handleModuleTextChange}
+                  placeholder="编辑此模块的内容..."
+                  minHeight="200px"
                 />
               </div>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 text-muted-foreground/40">
-              <Pencil className="size-10" />
+              <FileText className="size-10" />
               <p className="text-sm text-center">
-                {hasPdf
-                  ? "点击 PDF 中的文字开始编辑"
-                  : "请先选择模版"}
+                {hasPdf ? "点击 PDF 中的文字或左侧模块开始编辑" : "请先选择模版"}
               </p>
             </div>
           )}
         </section>
 
         {/* ─────── 右侧：PDF ─────── */}
-        <section className="col-span-1 md:col-span-3 overflow-auto bg-muted/30 flex flex-col">
+        <section className="col-span-1 md:col-span-2 overflow-auto bg-muted/30 flex flex-col">
           <div className="flex-1 py-4">
             {hasPdf ? (
               <ClickablePdfView
                 url={filledPdfUrl ?? pdfUrl!}
-                activeBlockIndex={activeBlockIndex}
+                activeBlockIndices={activeBlockIndices}
                 onBlockClick={handleBlockClick}
+                onBlocksExtracted={handleBlocksExtracted}
               />
             ) : (
               <div className="flex items-center justify-center h-full text-sm text-muted-foreground">

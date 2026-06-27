@@ -9,24 +9,26 @@ import { cn } from "@/lib/utils";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-// ── 文本块 ──
+// ── 文本块（PDF 坐标系，bottom-left origin）──
 export interface TextBlock {
   x: number;
-  y: number;
+  y: number; // PDF y (bottom-left origin)
   width: number;
   height: number;
   text: string;
   page: number;
   globalIndex: number;
+  pageHeight: number; // viewport height for screen conversion
 }
 
 interface ClickablePdfViewProps {
   url: string;
-  activeBlockIndex: number | null;
+  activeBlockIndices: Set<number>;
   onBlockClick: (block: TextBlock, index: number) => void;
+  onBlocksExtracted?: (blocks: TextBlock[]) => void;
 }
 
-// ── 从 PDF 提取文本块 ──
+// ── 从 PDF 提取文本块（PDF 坐标系）──
 async function extractBlocks(url: string): Promise<TextBlock[]> {
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -40,10 +42,10 @@ async function extractBlocks(url: string): Promise<TextBlock[]> {
     const content = await page.getTextContent();
     const viewport = page.getViewport({ scale: 1 });
 
-    // 按 PDF 原始 y 坐标分组（取整）
+    // 按 PDF 原始 y 坐标分组（bottom-left origin）
     const lineMap = new Map<
       number,
-      { minX: number; minScreenY: number; maxH: number; maxW: number; words: string[] }
+      { minX: number; pdfY: number; maxH: number; maxW: number; words: string[] }
     >();
 
     for (const item of content.items) {
@@ -57,43 +59,35 @@ async function extractBlocks(url: string): Promise<TextBlock[]> {
       if (!str) continue;
 
       const tx = it.transform ?? [0, 0, 0, 0, 0, 0];
-      const x = tx[4]; // PDF x
-      const pdfY = tx[5]; // PDF y (bottom-left origin)
+      const x = tx[4];
+      const pdfY = tx[5];
       const charH = it.height ?? 10;
       const charW = it.width ?? str.length * charH * 0.55;
-
-      const screenY = viewport.height - pdfY; // flip to top-left origin
-      const yKey = Math.round(pdfY); // group by PDF y
+      const yKey = Math.round(pdfY);
 
       if (!lineMap.has(yKey)) {
-        lineMap.set(yKey, {
-          minX: x,
-          minScreenY: screenY,
-          maxH: charH,
-          maxW: x + charW,
-          words: [],
-        });
+        lineMap.set(yKey, { minX: x, pdfY, maxH: charH, maxW: x + charW, words: [] });
       }
       const line = lineMap.get(yKey)!;
       line.minX = Math.min(line.minX, x);
-      line.minScreenY = Math.min(line.minScreenY, screenY);
       line.maxH = Math.max(line.maxH, charH);
       line.maxW = Math.max(line.maxW, x + charW);
       line.words.push(str);
     }
 
-    // 按 y 从页面顶部到底部排序（screenY 从小到大）
-    const sorted = [...lineMap.entries()].sort((a, b) => a[1].minScreenY - b[1].minScreenY);
+    // 按 y 从大到小排序（PDF 坐标，上大下小）
+    const sorted = [...lineMap.entries()].sort((a, b) => b[0] - a[0]);
 
     for (const [, line] of sorted) {
       blocks.push({
         x: line.minX,
-        y: line.minScreenY - line.maxH, // text top in screen coords
+        y: line.pdfY,
         width: line.maxW - line.minX + 16,
         height: line.maxH + 6,
         text: line.words.join(" "),
         page: p,
         globalIndex: globalIndex++,
+        pageHeight: viewport.height,
       });
     }
   }
@@ -101,18 +95,23 @@ async function extractBlocks(url: string): Promise<TextBlock[]> {
   return blocks;
 }
 
+// ── PDF y → screen y ──
+function toScreenY(pdfY: number, blockHeight: number, pageHeight: number): number {
+  return pageHeight - pdfY - blockHeight;
+}
+
 // ── 单页 + 浮层 ──
 function PageWithOverlays({
   pageNumber,
   width,
   blocks,
-  activeBlockIndex,
+  activeBlockIndices,
   onBlockClick,
 }: {
   pageNumber: number;
   width: number;
   blocks: TextBlock[];
-  activeBlockIndex: number | null;
+  activeBlockIndices: Set<number>;
   onBlockClick: (block: TextBlock, index: number) => void;
 }) {
   const [scale, setScale] = useState(1);
@@ -138,11 +137,14 @@ function PageWithOverlays({
 
       {/* 可点击区块 */}
       {blocks.map((block) => {
+        if (!block.pageHeight || !scale) return null;
         const left = block.x * scale;
-        const top = block.y * scale;
+        const screenY = toScreenY(block.y, block.height, block.pageHeight);
+        const top = screenY * scale;
+        if (Number.isNaN(left) || Number.isNaN(top)) return null;
         const w = Math.max(block.width * scale, 40);
         const h = Math.max(block.height * scale, 12);
-        const isActive = activeBlockIndex === block.globalIndex;
+        const isActive = activeBlockIndices.has(block.globalIndex);
 
         return (
           <button
@@ -171,8 +173,9 @@ function PageWithOverlays({
 // ── 主组件 ──
 export function ClickablePdfView({
   url,
-  activeBlockIndex,
+  activeBlockIndices,
   onBlockClick,
+  onBlocksExtracted,
 }: ClickablePdfViewProps) {
   const [numPages, setNumPages] = useState(0);
   const [blocks, setBlocks] = useState<TextBlock[]>([]);
@@ -188,6 +191,7 @@ export function ClickablePdfView({
         const result = await extractBlocks(url);
         if (!cancelled) {
           setBlocks(result);
+          onBlocksExtracted?.(result);
         }
       } catch (err) {
         console.error("提取文本块失败:", err);
@@ -201,7 +205,7 @@ export function ClickablePdfView({
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pageBlocks = useCallback(
     (pageNum: number) => blocks.filter((b) => b.page === pageNum),
@@ -243,7 +247,7 @@ export function ClickablePdfView({
                 pageNumber={i + 1}
                 width={794}
                 blocks={pageBlocks(i + 1)}
-                activeBlockIndex={activeBlockIndex}
+                activeBlockIndices={activeBlockIndices}
                 onBlockClick={onBlockClick}
               />
             </div>

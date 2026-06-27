@@ -49,7 +49,6 @@ export function PreviewPanel({
     contentHeight,
     pagePadding,
     isScaled,
-    cannotFit,
     scaleFactor,
   );
 

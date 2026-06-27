@@ -19,7 +19,7 @@ export function SkillsStep({ form }: Props) {
 
   const addSkill = () => {
     const skill = input.trim();
-    if (skill && !fields.map((f) => f.value ?? f).includes(skill)) {
+    if (skill && !fields.some((f) => (f as unknown as string) === skill)) {
       append(skill);
     }
     setInput("");

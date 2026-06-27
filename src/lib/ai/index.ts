@@ -22,6 +22,57 @@ if (process.env.LANGCHAIN_TRACING_V2 === "true" && process.env.LANGCHAIN_API_KEY
   console.log("[AI] LangSmith tracing enabled");
 }
 
+// ── 健壮的 JSON 解析：处理 AI 返回的常见格式瑕疵 ──
+function safeJsonParse<T>(text: string): T | null {
+  // 1. 去掉 markdown 代码块包裹
+  const cleaned = text
+    .replace(/```(?:json)?\s*([\s\S]*?)```/g, "$1")
+    .trim();
+
+  // 2. 直接尝试解析
+  try { return JSON.parse(cleaned) as T; } catch { /* continue */ }
+
+  // 3. 提取 JSON 对象或数组
+  const objMatch = cleaned.match(/\{[\s\S]*\}/);
+  const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+  let candidate = objMatch?.[0] ?? arrMatch?.[0] ?? cleaned;
+
+  // 4. 修复常见问题
+  // 去掉 trailing commas（对象和数组中）
+  candidate = candidate.replace(/,(\s*[}\]])/g, "$1");
+  // 去掉注释行
+  candidate = candidate.replace(/^\s*\/\/.*$/gm, "");
+  // 修复中文引号
+  candidate = candidate.replace(/[“”]/g, '"');
+
+  try { return JSON.parse(candidate) as T; } catch { /* continue */ }
+
+  // 5. 提取所有可能的 JSON 对象（贪婪匹配可能失败时用更精确匹配）
+  const braceStart = cleaned.indexOf("{");
+  const bracketStart = cleaned.indexOf("[");
+  if (braceStart === -1 && bracketStart === -1) return null;
+
+  const start = braceStart >= 0 && (bracketStart < 0 || braceStart < bracketStart)
+    ? braceStart : bracketStart;
+  const endChar = cleaned[start] === "{" ? "}" : "]";
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < cleaned.length; i++) {
+    if (cleaned[i] === cleaned[start]) depth++;
+    else if (cleaned[i] === endChar) {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end > start) {
+    candidate = cleaned.slice(start, end + 1);
+    candidate = candidate.replace(/,(\s*[}\]])/g, "$1");
+    try { return JSON.parse(candidate) as T; } catch { /* continue */ }
+  }
+
+  return null;
+}
+
 export const ai = {
   /**
    * 润色简历经历描述
@@ -115,20 +166,21 @@ export const ai = {
     });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
-    try {
-      return JSON.parse(text);
-    } catch {
-      // 如果 AI 没返回纯 JSON，尝试提取
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) return JSON.parse(match[0]);
-      return {
-        overview: "分析结果解析失败，请重试",
-        strengths: [],
-        weaknesses: [],
-        suggestions: [],
-        score: 0,
-      };
-    }
+    const parsed = safeJsonParse<{
+      overview: string;
+      strengths: string[];
+      weaknesses: string[];
+      suggestions: string[];
+      score: number;
+    }>(text);
+    if (parsed) return parsed;
+    return {
+      overview: "分析结果解析失败，请重试",
+      strengths: [],
+      weaknesses: [],
+      suggestions: [],
+      score: 0,
+    };
   },
 
   /**
@@ -230,21 +282,25 @@ export const ai = {
     });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
-    try {
-      return JSON.parse(text);
-    } catch {
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) return JSON.parse(match[0]);
-      // 兜底：当做一个纯文本段落
-      return {
-        sections: [
-          {
-            title: "简历内容",
-            type: "textarea",
-            content,
-          },
-        ],
-      };
-    }
+    const parsed = safeJsonParse<{
+      sections: {
+        title: string;
+        type: "fields" | "textarea" | "list";
+        fields?: { key: string; label: string; value: string }[];
+        content?: string;
+        items?: { fields: { key: string; label: string; value: string }[] }[];
+      }[];
+    }>(text);
+    if (parsed) return parsed;
+    // 兜底：当做一个纯文本段落
+    return {
+      sections: [
+        {
+          title: "简历内容",
+          type: "textarea",
+          content,
+        },
+      ],
+    };
   },
 };

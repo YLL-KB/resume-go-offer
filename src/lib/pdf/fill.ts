@@ -1,213 +1,126 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
+import { createCanvas } from "@napi-rs/canvas";
 
 /**
- * 将 ResumeData 填充到模版 PDF 上，返回新 PDF 的二进制数据。
+ * 将每个文本块的 text 渲染为带白色背景的 PNG 图片，嵌入 PDF 覆盖旧文字。
  *
- * 策略：
- * 1. 先用 pdfjs-dist 提取原始 PDF 的文本 + 坐标
- * 2. 用 pdf-lib 在对应位置覆写编辑后的文本
+ * 客户端通过 ClickablePdfView 提取文本块坐标，用户编辑块内文本后，
+ * 将更新后的 blocks 传入此函数，逐一渲染到 PDF。
+ *
+ * 所有文本统一通过 @napi-rs/canvas 渲染，确保文字样式正确且旧文字被精确覆盖。
  */
 
-// ── pdfjs 文本提取（运行时动态加载，避免 SSR）──
+const CJK_FONT_FAMILY = '"Heiti SC", "STHeitiSC-Medium", "PingFang SC", sans-serif';
 
-interface TextBlock {
+export interface PdfTextBlock {
   x: number;
   y: number;
   width: number;
   height: number;
   text: string;
   page: number;
+  globalIndex?: number;
+  fontSize?: number;
+  textIndent?: boolean;
 }
-
-async function extractBlocks(url: string): Promise<TextBlock[]> {
-  const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-
-  const pdf = await pdfjsLib.getDocument({ url }).promise;
-  const blocks: TextBlock[] = [];
-
-  for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p);
-    const content = await page.getTextContent();
-    const { height } = page.getViewport({ scale: 1 });
-
-    // 将 items 按行分组（y 坐标相近的归为一行）
-    const lineMap = new Map<number, { x: number; y: number; text: string; height: number }[]>();
-
-    for (const item of content.items) {
-      const it = item as { str?: string; transform?: number[]; height?: number; width?: number };
-      const str = it.str?.trim() ?? "";
-      if (!str) continue;
-
-      const tx = it.transform ?? [0, 0, 0, 0, 0, 0];
-      const x = tx[4];
-      const y = tx[5];
-      const h = it.height ?? 10;
-
-      // 按 y 坐标四舍五入到像素级分组
-      const yKey = Math.round(y);
-
-      if (!lineMap.has(yKey)) lineMap.set(yKey, []);
-      lineMap.get(yKey)!.push({ x, y, text: str, height: h });
-    }
-
-    // 每行合并为一个 TextBlock
-    for (const [, group] of lineMap) {
-      group.sort((a, b) => a.x - b.x);
-      const joined = group.map((g) => g.text).join(" ");
-      const minX = Math.min(...group.map((g) => g.x));
-      const maxY = group[0].y;
-      const maxH = Math.max(...group.map((g) => g.height));
-      const maxW = Math.max(...group.map((g) => g.x + g.text.length * (g.height * 0.6)));
-      blocks.push({
-        x: minX,
-        y: height - maxY, // pdf-lib uses bottom-left origin, pdfjs uses top-left
-        width: maxW - minX + 40,
-        height: maxH + 4,
-        text: joined,
-        page: p,
-      });
-    }
-  }
-
-  return blocks;
-}
-
-// ── 将 ResumeData 各模块转为纯文本行 ──
-
-function resumeDataToTextLines(data: Record<string, unknown>): { key: string; lines: string[] }[] {
-  const sections: { key: string; lines: string[] }[] = [];
-
-  const basic = data.basic as Record<string, string> | undefined;
-  if (basic) {
-    const parts = [
-      basic.name, basic.title, basic.email, basic.phone, basic.location, basic.website,
-    ].filter(Boolean);
-    if (parts.length > 0) sections.push({ key: "basic", lines: parts });
-  }
-
-  if (data.summary) {
-    sections.push({ key: "summary", lines: [data.summary as string] });
-  }
-
-  const experience = data.experience as Array<Record<string, string>> | undefined;
-  if (experience?.length) {
-    const lines: string[] = [];
-    for (const exp of experience) {
-      if (exp.company || exp.title) lines.push(`${exp.company || ""}  ${exp.title || ""}`.trim());
-      if (exp.startDate || exp.endDate) lines.push(`${exp.startDate || ""} - ${exp.endDate || ""}`);
-      if (exp.description) lines.push(exp.description);
-    }
-    if (lines.length > 0) sections.push({ key: "experience", lines });
-  }
-
-  const projects = data.projects as Array<Record<string, string>> | undefined;
-  if (projects?.length) {
-    const lines: string[] = [];
-    for (const proj of projects) {
-      if (proj.name) lines.push(proj.name);
-      if (proj.techStack) lines.push(proj.techStack);
-      if (proj.description) lines.push(proj.description);
-    }
-    if (lines.length > 0) sections.push({ key: "projects", lines });
-  }
-
-  const education = data.education as Array<Record<string, string>> | undefined;
-  if (education?.length) {
-    const lines: string[] = [];
-    for (const edu of education) {
-      if (edu.school || edu.degree || edu.major) {
-        lines.push(`${edu.school || ""}  ${edu.degree || ""}  ${edu.major || ""}`.trim());
-      }
-      if (edu.startDate || edu.endDate) lines.push(`${edu.startDate || ""} - ${edu.endDate || ""}`);
-    }
-    if (lines.length > 0) sections.push({ key: "education", lines });
-  }
-
-  const skills = data.skills as string[] | undefined;
-  if (skills?.length) {
-    sections.push({ key: "skills", lines: [skills.join("  ·  ")] });
-  }
-
-  return sections;
-}
-
-// ── 根据文本相似度匹配 section → text block ──
-
-function matchSectionToBlocks(
-  sectionLines: string[],
-  blocks: TextBlock[],
-): TextBlock[] {
-  const matched: TextBlock[] = [];
-  for (const line of sectionLines) {
-    // 找包含该行关键词的 block
-    const words = line.split(/\s+/).filter((w) => w.length > 1);
-    for (const block of blocks) {
-      if (matched.includes(block)) continue;
-      const matchCount = words.filter((w) => block.text.includes(w)).length;
-      if (matchCount >= 2 || (words.length === 1 && block.text.includes(words[0]))) {
-        matched.push(block);
-        break;
-      }
-    }
-  }
-  return matched;
-}
-
-// ── 主函数：填充 PDF ──
 
 export interface FillResult {
   pdfBytes: Uint8Array;
   pageCount: number;
 }
 
-export async function fillPdfTemplate(
-  templateUrl: string,
-  resumeData: Record<string, unknown>,
-): Promise<FillResult> {
-  // 1) 提取原始 PDF 文本块 + 坐标
-  const blocks = await extractBlocks(templateUrl);
+// ── 将文本渲染为 PNG buffer ──
+function renderTextToPng(
+  text: string,
+  width: number,
+  height: number,
+  fontSize: number,
+  indent: boolean,
+): Uint8Array {
+  const scale = 2;
+  const canvas = createCanvas(Math.max(width * scale, 100), Math.max(height * scale, 20));
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
 
-  // 2) 将 ResumeData 转为文本行
-  const sections = resumeDataToTextLines(resumeData);
+  // 白色背景：精确覆盖旧文字
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
 
-  // 3) 加载原始 PDF
-  const existingBytes = await fetch(templateUrl).then((r) => r.arrayBuffer());
-  const pdfDoc = await PDFDocument.load(existingBytes);
-  const pages = pdfDoc.getPages();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  ctx.font = `${fontSize}px ${CJK_FONT_FAMILY}`;
+  ctx.fillStyle = "#000000";
+  ctx.textBaseline = "top";
 
-  // 4) 逐 section 匹配并覆写
-  for (const section of sections) {
-    const matched = matchSectionToBlocks(section.lines, blocks);
+  const indentPx = indent ? fontSize * 2 : 0;
+  const maxWidth = width - 4 - indentPx;
+  const words = text.split(/(?<=[一-鿿])|(?=[一-鿿])|\s+/);
+  let line = "";
+  let y = 1;
+  let firstLine = true;
 
-    for (let i = 0; i < section.lines.length; i++) {
-      const line = section.lines[i];
-      const block = matched[i];
-      if (!block || block.page < 1 || block.page > pages.length) continue;
-
-      const page = pages[block.page - 1];
-      const fontSize = Math.min(block.height - 2, 11);
-
-      // 覆盖原有文本区域
-      page.drawRectangle({
-        x: block.x - 2,
-        y: block.y - 2,
-        width: block.width + 4,
-        height: block.height + 4,
-        color: rgb(1, 1, 1),
-      });
-
-      // 绘制新文本
-      page.drawText(line, {
-        x: block.x,
-        y: block.y + 1,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-        maxWidth: block.width > 100 ? block.width : 500,
-      });
+  for (const word of words) {
+    if (!word) continue;
+    const testLine = line ? line + " " + word : word;
+    const metrics = ctx.measureText(testLine);
+    if (metrics.width > maxWidth && line) {
+      ctx.fillText(line, 2 + (firstLine ? indentPx : 0), y);
+      line = word;
+      y += fontSize + 1;
+      firstLine = false;
+    } else {
+      line = testLine;
     }
+  }
+  if (line) {
+    ctx.fillText(line, 2 + (firstLine ? indentPx : 0), y);
+  }
+
+  return canvas.toBuffer("image/png");
+}
+
+// ── 主函数：逐块渲染 ──
+export async function fillPdfTemplate(
+  templateBytes: ArrayBuffer,
+  blocks: PdfTextBlock[],
+): Promise<FillResult> {
+  const pdfDoc = await PDFDocument.load(templateBytes);
+  const pages = pdfDoc.getPages();
+
+  const errors: string[] = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    if (!block.text?.trim()) continue;
+    if (block.page < 1 || block.page > pages.length) {
+      errors.push(`block[${i}]: page ${block.page} 超出范围 (总页数: ${pages.length})`);
+      continue;
+    }
+
+    try {
+      const page = pages[block.page - 1];
+      const fontSize = block.fontSize ?? Math.min(block.height - 2, 11);
+
+      const pngBytes = renderTextToPng(
+        block.text,
+        block.width,
+        block.height,
+        fontSize,
+        block.textIndent ?? false,
+      );
+      const image = await pdfDoc.embedPng(pngBytes);
+      page.drawImage(image, {
+        x: block.x,
+        y: block.y - block.height + fontSize,
+        width: block.width,
+        height: block.height,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`block[${i}] page=${block.page} text="${block.text.slice(0, 40)}": ${msg}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`PDF 填充错误 (${errors.length}/${blocks.length}):\n${errors.slice(0, 10).join("\n")}`);
   }
 
   const pdfBytes = await pdfDoc.save();

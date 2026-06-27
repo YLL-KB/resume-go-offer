@@ -99,12 +99,12 @@ export async function deleteTemplateById(id: string): Promise<void> {
 
 export async function fillTemplatePdf(
   id: string,
-  data: Record<string, unknown>,
+  blocks: Record<string, unknown>[],
 ): Promise<{ url: string }> {
   const res = await fetch(`/api/templates/${id}/fill`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data }),
+    body: JSON.stringify({ blocks }),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;

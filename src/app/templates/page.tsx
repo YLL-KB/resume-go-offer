@@ -78,7 +78,6 @@ export default function TemplatesPage() {
   const handlePreview = useCallback(
     async (t: TemplateItem) => {
       setPdfPreview(t.url!);
-      setPreviewId(t.id);
       setTemplateSummary({ title: "", summary: "", loading: true });
 
       try {
@@ -420,7 +419,6 @@ export default function TemplatesPage() {
         onOpenChange={(open) => {
           if (!open) {
             setPdfPreview(null);
-            setPreviewId(null);
             setTemplateSummary(null);
           }
         }}
