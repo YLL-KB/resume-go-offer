@@ -9,7 +9,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { ai } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -136,20 +135,20 @@ export async function POST(
     }
 
     const data = await res.json();
-    const reply = (data as any).choices?.[0]?.message?.content ?? "";
+    const reply = (data as Record<string, unknown>).choices as Array<{ message?: { content?: string } }> | undefined;
+    const replyText = reply?.[0]?.message?.content ?? "";
 
     try {
-      const parsed = JSON.parse(reply);
+      const parsed = JSON.parse(replyText);
       return NextResponse.json({
         title: parsed.title ?? "未知简历",
         summary: parsed.summary ?? "",
         rawLength: fullText.length,
       });
     } catch {
-      // 非 JSON 响应，直接返回文本
       return NextResponse.json({
         title: "简历内容",
-        summary: reply.slice(0, 200),
+        summary: replyText.slice(0, 200),
         rawLength: fullText.length,
       });
     }

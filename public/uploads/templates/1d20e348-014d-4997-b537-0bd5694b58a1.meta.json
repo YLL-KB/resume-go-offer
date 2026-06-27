@@ -1,15 +1,16 @@
 {
-  "id": "c9f85b1f-c83b-445b-b7b5-2149384c0187",
-  "name": "单页002-简约",
-  "fileName": "单页002-简约.pdf",
-  "size": 469750,
-  "uploadedAt": "2026-06-25T05:45:27.650Z",
+  "id": "1d20e348-014d-4997-b537-0bd5694b58a1",
+  "name": "立龙简历",
+  "fileName": "立龙简历.pdf",
+  "size": 303428,
+  "layout": "classic",
+  "uploadedAt": "2026-06-26T06:58:32.009Z",
   "analysis": {
     "layout": "single-column",
     "sections": [
       {
         "id": "header",
-        "label": "个人信息",
+        "label": "页眉",
         "order": 0,
         "type": "header",
         "description": "包含姓名、联系方式等基本信息"
@@ -26,42 +27,35 @@
         "label": "工作经历",
         "order": 2,
         "type": "experience",
-        "description": "列出过往工作经历，包括公司、职位和时间"
+        "description": "列出过往工作经历，包括公司、职位、时间及职责"
       },
       {
         "id": "education",
         "label": "教育背景",
         "order": 3,
         "type": "education",
-        "description": "列出教育经历，包括学校、专业和学位"
+        "description": "列出教育经历，包括学校、专业、学位及时间"
       },
       {
         "id": "projects",
         "label": "项目经验",
         "order": 4,
         "type": "projects",
-        "description": "描述参与的项目及其成果"
+        "description": "描述参与的项目，包括项目名称、角色及成果"
       },
       {
         "id": "skills",
         "label": "技能",
         "order": 5,
         "type": "skills",
-        "description": "列出专业技能和工具"
+        "description": "列出专业技能，如编程语言、工具等"
       },
       {
         "id": "certificates",
         "label": "证书",
         "order": 6,
         "type": "certificates",
-        "description": "列出获得的证书和资质"
-      },
-      {
-        "id": "custom",
-        "label": "自定义模块",
-        "order": 7,
-        "type": "custom",
-        "description": "其他自定义内容，如兴趣爱好或语言能力"
+        "description": "列出获得的证书或资质"
       }
     ],
     "style_hints": {

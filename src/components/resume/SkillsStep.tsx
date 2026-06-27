@@ -19,7 +19,7 @@ export function SkillsStep({ form }: Props) {
 
   const addSkill = () => {
     const skill = input.trim();
-    if (skill && !fields.map((f: any) => f.value ?? f).includes(skill)) {
+    if (skill && !fields.map((f) => f.value ?? f).includes(skill)) {
       append(skill);
     }
     setInput("");
@@ -53,7 +53,7 @@ export function SkillsStep({ form }: Props) {
 
       {fields.length > 0 ? (
         <div className="flex flex-wrap gap-2">
-          {fields.map((field: any, i: number) => {
+          {fields.map((field, i) => {
             // skill —— string[] 类型，从 form 原始值取，不用 field.value
             const values = form.getValues('skills') as string[];
             const skill = values?.[i] ?? '';

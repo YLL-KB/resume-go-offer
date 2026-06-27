@@ -228,11 +228,6 @@ export default function HomePage() {
             {...fadeUp}
             transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}
           >
-            <Button asChild size="lg" className="w-full sm:w-auto">
-              <Link href="/resume/new">
-                立即制作简历 <ArrowRight className="ml-2 size-4" />
-              </Link>
-            </Button>
             <Button
               asChild
               variant="outline"

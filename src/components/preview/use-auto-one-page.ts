@@ -88,7 +88,6 @@ export function usePageBreaks(
   contentHeight: number,
   pagePadding: number = PAGE_PADDING_PX,
   isScaled: boolean = false,
-  cannotFit: boolean = false,
   scaleFactor: number = 1,
 ): { contentPerPagePx: number; pageBreakCount: number } {
   return useMemo(() => {
@@ -113,5 +112,5 @@ export function usePageBreaks(
     const pageBreakCount = Math.max(0, pageCount - 1);
 
     return { contentPerPagePx: effectiveContentPerPage, pageBreakCount };
-  }, [contentHeight, pagePadding, isScaled, cannotFit, scaleFactor]);
+  }, [contentHeight, pagePadding, isScaled, scaleFactor]);
 }

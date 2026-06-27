@@ -44,6 +44,12 @@ next-env.d.ts
 # OpenNext
 /.open-next
 
+# local SQLite
+.db/
+
+# filled PDF output
+public/filled/
+
 # wrangler files
 .wrangler
 .dev.vars*

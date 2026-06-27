@@ -19,8 +19,8 @@ export function BasicInfoStep({ form }: Props) {
         <div className="space-y-2">
           <Label htmlFor="name">姓名 *</Label>
           <Input id="name" {...register("basic.name")} placeholder="张三" />
-          {(errors as any).basic?.name && (
-            <p className="text-xs text-destructive">{(errors as any).basic?.name?.message}</p>
+          {errors.basic?.name && (
+            <p className="text-xs text-destructive">{errors.basic?.name?.message as string}</p>
           )}
         </div>
         <div className="space-y-2">

@@ -95,7 +95,7 @@ export async function DELETE(
   for (const p of [pdfPath, metaPath]) {
     try {
       await fs.unlink(p);
-    } catch (e) {
+    } catch {
       errors.push(p);
     }
   }

@@ -7,7 +7,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sparkles, Loader2, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 export default function AiTestPage() {
   const router = useRouter();

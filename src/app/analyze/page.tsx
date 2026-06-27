@@ -86,9 +86,6 @@ async function exportWord(result: AnalyzeResult | null, filename?: string) {
     Packer,
     Paragraph,
     TextRun,
-    Table,
-    TableRow,
-    TableCell,
     HeadingLevel,
     AlignmentType,
   } = await import("docx");
@@ -196,19 +193,25 @@ export default function AnalyzePage() {
   const [dragOver, setDragOver] = useState(false);
   const [improving, setImproving] = useState<string | null>(null);
   const [improvements, setImprovements] = useState<Record<string, string>>({});
-  const cachedTextRef = useRef<string | null>(null);
+  const [cachedText, setCachedText] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [resumeData, setResumeData] = useState<ResumeData | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
-  const fileUrlRef = useRef<string | null>(null);
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const fileUrlCleanupRef = useRef<string | null>(null); // 仅用于 cleanup，不在 render 中访问
   const analysisRef = useRef<HTMLDivElement | null>(null);
   const fileExt = file ? file.name.split(".").pop()?.toLowerCase() : "";
+
+  // 同步 cleanup ref（不在 render 中访问 ref）
+  useEffect(() => {
+    fileUrlCleanupRef.current = fileUrl;
+  }, [fileUrl]);
 
   // 清理 object URL
   useEffect(() => {
     return () => {
-      if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
+      if (fileUrlCleanupRef.current) URL.revokeObjectURL(fileUrlCleanupRef.current);
     };
   }, []);
 
@@ -223,8 +226,8 @@ export default function AnalyzePage() {
       return;
     }
     // 清理旧数据
-    if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
-    fileUrlRef.current = null;
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
+    setFileUrl(null);
     setDocxHtml(null);
     setFile(f);
     setError("");
@@ -235,7 +238,7 @@ export default function AnalyzePage() {
 
     // 为 PDF 生成 object URL
     if (ext === "pdf") {
-      fileUrlRef.current = URL.createObjectURL(f);
+      setFileUrl(URL.createObjectURL(f));
     }
 
     // 为 DOCX 生成 HTML 预览
@@ -247,7 +250,7 @@ export default function AnalyzePage() {
         setDocxHtml(null);
       }
     }
-  }, []);
+  }, [fileUrl]);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -277,7 +280,7 @@ export default function AnalyzePage() {
 
       const data: AnalyzeResult & { error?: string } = await res.json();
       if (!res.ok) throw new Error(data.error ?? "分析失败");
-      cachedTextRef.current = text;
+      setCachedText(text);
       setResult(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "分析失败";
@@ -295,7 +298,7 @@ export default function AnalyzePage() {
     if (!file || improving) return;
     setImproving(target);
     try {
-      const text = cachedTextRef.current ?? (await extractText(file));
+      const text = cachedText ?? (await extractText(file));
 
       const res = await fetch("/api/ai/improve-resume", {
         method: "POST",
@@ -316,14 +319,14 @@ export default function AnalyzePage() {
   };
 
   const handleParse = async () => {
-    if (!cachedTextRef.current) return;
+    if (!cachedText) return;
     try {
       setParsing(true);
       setError("");
       const res = await fetch("/api/ai/parse-resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: cachedTextRef.current }),
+        body: JSON.stringify({ content: cachedText }),
       });
       const data: ResumeData & { error?: string } = await res.json();
       if (!res.ok) throw new Error(data.error ?? "解析失败");
@@ -491,7 +494,7 @@ export default function AnalyzePage() {
                         )}
                         {loading ? "分析中..." : "开始分析"}
                       </Button>
-                      {cachedTextRef.current && !editing && (
+                      {cachedText && !editing && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -541,9 +544,9 @@ export default function AnalyzePage() {
               {!loading && file && (
                 <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
                   {/* PDF 预览：直接嵌入 */}
-                  {fileExt === "pdf" && fileUrlRef.current && (
+                  {fileExt === "pdf" && fileUrl && (
                     <embed
-                      src={fileUrlRef.current}
+                      src={fileUrl}
                       type="application/pdf"
                       className="w-full min-h-[500px]"
                     />
@@ -566,7 +569,7 @@ export default function AnalyzePage() {
                         文本预览
                       </p>
                       <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground/80">
-                        {cachedTextRef.current || "正在读取文件..."}
+                        {cachedText || "正在读取文件..."}
                       </pre>
                     </div>
                   )}
@@ -594,7 +597,7 @@ export default function AnalyzePage() {
                         await res.json();
                       if (!res.ok) throw new Error(data.error ?? "分析失败");
                       setResult(data);
-                      cachedTextRef.current = text;
+                      setCachedText(text);
                     } catch (err) {
                       const msg =
                         err instanceof Error ? err.message : "分析失败";

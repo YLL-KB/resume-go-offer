@@ -3,7 +3,6 @@
 import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRequest } from "ahooks";
-import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +39,6 @@ export default function TemplatesPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<TemplateItem | null>(null);
   const [pdfPreview, setPdfPreview] = useState<string | null>(null);
-  const [previewId, setPreviewId] = useState<string | null>(null);
   const [templateSummary, setTemplateSummary] = useState<{
     title: string;
     summary: string;
@@ -263,7 +261,7 @@ export default function TemplatesPage() {
           </div>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {templates.map((t, i) => (
+            {templates.map((t) => (
               <div key={t.id}>
                 <Card
                   className={`cursor-pointer border-2 transition-all hover:shadow-md ${

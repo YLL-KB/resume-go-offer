@@ -44,11 +44,11 @@ export function WorkStep({ form }: Props) {
       </div>
 
       {fields.fields.length === 0 && (
-        <p className="text-sm text-muted-foreground">还没有工作经历，点击"添加"开始填写。</p>
+        <p className="text-sm text-muted-foreground">还没有工作经历，点击「添加」开始填写。</p>
       )}
 
       <div className="space-y-4">
-        {fields.fields.map((field: any, i: number) => (
+        {fields.fields.map((field, i) => (
           <Card key={field.id}>
             <CardContent className="p-4 space-y-4">
               <div className="flex items-center justify-between">

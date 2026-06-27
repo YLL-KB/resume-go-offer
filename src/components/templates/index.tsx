@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import type { ResumeData } from "@/lib/validators/resume.schema";
 import {
   resolveTemplateLayout,
@@ -34,17 +34,21 @@ export function ResumeTemplateComponent({
     useState<RegistryEntry["Component"] | null>(null);
 
   useEffect(() => {
-    if (layout) {
-      setResolvedComponent(() => getTemplateComponent(layout));
-      return;
+    let cancelled = false;
+    async function run() {
+      if (layout) {
+        if (!cancelled) setResolvedComponent(() => getTemplateComponent(layout));
+        return;
+      }
+      if (templateId) {
+        const Component = await resolveTemplateLayout(templateId);
+        if (!cancelled) setResolvedComponent(() => Component);
+      } else {
+        if (!cancelled) setResolvedComponent(() => getTemplateComponent("classic"));
+      }
     }
-    if (templateId) {
-      resolveTemplateLayout(templateId).then((Component) => {
-        setResolvedComponent(() => Component);
-      });
-    } else {
-      setResolvedComponent(() => getTemplateComponent("classic"));
-    }
+    run();
+    return () => { cancelled = true; };
   }, [layout, templateId]);
 
   const Component = resolvedComponent;
