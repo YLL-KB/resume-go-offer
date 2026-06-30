@@ -49,12 +49,6 @@
 			"binding": "DB",
 			"database_name": "resume-go-offer-db",
 			"database_id": "d0fced6c-9e86-4ddb-9d6f-ca15a859bb60"
-		},
-		{
-			"binding": "resume_go_offer_db",
-			"database_name": "resume-go-offer-db",
-			"database_id": "d0fced6c-9e86-4ddb-9d6f-ca15a859bb60",
-			"remote": true
 		}
 	],
 	"kv_namespaces": [

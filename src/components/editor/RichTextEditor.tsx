@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
+import { FontFamily } from "@tiptap/extension-font-family";
 import { FontSize } from "./extensions/FontSize";
 import { TextIndent } from "./extensions/TextIndent";
 import {
@@ -14,10 +16,30 @@ import {
   List,
   ListOrdered,
   Indent,
+  Palette,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const FONT_SIZES = ["12px", "14px", "16px", "18px", "20px", "24px"];
+
+const FONT_FAMILIES = [
+  { label: "默认", value: "" },
+  { label: "宋体", value: '"SimSun", "宋体", serif' },
+  { label: "黑体", value: '"Microsoft YaHei", "黑体", sans-serif' },
+  { label: "楷体", value: '"KaiTi", "楷体", serif' },
+  { label: "仿宋", value: '"FangSong", "仿宋", serif' },
+  { label: "微软雅黑", value: '"Microsoft YaHei", sans-serif' },
+  { label: "Arial", value: "Arial, sans-serif" },
+  { label: "Times New Roman", value: '"Times New Roman", serif' },
+];
+
+const PRESET_COLORS = [
+  "#000000", "#333333", "#666666", "#999999",
+  "#cc0000", "#e74c3c", "#e67e22", "#f39c12",
+  "#27ae60", "#2ecc71", "#2980b9", "#3498db",
+  "#8e44ad", "#9b59b6", "#c0392b", "#1abc9c",
+];
 
 // ── Toolbar button ──
 
@@ -64,8 +86,19 @@ export function RichTextEditor({
   className,
   minHeight = "120px",
 }: RichTextEditorProps) {
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [customColor, setCustomColor] = useState("#000000");
+
   const editor = useEditor({
-    extensions: [StarterKit, Underline, TextStyle, FontSize, TextIndent],
+    extensions: [
+      StarterKit,
+      Underline,
+      TextStyle,
+      FontSize,
+      TextIndent,
+      Color,
+      FontFamily,
+    ],
     content: value,
     immediatelyRender: false,
     onUpdate: ({ editor }) => {
@@ -74,8 +107,8 @@ export function RichTextEditor({
     editorProps: {
       attributes: {
         class: cn(
-          "prose prose-sm max-w-none focus:outline-none p-3",
-          "text-sm leading-relaxed",
+          "focus:outline-none p-3",
+          "text-sm leading-relaxed w-full",
         ),
         style: `min-height: ${minHeight}`,
         "data-placeholder": placeholder ?? "",
@@ -100,6 +133,29 @@ export function RichTextEditor({
     },
     [editor],
   );
+
+  const handleFontFamilyChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const val = e.target.value;
+      editor
+        ?.chain()
+        .focus()
+        .setMark("textStyle", { fontFamily: val || null })
+        .run();
+    },
+    [editor],
+  );
+
+  const setColor = useCallback(
+    (color: string) => {
+      editor?.chain().focus().setColor(color).run();
+      setShowColorPicker(false);
+    },
+    [editor],
+  );
+
+  const currentColor =
+    editor?.getAttributes("textStyle").color ?? "#000000";
 
   if (!editor) {
     return (
@@ -140,6 +196,70 @@ export function RichTextEditor({
         >
           <UnderlineIcon className="size-3.5" />
         </Tb>
+
+        <div className="w-px h-4 bg-border mx-1" />
+
+        {/* 文字颜色 */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowColorPicker(!showColorPicker)}
+            title="文字颜色"
+            className="p-1 rounded hover:bg-muted transition-colors flex items-center gap-1"
+          >
+            <Palette className="size-3.5" />
+            <span
+              className="size-2.5 rounded-full border border-border"
+              style={{ backgroundColor: currentColor }}
+            />
+          </button>
+
+          {showColorPicker && (
+            <div className="absolute top-full left-0 mt-1 z-50 bg-background border rounded-lg shadow-lg p-2 w-44">
+              <div className="grid grid-cols-8 gap-1 mb-2">
+                {PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setColor(c)}
+                    className="size-4 rounded-sm border border-border hover:scale-110 transition-transform"
+                    style={{ backgroundColor: c }}
+                    title={c}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  type="color"
+                  value={customColor}
+                  onChange={(e) => setCustomColor(e.target.value)}
+                  className="size-5 cursor-pointer border-0 p-0"
+                />
+                <span className="text-[10px] text-muted-foreground">
+                  {customColor}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setColor(customColor)}
+                  className="ml-auto p-0.5 rounded hover:bg-muted"
+                  title="应用自定义颜色"
+                >
+                  <Plus className="size-3" />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  editor?.chain().focus().unsetColor().run();
+                  setShowColorPicker(false);
+                }}
+                className="w-full mt-1.5 text-[10px] text-muted-foreground hover:text-foreground border-t pt-1"
+              >
+                清除颜色
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="w-px h-4 bg-border mx-1" />
 
@@ -187,6 +307,19 @@ export function RichTextEditor({
           {FONT_SIZES.map((s) => (
             <option key={s} value={s}>
               {s}
+            </option>
+          ))}
+        </select>
+
+        <select
+          title="字体"
+          className="h-6 text-[11px] bg-transparent border border-border rounded px-1 cursor-pointer max-w-[80px]"
+          value={editor.getAttributes("textStyle").fontFamily ?? ""}
+          onChange={handleFontFamilyChange}
+        >
+          {FONT_FAMILIES.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.label}
             </option>
           ))}
         </select>

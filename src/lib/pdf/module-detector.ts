@@ -8,12 +8,17 @@ export interface Module {
 }
 
 /**
- * 按 Y 坐标间距将文字块分组为模块。
- * 同一页内，Y 间距超过 gapThreshold 则切分新模块。
+ * 智能模块检测：按 Y 间距 + 字号变化切分。
+ *
+ * 触发新模块的条件（满足任一即切分）：
+ * 1. Y 间距 > gapThreshold（默认 12px）
+ * 2. 当前块的 fontSize 比前一块大 30% 以上（可能是章节标题）
+ * 3. 当前块字号 ≥ headingThreshold（默认 15px）且前一块更小 → 新章节开始
  */
 export function detectModules(
   blocks: TextBlock[],
-  gapThreshold = 20,
+  gapThreshold = 10,
+  headingThreshold = 14,
 ): Module[] {
   const byPage = new Map<number, TextBlock[]>();
   for (const b of blocks) {
@@ -32,15 +37,33 @@ export function detectModules(
 
     for (let i = 0; i < sorted.length; i++) {
       const block = sorted[i];
+      // 获取字号信息
+      const blockFontSize =
+        (block as TextBlock & { fontSize?: number }).fontSize ?? 11;
+
       if (current.length === 0) {
         current.push(block);
         continue;
       }
+
       const prev = current[current.length - 1];
+      const prevFontSize =
+        (prev as TextBlock & { fontSize?: number }).fontSize ?? 11;
+
       // 前一个 block 的底部 到 当前 block 的顶部的间距
       const prevBottom = prev.y - prev.height;
       const gap = prevBottom - block.y;
-      if (gap > gapThreshold) {
+
+      // 判断是否应该切分
+      const largeGap = gap > gapThreshold;
+      const fontSizeJump =
+        blockFontSize > prevFontSize * 1.3 &&
+        blockFontSize >= headingThreshold;
+      const isHeading =
+        blockFontSize >= headingThreshold &&
+        prevFontSize < headingThreshold;
+
+      if (largeGap || fontSizeJump || isHeading) {
         groups.push(current);
         current = [block];
       } else {
@@ -51,7 +74,6 @@ export function detectModules(
 
     for (let gi = 0; gi < groups.length; gi++) {
       const groupBlocks = groups[gi];
-      // 取第一个 block 的文字作为标签
       const firstText = groupBlocks[0]?.text ?? "";
       const label =
         firstText.length > 20 ? firstText.slice(0, 20) + "…" : firstText;
