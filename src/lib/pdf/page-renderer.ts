@@ -1,329 +1,104 @@
 /**
- * 全页 Canvas 渲染 → PNG → PDF 导出管线。
- *
- * 1. 将模版 PDF 每一页渲染到 Canvas（背景层）
- * 2. 在同一 Canvas 上用覆盖矩形 + 新文字/图片替换原内容
- * 3. 导出 Canvas 为 PNG
- * 4. 用 jsPDF 合并多页
+ * Markdown + PDF 背景 → HTML → PNG → jsPDF 导出。
+ * 在 PDF 模版页上渲染 Markdown 内容，保留原始设计。
  */
+import { marked } from "marked";
 
-import type { TextBlock } from "@/components/preview/ClickablePdfView";
-import type { Module } from "@/lib/pdf/module-detector";
-import type { ImageBlock } from "@/lib/pdf/image-extractor";
-import { parseModuleHtml } from "@/lib/editor/html-parser";
-import type { BlockTextData } from "@/lib/editor/html-parser";
+const A4_W = 794;
+const SCALE = 2;
 
-// ── 导出分辨率倍率 ──
-const EXPORT_SCALE = 2;
-
-// CJK 字体栈（与浏览器编辑器一致）
-const FONT_FAMILY = [
-  "'PingFang SC'",
-  "'Heiti SC'",
-  "'STHeitiSC-Medium'",
-  "'Noto Sans SC'",
-  "'Microsoft YaHei'",
-  "sans-serif",
-].join(", ");
-
-// ── 将模版 PDF 某一页渲染到 Canvas ──
-async function renderPageToCanvas(
-  pdfUrl: string,
-  pageNum: number,
-  scale: number,
-): Promise<{ canvas: HTMLCanvasElement; viewportHeight: number }> {
+// ── 渲染 PDF 某一页为背景图 ──
+async function renderPdfPage(pdfUrl: string, pageNum: number): Promise<string> {
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-
   const pdf = await pdfjsLib.getDocument({ url: pdfUrl }).promise;
   const page = await pdf.getPage(pageNum);
-  const viewport = page.getViewport({ scale });
-
-  const canvas = document.createElement("canvas");
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-
-  await page.render({ canvas, viewport }).promise;
-
-  return { canvas, viewportHeight: viewport.height };
+  const vp = page.getViewport({ scale: SCALE });
+  const c = document.createElement("canvas");
+  c.width = vp.width; c.height = vp.height;
+  await page.render({ canvas: c, viewport: vp }).promise;
+  return c.toDataURL("image/png");
 }
 
-// ── 在 Canvas 上绘制文本块 ──
-function drawTextBlock(
-  ctx: CanvasRenderingContext2D,
-  block: TextBlock,
-  data: BlockTextData,
-  pageHeight: number,
-  scale: number,
-): void {
-  const blockWidth = data.width ?? block.width;
-  const blockHeight = data.height ?? block.height;
-
-  const x = block.x * scale;
-  const w = blockWidth * scale;
-  const h = blockHeight * scale;
-  const fontSize = (data.fontSize ?? 11) * scale;
-  const fontFamily = data.fontFamily || FONT_FAMILY;
-  const textColor = data.color ?? "#000000";
-
-  // PDF y 是 bottom-left baseline，Canvas y 是 top-left
-  const coverTop = (pageHeight - block.y) * scale;
-  const coverY = coverTop - h * 0.3;
-
-  // 白色背景覆盖原文
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x - 2 * scale, coverY - 2 * scale, w + 4 * scale, h + 4 * scale);
-
-  // 绘制新文字
-  ctx.font = `${fontSize}px ${fontFamily}`;
-  ctx.fillStyle = textColor;
-  ctx.textBaseline = "top";
-
-  const indentPx = data.textIndent ? fontSize * 2 : 0;
-  const maxWidth = w - 4 * scale - indentPx;
-  const lineHeight = fontSize * 1.5;
-
-  // CJK 感知的自动换行
-  const words = data.text.split(/(?<=[一-鿿])|(?=[一-鿿])|\s+/);
-  let line = "";
-  let y = coverY + 2 * scale;
-  let firstLine = true;
-
-  for (const word of words) {
-    if (!word) continue;
-    const testLine = line ? line + " " + word : word;
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && line) {
-      ctx.fillText(line, x + (firstLine ? indentPx : 0), y);
-      line = word;
-      y += lineHeight;
-      firstLine = false;
-    } else {
-      line = testLine;
-    }
-  }
-  if (line) {
-    ctx.fillText(line, x + (firstLine ? indentPx : 0), y);
-  }
+// ── 构建单页 HTML：PDF 背景 + Markdown 内容 ──
+function buildPage(bgUrl: string, content: string, pageNum: number, totalPages: number): string {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{width:${A4_W}px;background:transparent url(${bgUrl}) no-repeat;background-size:${A4_W}px auto;font-family:'PingFang SC','Heiti SC','Microsoft YaHei',sans-serif;font-size:14px;line-height:1.8;color:#000;padding:60px 72px}
+h1{font-size:28px;margin-bottom:12px;text-align:center}
+h2{font-size:18px;margin:28px 0 10px;border-bottom:1px solid #333;padding-bottom:4px}
+h3{font-size:15px;margin:16px 0 6px}
+p,li,div{background:rgba(255,255,255,0.85);display:inline;padding:1px 4px;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+ul,ol{margin:6px 0 6px 20px}
+li{margin:4px 0;display:list-item;background:rgba(255,255,255,0.85);padding:1px 4px}
+img{max-width:120px;height:auto;background:none}
+.footer{position:fixed;bottom:20px;right:72px;font-size:10px;color:#999;background:rgba(255,255,255,0.7);padding:2px 6px}
+</style></head><body>${content}<div class="footer">${pageNum}/${totalPages}</div></body></html>`;
 }
 
-// ── 在 Canvas 上绘制未编辑的文本块 ──
-function drawOriginalTextBlock(
-  ctx: CanvasRenderingContext2D,
-  block: TextBlock,
-  pageHeight: number,
-  scale: number,
-): void {
-  const richBlock = block as TextBlock & {
-    fontSize?: number;
-    color?: string;
-    cssFontFamily?: string;
-  };
-
-  const x = block.x * scale;
-  const w = block.width * scale;
-  const h = block.height * scale;
-  const coverTop = (pageHeight - block.y) * scale;
-  const coverY = coverTop - h * 0.3;
-
-  const fontSize = (richBlock.fontSize ?? 11) * scale;
-  const fontFamily = richBlock.cssFontFamily || FONT_FAMILY;
-  const textColor = richBlock.color ?? "#000000";
-
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x - 2 * scale, coverY - 2 * scale, w + 4 * scale, h + 4 * scale);
-
-  ctx.font = `${fontSize}px ${fontFamily}`;
-  ctx.fillStyle = textColor;
-  ctx.textBaseline = "top";
-
-  const maxWidth = w - 4 * scale;
-  const lineHeight = fontSize * 1.5;
-
-  const words = block.text.split(/(?<=[一-鿿])|(?=[一-鿿])|\s+/);
-  let line = "";
-  let y = coverY + 2 * scale;
-
-  for (const word of words) {
-    if (!word) continue;
-    const testLine = line ? line + " " + word : word;
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && line) {
-      ctx.fillText(line, x, y);
-      line = word;
-      y += lineHeight;
-    } else {
-      line = testLine;
-    }
-  }
-  if (line) {
-    ctx.fillText(line, x, y);
-  }
-}
-
-// ── 在 Canvas 上绘制图片 ──
-async function drawImageBlock(
-  ctx: CanvasRenderingContext2D,
-  imageBlock: ImageBlock,
-  scale: number,
-): Promise<void> {
-  const img = await loadImage(imageBlock.dataUrl);
-  ctx.drawImage(
-    img,
-    imageBlock.x * scale,
-    imageBlock.y * scale,
-    imageBlock.width * scale,
-    imageBlock.height * scale,
-  );
-}
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = src;
-  });
-}
-
-// ── 主编排函数：收集编辑数据，逐页渲染 Canvas → 导出 PNG Data URL ──
 export async function renderAllPages(
-  pdfUrl: string,
-  templateBlocks: TextBlock[],
-  templateModules: Module[],
-  editedModules: Record<string, string>,
-  deletedModules: Set<string>,
-  editedImages: Record<string, ImageBlock>,
-  deletedImages: Set<string>,
+  markdown: string,
+  pdfUrl?: string,
+  _blocks?: unknown[],
+  _mods?: unknown[],
+  _edits?: Record<string, string>,
+  _del?: Set<string>,
+  _imgs?: Record<string, unknown>,
+  _delImgs?: Set<string>,
   onProgress?: (current: number, total: number) => void,
 ): Promise<string[]> {
-  // 1. 收集所有编辑后的 text data: globalIndex → BlockTextData
-  const editedTextMap = new Map<number, BlockTextData>();
+  const html = await marked.parse(markdown);
 
-  for (const mod of templateModules) {
-    if (deletedModules.has(mod.id)) continue; // 跳过已删除模块
-    const html = editedModules[mod.id];
-    if (!html) continue;
-    const blockData = parseModuleHtml(html, mod.blocks.length);
-    for (let i = 0; i < mod.blocks.length; i++) {
-      const block = mod.blocks[i];
-      const data = blockData[i];
-      if (data) {
-        editedTextMap.set(block.globalIndex, data);
-      }
-    }
+  // 获取 PDF 页数
+  let numPages = 1;
+  let bgUrls: string[] = [];
+  if (pdfUrl) {
+    try {
+      const pdfjsLib = await import("pdfjs-dist");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+      const pdf = await pdfjsLib.getDocument({ url: pdfUrl }).promise;
+      numPages = pdf.numPages;
+      bgUrls = await Promise.all(
+        Array.from({ length: numPages }, (_, i) => renderPdfPage(pdfUrl, i + 1))
+      );
+    } catch { /* fallback: white background */ }
   }
 
-  // 2. 收集属于已删除模块的 block globalIndex 集合
-  const deletedBlockIndices = new Set<number>();
-  for (const mod of templateModules) {
-    if (deletedModules.has(mod.id)) {
-      for (const block of mod.blocks) {
-        deletedBlockIndices.add(block.globalIndex);
-      }
-    }
-  }
+  const { toPng } = await import("html-to-image");
 
-  // 3. 按页码分组
-  const pageMap = new Map<number, TextBlock[]>();
-  for (const block of templateBlocks) {
-    const list = pageMap.get(block.page) ?? [];
-    list.push(block);
-    pageMap.set(block.page, list);
-  }
-
-  // 4. 按页码分组图片
-  const pageImages = new Map<number, ImageBlock[]>();
-  for (const img of Object.values(editedImages)) {
-    const list = pageImages.get(img.page) ?? [];
-    list.push(img);
-    pageImages.set(img.page, list);
-  }
-
-  const pageNums = [...pageMap.keys()].sort((a, b) => a - b);
+  // 估算每页能容纳的字符数，按比例分配到各页
+  const charsPerPage = Math.ceil(html.length / numPages);
   const result: string[] = [];
 
-  for (let i = 0; i < pageNums.length; i++) {
-    const pageNum = pageNums[i];
-    const blocks = pageMap.get(pageNum)!;
-    onProgress?.(i + 1, pageNums.length);
+  for (let p = 0; p < numPages; p++) {
+    onProgress?.(p + 1, numPages);
+    const chunk = html.slice(p * charsPerPage, (p + 1) * charsPerPage);
+    const bg = bgUrls[p] ?? "";
+    const pageHtml = buildPage(bg, chunk, p + 1, numPages);
 
-    // 渲染模版页背景到 Canvas
-    const { canvas, viewportHeight } = await renderPageToCanvas(
-      pdfUrl,
-      pageNum,
-      EXPORT_SCALE,
-    );
+    const container = document.createElement("div");
+    container.style.cssText = `position:fixed;left:0;top:0;width:${A4_W}px;z-index:99999;background:#fff;`;
+    container.innerHTML = pageHtml;
+    document.body.appendChild(container);
 
-    const ctx = canvas.getContext("2d")!;
+    await new Promise(r => requestAnimationFrame(r));
+    const imgs = container.querySelectorAll("img");
+    await Promise.all([...imgs].map(i => new Promise<void>(r => { if (i.complete) r(); else { i.onload = () => r(); i.onerror = () => r(); } })));
 
-    // 渲染图片（先画图片，再画文字覆盖层）
-    const images = pageImages.get(pageNum) ?? [];
-    for (const img of images) {
-      if (deletedImages.has(img.id)) continue; // 跳过已删除的图片
-      await drawImageBlock(ctx, img, EXPORT_SCALE);
-    }
-
-    // 在背景上覆盖文字
-    for (const block of blocks) {
-      // 已删除模块的块：画白色矩形完全覆盖原内容
-      if (deletedBlockIndices.has(block.globalIndex)) {
-        const sx = block.x * EXPORT_SCALE;
-        const sy = (viewportHeight / EXPORT_SCALE - block.y - block.height) * EXPORT_SCALE;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(
-          sx - 4,
-          sy - 4,
-          block.width * EXPORT_SCALE + 8,
-          block.height * EXPORT_SCALE + 8,
-        );
-        continue;
-      }
-
-      const data = editedTextMap.get(block.globalIndex);
-      if (data && data.text) {
-        drawTextBlock(ctx, block, data, viewportHeight / EXPORT_SCALE, EXPORT_SCALE);
-      } else {
-        drawOriginalTextBlock(ctx, block, viewportHeight / EXPORT_SCALE, EXPORT_SCALE);
-      }
-    }
-
-    result.push(canvas.toDataURL("image/png"));
+    const dataUrl = await toPng(container, { pixelRatio: SCALE, backgroundColor: "#ffffff" });
+    document.body.removeChild(container);
+    result.push(dataUrl);
   }
 
   return result;
 }
 
-// ── 将多页 PNG Data URL 合并为 PDF 并触发下载 ──
-export async function downloadPdf(
-  pageDataUrls: string[],
-  filename = "resume.pdf",
-): Promise<void> {
+export async function downloadPdf(dataUrls: string[], filename = "resume.pdf") {
   const { default: jsPDF } = await import("jspdf");
-
-  const pdf = new jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: "a4",
-    compress: true,
-  });
-
-  const pageWidth = 210;
-  const pageHeight = 297;
-
-  for (let i = 0; i < pageDataUrls.length; i++) {
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  for (let i = 0; i < dataUrls.length; i++) {
     if (i > 0) pdf.addPage();
-    pdf.addImage(
-      pageDataUrls[i],
-      "PNG",
-      0,
-      0,
-      pageWidth,
-      pageHeight,
-      undefined,
-      "FAST",
-    );
+    pdf.addImage(dataUrls[i], "PNG", 0, 0, 210, 297, undefined, "FAST");
   }
-
   pdf.save(filename);
 }

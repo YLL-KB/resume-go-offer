@@ -65,9 +65,14 @@ export const resumeDataSchema = z.object({
   experience: z.array(experienceSchema).optional().default([]),
   projects: z.array(projectSchema).optional().default([]),
   skills: z.array(z.string()).optional().default([]),
-});
+}).passthrough(); // 放行 editedModules / deletedModules 等额外字段
 
-export type ResumeData = z.infer<typeof resumeDataSchema>;
+export type ResumeData = z.infer<typeof resumeDataSchema> & {
+  editedModules?: Record<string, string>;
+  deletedModules?: string[];
+  editedImages?: Record<string, unknown>;
+  deletedImages?: string[];
+};
 
 // ============================================================
 // 默认空简历
