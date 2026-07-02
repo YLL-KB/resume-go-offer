@@ -14,7 +14,7 @@ interface EditorState {
 
   // Markdown 提取
   markdown: string;
-  markdownSource: "mineru" | "pdfjs" | null;
+  markdownSource: "mineru" | "mineru-flash" | "pdfjs" | null;
   parsing: boolean;
 
   // Markdown 模块（每个 ## 章节一个）
@@ -36,7 +36,7 @@ interface EditorState {
 
   // Actions
   setTemplate: (id: string | undefined, url: string | undefined) => void;
-  setMarkdown: (md: string, source: "mineru" | "pdfjs") => void;
+  setMarkdown: (md: string, source: "mineru" | "mineru-flash" | "pdfjs") => void;
   setMdModules: (modules: MdModule[]) => void;
   setParsing: (v: boolean) => void;
   setActiveModuleId: (id: string | null) => void;

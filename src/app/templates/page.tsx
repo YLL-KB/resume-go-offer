@@ -6,29 +6,13 @@ import { useRequest } from "ahooks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  FileText,
-  LayoutTemplate,
-  Eye,
-  Upload,
-  Sparkles,
-  Loader2,
-  Trash2,
-} from "lucide-react";
+import { FileText, LayoutTemplate, Eye, Upload, Sparkles, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { TemplateItem } from "@/lib/api/templates";
 import {
   getTemplates,
-  getTemplateSummary,
   uploadTemplateFile,
   deleteTemplateById,
 } from "@/lib/api/templates";
@@ -39,11 +23,6 @@ export default function TemplatesPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<TemplateItem | null>(null);
   const [pdfPreview, setPdfPreview] = useState<string | null>(null);
-  const [templateSummary, setTemplateSummary] = useState<{
-    title: string;
-    summary: string;
-    loading: boolean;
-  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ============================================================
@@ -59,11 +38,6 @@ export default function TemplatesPage() {
     onError: () => toast.error("加载模版失败"),
   });
 
-  // 摘要
-  const { runAsync: runSummary } = useRequest(getTemplateSummary, {
-    manual: true,
-  });
-
   // 上传
   const { runAsync: runUploadFile } = useRequest(uploadTemplateFile, {
     manual: true,
@@ -75,28 +49,9 @@ export default function TemplatesPage() {
   });
 
   // 打开预览 + 调用 AI 提取标题和摘要
-  const handlePreview = useCallback(
-    async (t: TemplateItem) => {
-      setPdfPreview(t.url!);
-      setTemplateSummary({ title: "", summary: "", loading: true });
-
-      try {
-        const data = await runSummary(t.id);
-        setTemplateSummary({
-          title: data.title ?? t.name,
-          summary: data.summary ?? "",
-          loading: false,
-        });
-      } catch {
-        setTemplateSummary({
-          title: t.name,
-          summary: "AI 摘要获取失败",
-          loading: false,
-        });
-      }
-    },
-    [runSummary],
-  );
+  const handlePreview = useCallback((t: TemplateItem) => {
+    setPdfPreview(t.url!);
+  }, []);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -419,75 +374,20 @@ export default function TemplatesPage() {
         onOpenChange={(open) => {
           if (!open) {
             setPdfPreview(null);
-            setTemplateSummary(null);
           }
         }}
       >
         <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0 gap-0">
-          <DialogHeader className="flex flex-row items-center justify-between px-4 py-3 border-b shrink-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <DialogTitle className="truncate">
-                {templateSummary?.title
-                  ? `模版预览 — ${templateSummary.title}`
-                  : "模版预览"}
-              </DialogTitle>
-              {templateSummary?.loading && (
-                <Loader2 className="size-4 animate-spin text-muted-foreground shrink-0" />
-              )}
-            </div>
+          <DialogHeader className="px-4 py-3 border-b shrink-0">
+            <DialogTitle>模版预览</DialogTitle>
           </DialogHeader>
           <div className="flex flex-1 min-h-0">
             {/* 左侧：PDF 预览 */}
             <div className="flex-1 min-w-0">
               {pdfPreview && (
-                <iframe
-                  src={`${pdfPreview}#toolbar=1`}
-                  className="w-full h-full"
-                  title="模版预览"
-                />
+                <iframe src={`${pdfPreview}#toolbar=1`} className="w-full h-full" title="模版预览" />
               )}
             </div>
-            {/* 右侧：AI 摘要面板 */}
-            {templateSummary && (
-              <div className="w-72 shrink-0 border-l bg-muted/20 p-4 overflow-y-auto">
-                <h4 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
-                  <Sparkles className="size-4 text-primary" />
-                  AI 识别摘要
-                </h4>
-
-                {templateSummary.loading ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-4 w-5/6" />
-                    <Skeleton className="h-4 w-2/3" />
-                  </div>
-                ) : (
-                  <div className="space-y-3 text-sm">
-                    {templateSummary.title && (
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-0.5">
-                          标题
-                        </p>
-                        <p className="font-medium leading-snug">
-                          {templateSummary.title}
-                        </p>
-                      </div>
-                    )}
-                    {templateSummary.summary && (
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-0.5">
-                          摘要
-                        </p>
-                        <p className="text-muted-foreground leading-relaxed text-xs">
-                          {templateSummary.summary}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </DialogContent>
       </Dialog>

@@ -37,7 +37,7 @@ export async function POST(
     const pdfBuffer = await fs.readFile(pdfPath);
     const pdfjs = await import("pdfjs-dist");
 
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
+    pdfjs.GlobalWorkerOptions.workerSrc = path.join(process.cwd(), "public", "pdf.worker.mjs");
 
     const pdf = await pdfjs.getDocument({ data: pdfBuffer.buffer }).promise;
     const texts: string[] = [];

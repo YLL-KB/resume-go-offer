@@ -14,7 +14,7 @@ import { getTemplates } from "@/lib/api/templates";
 import { createResume, updateResume } from "@/lib/api/resume";
 import type { TemplateItem } from "@/lib/api/templates";
 import type { ResumeData } from "@/lib/validators/resume.schema";
-import { extractMarkdown } from "@/lib/pdf/mineru-extractor";
+import { extractMarkdown, type ContentItem } from "@/lib/pdf/mineru-extractor";
 import { renderAllPages, downloadPdf } from "@/lib/pdf/page-renderer";
 import { useEditorStore } from "@/stores/editor-store";
 
@@ -43,6 +43,7 @@ export function ResumeNewContent() {
 
   const [editing, setEditing] = useState(markdown);
   const [exporting, setExporting] = useState(false);
+  const [contentList, setContentList] = useState<ContentItem[] | null>(null);
   const [previewPages, setPreviewPages] = useState<string[] | null>(null);
   const [prevMarkdown, setPrevMarkdown] = useState(markdown);
   if (markdown !== prevMarkdown) {
@@ -59,8 +60,8 @@ export function ResumeNewContent() {
     (async () => {
       setParsing(true);
       try {
-        const md = await extractMarkdown(pdfUrl, tpl?.id ?? "").catch(() => ({ markdown:"", source:"pdfjs" as const }));
-        if (!cancelled) { setMarkdown(md.markdown, md.source); }
+        const md = await extractMarkdown(pdfUrl, tpl?.id ?? "").catch(() => ({ markdown:"", contentList:null, source:"pdfjs" as const }));
+        if (!cancelled) { setMarkdown(md.markdown, md.source); if (md.contentList) setContentList(md.contentList); }
       } finally { if (!cancelled) setParsing(false); }
     })();
     return () => { cancelled = true; };
@@ -83,7 +84,7 @@ export function ResumeNewContent() {
     if (!editing.trim()) { toast.warning("没有内容"); return; }
     setExporting(true);
     try {
-      const pages = await renderAllPages(editing, pdfUrl);
+      const pages = await renderAllPages(editing, pdfUrl, contentList);
       if (!pages.length) { toast.error("生成失败"); return; }
       setPreviewPages(pages);
       toast.success("预览已生成");

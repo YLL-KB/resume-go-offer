@@ -47,7 +47,7 @@ function fontScript(fontName: string): "cjk" | "latin" | "unknown" {
  */
 export async function extractTextBlocks(url: string): Promise<RichTextBlock[]> {
   const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.v6.mjs";
 
   const pdf = await pdfjsLib.getDocument({ url }).promise;
   const blocks: RichTextBlock[] = [];

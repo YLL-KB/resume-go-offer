@@ -6,9 +6,12 @@
 
 import type { RichTextBlock } from "@/lib/pdf/text-extractor";
 
+export interface ContentItem { text: string; bbox: number[]; page_idx: number; type: string; }
+
 export interface ExtractionResult {
   markdown: string;
-  source: "mineru" | "pdfjs";
+  contentList: ContentItem[] | null;
+  source: "mineru" | "mineru-flash" | "pdfjs";
 }
 
 /**
@@ -17,7 +20,8 @@ export interface ExtractionResult {
 async function extractViaApi(templateId: string): Promise<ExtractionResult> {
   const res = await fetch(`/api/templates/${templateId}/extract-markdown`);
   if (!res.ok) throw new Error("API 提取失败");
-  return res.json();
+  const data = await res.json() as Record<string, unknown>;
+  return { markdown: (data.markdown as string) ?? "", contentList: (data.contentList as ContentItem[]) ?? null, source: (data.source as "mineru" | "mineru-flash") ?? "pdfjs" };
 }
 
 /**
@@ -58,12 +62,12 @@ export async function extractMarkdown(
 ): Promise<ExtractionResult> {
   try {
     const result = await extractViaApi(templateId);
-    if (result.markdown) return result;
+    if (result.markdown) return { ...result, contentList: result.contentList ?? null };
     throw new Error("MinerU 返回空内容");
   } catch (err) {
     console.warn("MinerU 提取失败，降级到 pdfjs-dist:", (err as Error).message);
     const markdown = await extractWithPdfJs(pdfUrl);
-    return { markdown, source: "pdfjs" };
+    return { markdown, contentList: null, source: "pdfjs" };
   }
 }
 
