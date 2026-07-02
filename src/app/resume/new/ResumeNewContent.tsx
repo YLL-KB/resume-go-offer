@@ -84,7 +84,7 @@ export function ResumeNewContent() {
     if (!editing.trim()) { toast.warning("没有内容"); return; }
     setExporting(true);
     try {
-      const pages = await renderAllPages(editing, pdfUrl, contentList);
+      const pages = await renderAllPages(editing, pdfUrl);
       if (!pages.length) { toast.error("生成失败"); return; }
       setPreviewPages(pages);
       toast.success("预览已生成");
@@ -93,8 +93,13 @@ export function ResumeNewContent() {
   }, [editing, pdfUrl]);
 
   const handleDownload = useCallback(async () => {
-    if (!previewPages) return;
-    await downloadPdf(previewPages, `${tpl?.name??"resume"}.pdf`);
+    if (!previewPages?.length) return;
+    const url = previewPages[0];
+    if (url.startsWith("/")) {
+      window.open(url, "_blank");
+    } else {
+      await downloadPdf(previewPages, `${tpl?.name??"resume"}.pdf`);
+    }
   }, [previewPages, tpl]);
 
   return (
@@ -119,7 +124,13 @@ export function ResumeNewContent() {
             <div className="flex items-center justify-center flex-1 gap-2 text-muted-foreground"><Loader2 className="size-5 animate-spin"/><span className="text-xs">MinerU 提取中...</span></div>
           ) : previewPages ? (
             <div className="flex-1 overflow-auto p-4 flex flex-col items-center gap-4">
-              {previewPages.map((url,i) => <div key={i} className="bg-white shadow-lg" style={{width:"210mm"}}><NextImage src={url} alt={`p${i+1}`} width={794} height={1123} unoptimized className="w-full h-auto" /></div>)}
+              {previewPages.map((url,i) => (
+                url.startsWith("/") ? (
+                  <iframe key={i} src={url} className="w-full" style={{height:"1123px",maxWidth:"210mm"}} />
+                ) : (
+                  <div key={i} className="bg-white shadow-lg" style={{width:"210mm"}}><NextImage src={url} alt={`p${i+1}`} width={794} height={1123} unoptimized className="w-full h-auto" /></div>
+                )
+              ))}
             </div>
           ) : pdfUrl ? (
             <ClickablePdfView url={pdfUrl} modules={[]} activeModuleId={null} onModuleClick={()=>{}} />

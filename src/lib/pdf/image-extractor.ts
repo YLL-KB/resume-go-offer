@@ -32,7 +32,7 @@ interface OpsImgEntry {
  */
 export async function extractImages(url: string): Promise<ImageBlock[]> {
   const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.v6.mjs";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
 
   const pdf = await pdfjsLib.getDocument({ url }).promise;
   const blocks: ImageBlock[] = [];
