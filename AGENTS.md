@@ -98,6 +98,9 @@ export const dynamic = "force-dynamic";
 | POST | `/api/templates/upload` | 上传新模版 |
 | GET | `/api/templates/[id]` | 预览（302 重定向到静态 PDF） |
 | DELETE | `/api/templates/[id]` | 删除模版（仅管理员/仅用户上传的） |
+| POST | `/api/templates/[id]/fill` | PDF 填充输出（pdf-lib 原位文字替换 + 自定义页） |
+| GET | `/api/templates/[id]/extract-markdown` | MinerU PDF → Markdown 提取 |
+| POST | `/api/templates/[id]/analyze` | AI 分析模版结构 |
 | POST | `/api/templates/[id]/summary` | AI 提取简历标题和摘要 |
 
 **预览/下载：**
@@ -120,6 +123,68 @@ export const dynamic = "force-dynamic";
 | `/analyze` | 简历分析 | AI 分析评分 |
 | `/templates` | 模版管理 | 上传/预览/删除模版 |
 
+---
+
+## 编辑器架构（核心）
+
+详细设计见 `EDITOR-DESIGN.md`。这里只列 Agent 需要知道的关键点。
+
+### 两层编辑模型
+
+**Layer 1 — 模版页（逐块原位编辑）：**
+- pdfjs-dist 客户端提取 PDF 文字块 → `RichTextBlock[]`（含坐标、字号、颜色）
+- 右侧列表逐块 `<textarea>` 编辑，支持删除（导出时涂白不写字）
+- 导出时坐标原样传给 fill API，pdf-lib 在相同位置覆盖文字
+
+**Layer 2 — 自定义页（自由排版）：**
+- 用户点击「+ 添加页面」→ 复制模版第一页作为底版（保留边框/线条/装饰）
+- 底版上所有文字块涂白 → 用 TipTap 富文本编辑器自由编辑
+- 导出时 HTML 解析为 TextLine（标题/列表/正文），从文字区域下方开始排版
+
+### 坐标系统（重要！）
+
+```
+text-extractor.ts 提取 → PDF 原生坐标（y=0 在底部，往上递增）
+fill API 接收        → 同上，不要做二次翻转
+fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
+```
+
+**常见 Bug：** fill API 中做 `pdfY = pageHeight - e.y - e.h` 是错的——因为 `e.y` 已经是 PDF 原生坐标，翻转会导致文字跑到底部。
+
+### PDF 填充管线（fill/route.ts）
+
+```
+1. 加载模版 PDF + 嵌入 CJK 字体 (NotoSansSC-Regular.otf)
+2. Part A — 模版页文字替换：
+   Pass 1: 画所有白色矩形（覆盖原文，含 descender 余量）
+   Pass 2: 画所有新文字（在所有遮罩之上）
+3. Part B — 自定义页：
+   - copyPages() 复制模版第一页
+   - 涂白所有文字块
+   - htmlToTextLines() 解析 HTML → TextLine[]
+   - 从文字区域下方逐行渲染，超出自动续页
+4. 输出 public/filled/{id}.pdf
+```
+
+**为什么两遍渲染：** 先画所有遮罩再画所有文字，避免后面的遮罩盖住前面的文字。
+
+### 状态管理
+
+所有编辑器状态集中在 `src/stores/editor-store.ts`（Zustand）：
+
+- `templateId` / `pdfUrl` — 模版标识
+- `markdown` / `mdModules` / `editedModules` — MinerU 管线（预留）
+- `customPages: CustomPage[]` — 自定义页
+- `resumeData` / `resumeId` / `saving` — 持久化
+- 切换模版时自动重置所有状态
+
+### 字体依赖
+
+- PDF 填充需要 **`public/NotoSansSC-Regular.otf`**（16MB CJK 字体），缺失则 fill API 500
+- 字体已通过 jsDelivr CDN 下载到位，部署时需确认文件存在
+
+---
+
 ## 架构决策
 
 ### D1 vs 本地文件
@@ -141,37 +206,114 @@ export const dynamic = "force-dynamic";
 - 基于 OpenAI 兼容 SDK，支持 DeepSeek / 通义千问 等
 - 通过 `.env.local` 切换 `OPENAI_BASE_URL` 和 `AI_MODEL`
 
+### pdf-lib vs Canvas 截图
+
+选择 pdf-lib 原位替换而非 Canvas 截图：
+- pdf-lib 输出真 PDF，文字可选、可搜索、矢量无损
+- 代价：需要嵌入 16MB CJK 字体，坐标计算需注意 PDF bottom-left 坐标系
+
+---
+
 ## 关键文件索引
 
 ```
 src/
 ├── app/
-│   ├── page.tsx                    # 首页
-│   ├── layout.tsx                  # 根布局
+│   ├── page.tsx                        # 首页
+│   ├── layout.tsx                      # 根布局
 │   ├── resume/
-│   │   ├── new/page.tsx            # 新建简历（左表单 + 右预览）
-│   │   └── [id]/
-│   │       ├── page.tsx            # 简历预览
-│   │       └── edit/page.tsx       # 编辑简历
-│   ├── templates/page.tsx          # 模版管理页
-│   ├── analyze/page.tsx            # 简历分析页
+│   │   └── new/
+│   │       ├── page.tsx                # 新建简历页
+│   │       └── ResumeNewContent.tsx    # 编辑器主组件（页签切换、导出逻辑）
+│   ├── templates/page.tsx              # 模版管理页
+│   ├── analyze/page.tsx                # 简历分析页
+│   ├── ai-test/page.tsx                # AI 润色测试页
 │   └── api/
 │       ├── templates/
-│       │   ├── route.ts            # GET 列表
-│       │   ├── upload/route.ts     # POST 上传
+│       │   ├── route.ts                # GET 列表
+│       │   ├── upload/route.ts         # POST 上传
 │       │   └── [id]/
-│       │       ├── route.ts        # GET 预览 + DELETE 删除
-│       │       └── summary/route.ts # POST AI 摘要
-│       └── ai/
-│           └── analyze-resume/route.ts
+│       │       ├── route.ts            # GET 预览 + DELETE 删除
+│       │       ├── fill/route.ts       # POST PDF 填充输出（核心）
+│       │       ├── extract-markdown/
+│       │       │   └── route.ts        # GET MinerU 提取
+│       │       ├── analyze/route.ts    # POST AI 分析
+│       │       └── summary/route.ts    # POST AI 摘要
+│       ├── ai/
+│       │   ├── analyze-resume/route.ts
+│       │   ├── improve-resume/route.ts
+│       │   ├── improve/route.ts
+│       │   └── parse-resume/route.ts
+│       └── resume/
+│           ├── route.ts                # POST 创建 + GET 列表
+│           └── [id]/route.ts           # GET/PUT/DELETE 单个简历
 ├── components/
-│   ├── ui/                         # shadcn/ui 组件库
-│   └── resume/                     # 简历相关组件
+│   ├── ui/                             # shadcn/ui 组件库
+│   ├── editor/
+│   │   ├── RichTextEditor.tsx          # TipTap 富文本编辑器（自定义页用）
+│   │   ├── MarkdownEditor.tsx          # 纯文本 Markdown 编辑器（预留）
+│   │   ├── FullEditor.tsx              # 结构化表单编辑器
+│   │   ├── SectionEditor.tsx           # 按模块分区的编辑器
+│   │   ├── ModuleList.tsx              # 模块列表（预留 MinerU 管线）
+│   │   ├── UploadZone.tsx              # 文件拖拽上传区
+│   │   ├── milkdown.css                # Milkdown/ProseMirror 样式（预留）
+│   │   └── extensions/                 # TipTap 自定义扩展
+│   │       ├── FontSize.ts
+│   │       └── TextIndent.ts
+│   ├── preview/
+│   │   ├── ClickablePdfView.tsx        # 可点击的 PDF 预览（react-pdf）
+│   │   ├── PdfPageView.tsx             # 多页 PDF 预览
+│   │   ├── index.tsx                   # HTML 预览面板
+│   │   ├── page-break-line.tsx         # 分页线指示器
+│   │   ├── use-auto-one-page.ts        # 自动单页缩放 hook
+│   │   └── use-content-height.ts       # 内容高度监听 hook
+│   ├── resume/
+│   │   ├── BasicInfoStep.tsx           # 基本信息表单
+│   │   ├── EducationStep.tsx
+│   │   ├── ExperienceStep.tsx
+│   │   ├── ProjectStep.tsx
+│   │   ├── SkillsStep.tsx
+│   │   ├── WorkStep.tsx
+│   │   ├── StepIndicator.tsx
+│   │   └── TemplateClassic.tsx
+│   └── templates/
+│       ├── classic/                    # 经典模版
+│       │   ├── config.ts
+│       │   └── index.tsx
+│       ├── types.ts
+│       ├── registry.ts                 # 模版注册表
+│       └── index.tsx
 ├── hooks/
-│   └── use-resume-form.ts          # 简历表单状态管理
-└── lib/
-    ├── ai/index.ts                 # AI SDK 封装
-    └── validators/                 # Zod 校验
+│   ├── use-auth.ts                     # 认证 hook
+│   └── use-resume-form.ts             # 简历表单 hook
+├── stores/
+│   └── editor-store.ts                # 编辑器全局状态（Zustand）
+├── lib/
+│   ├── ai/index.ts                     # AI SDK 封装
+│   ├── auth/                           # Authing OIDC 认证
+│   │   ├── index.ts
+│   │   ├── oidc.ts
+│   │   └── types.ts
+│   ├── db/
+│   │   ├── schema.ts                   # Drizzle ORM Schema
+│   │   └── index.ts                    # DB 连接（D1 / SQLite fallback）
+│   ├── pdf/
+│   │   ├── text-extractor.ts           # pdfjs-dist 文字块提取
+│   │   ├── mineru-extractor.ts         # MinerU 客户端封装（预留）
+│   │   ├── image-extractor.ts          # PDF 图片提取
+│   │   ├── module-detector.ts          # 模块检测（预留 MinerU 管线）
+│   │   └── page-renderer.ts            # Canvas 页面渲染
+│   ├── editor/
+│   │   └── html-parser.ts              # PDF 字体/颜色映射
+│   ├── api/
+│   │   ├── resume.ts                   # 简历 CRUD API 客户端
+│   │   └── templates.ts                # 模版 API 客户端
+│   ├── validators/
+│   │   └── resume.schema.ts            # 简历数据 Zod Schema
+│   ├── extract.ts                      # 内容提取入口
+│   └── utils.ts                        # 通用工具
+└── types/
+    └── mineru-open-sdk.d.ts            # MinerU SDK 类型声明
 ```
 
 ## 常见问题
@@ -181,6 +323,12 @@ A: 不影响使用。那是 wrangler 后台尝试连 Cloudflare 远程代理，�
 
 **Q: 上传 PDF 后预览不了？**
 A: 确认 `pnpm dev` 而非 `wrangler dev`。API 路由用 302 重定向到 `/uploads/templates/{id}.pdf`。
+
+**Q: PDF 填充报 "请先下载 CJK 字体"？**
+A: 执行 `curl -L -o public/NotoSansSC-Regular.otf https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf`
+
+**Q: 文字替换后位置偏移？**
+A: 检查 fill API 是否做了 `pageHeight - y` 翻转——text-extractor 传过来的 y 已经是 PDF 原生坐标，不需要再翻转。
 
 **Q: 如何新增一个 UI 组件？**
 A: `pnpm dlx shadcn@latest add <component-name>`，然后用 `@/components/ui` 导入。

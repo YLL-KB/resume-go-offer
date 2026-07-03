@@ -86,15 +86,13 @@ export function ResumeNewContent() {
     });
   }, []);
 
-  // Export: 服务端 pdf-lib 原地修改
+  // Export: 逐块原位编辑 + 自定义页
   const handleExport = useCallback(async () => {
     setExporting(true);
     try {
-      const editList = blocks
-        .filter(b => {
-          if (deletedBlocks.has(b.globalIndex)) return true;
-          return edits[b.globalIndex]?.trim();
-        })
+      // 所有块的原位编辑
+      const strayEdits = blocks
+        .filter(b => deletedBlocks.has(b.globalIndex) || edits[b.globalIndex]?.trim())
         .map(b => ({
           page: b.page, x: b.x, y: b.y, w: b.width, h: b.height,
           fontSize: b.fontSize,
@@ -102,22 +100,16 @@ export function ResumeNewContent() {
           color: b.color,
         }));
 
-      const hasTemplateEdits = editList.length > 0;
-      const hasCustomPages = customPages.some(p => p.markdown.trim());
+      // 自定义页
+      const customPageList = customPages.filter(p => p.markdown.trim());
 
-      if (!hasTemplateEdits && !hasCustomPages) { toast.warning("没有修改"); return; }
-
-      // 模版全部文字块坐标（用于自定义页涂白原文）
-      const templateBlocks = blocks.map(b => ({
-        page: b.page, x: b.x, y: b.y, w: b.width, h: b.height, fontSize: b.fontSize, color: b.color,
-      }));
+      if (!strayEdits.length && !customPageList.length) { toast.warning("没有修改"); return; }
 
       const res = await fetch(`/api/templates/${tpl?.id}/fill`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          edits: editList,
-          templateBlocks,
-          customPages: customPages.filter(p => p.markdown.trim()).map(p => ({ markdown: p.markdown })),
+          strayEdits,
+          customPages: customPageList.map(p => ({ markdown: p.markdown })),
         }),
       });
       if (!res.ok) { toast.error("生成失败"); return; }

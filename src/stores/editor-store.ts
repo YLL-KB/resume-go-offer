@@ -41,6 +41,8 @@ interface EditorState {
 
   // 自定义页面
   customPages: CustomPage[];
+  // 模块级编辑
+  moduleContents: Record<string, string>;
 
   // Actions
   setTemplate: (id: string | undefined, url: string | undefined) => void;
@@ -64,6 +66,8 @@ interface EditorState {
   addCustomPage: () => void;
   removeCustomPage: (id: string) => void;
   updateCustomPage: (id: string, markdown: string) => void;
+  // Module actions
+  updateModuleContent: (moduleId: string, html: string) => void;
 }
 
 const init = {
@@ -84,6 +88,7 @@ const init = {
   saving: false,
   saved: false,
   customPages: [] as CustomPage[],
+  moduleContents: {} as Record<string, string>,
 };
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -97,6 +102,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     templateImages: [], editedImages: {}, deletedImages: new Set(),
     resumeData: EMPTY_RESUME_DATA,
     customPages: [],
+    moduleContents: {},
   }),
 
   setMarkdown: (md, src) => set({ markdown: md, markdownSource: src }),
@@ -144,5 +150,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   })),
   updateCustomPage: (id, markdown) => set((s) => ({
     customPages: s.customPages.map((p) => p.id === id ? { ...p, markdown } : p),
+  })),
+  updateModuleContent: (moduleId, html) => set((s) => ({
+    moduleContents: { ...s.moduleContents, [moduleId]: html },
   })),
 }));
