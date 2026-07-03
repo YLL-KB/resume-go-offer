@@ -1,14 +1,17 @@
 /**
- * PDF 原位编辑：pdf-lib + MinerU bbox → 白色矩形覆盖原文 → 嵌入原字体画新文字。
- * 服务端运行，输出真正 PDF（非截图）。
+ * PDF 导出：pdfjs-dist 坐标 + PDF 背景 → Canvas 逐块覆盖 → PNG → jsPDF。
+ * 布局 100% 保留，文字原位替换。
  */
-import type { ContentItem } from "@/lib/pdf/mineru-extractor";
+import type { RichTextBlock } from "@/lib/pdf/text-extractor";
+
+const SCALE = 2;
+const FONT = "'PingFang SC','Heiti SC','STHeitiSC-Medium','Noto Sans SC','Microsoft YaHei',sans-serif";
 
 export async function renderAllPages(
   markdown: string,
   pdfUrl?: string,
   _contentList?: unknown,
-  _blocks?: unknown[],
+  editedBlocks?: Map<number, string>, // globalIndex → new text
   _mods?: unknown[],
   _edits?: Record<string, string>,
   _del?: Set<string>,
@@ -16,7 +19,77 @@ export async function renderAllPages(
   _delImgs?: Set<string>,
   onProgress?: (c: number, t: number) => void,
 ): Promise<string[]> {
-  // 客户端降级：纯 Markdown 渲染
+  if (!pdfUrl || !editedBlocks?.size) {
+    // 降级：纯 Markdown 渲染
+    return fallbackMarkdown(markdown, onProgress);
+  }
+
+  // 1. 提取原 PDF 的 text blocks（带坐标）
+  const { extractTextBlocks } = await import("@/lib/pdf/text-extractor");
+  const blocks = await extractTextBlocks(pdfUrl);
+
+  // 2. 按页分组 + 渲染背景
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
+  const pdf = await pdfjsLib.getDocument({ url: pdfUrl }).promise;
+
+  const pageMap = new Map<number, RichTextBlock[]>();
+  for (const b of blocks) { const l = pageMap.get(b.page) ?? []; l.push(b); pageMap.set(b.page, l); }
+
+  const result: string[] = [];
+  for (const [pn, pageBlocks] of pageMap) {
+    onProgress?.(pn, pageMap.size);
+
+    // 渲染 PDF 页为背景 Canvas
+    const page = await pdf.getPage(pn);
+    const vp = page.getViewport({ scale: SCALE });
+    const canvas = document.createElement("canvas");
+    canvas.width = vp.width; canvas.height = vp.height;
+    await page.render({ canvas, viewport: vp }).promise;
+    const ctx = canvas.getContext("2d")!;
+
+    // 逐块覆盖文字
+    for (const block of pageBlocks) {
+      const newText = editedBlocks.get(block.globalIndex);
+      const text = newText ?? block.text;
+      const fontSize = block.fontSize * SCALE;
+      const fontFamily = block.cssFontFamily || FONT;
+      const color = block.color || "#000000";
+
+      // PDF y(bottom-left) → Canvas y(top-left)
+      const cx = block.x * SCALE;
+      const cw = block.width * SCALE;
+      const ch = block.height * SCALE;
+      const cy = (block.pageHeight - block.y - block.height) * SCALE;
+
+      // 白色矩形覆盖
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(cx - 2, cy - 2, cw + 4, ch + 4);
+
+      // 画新文字
+      ctx.font = `${fontSize}px ${fontFamily}`;
+      ctx.fillStyle = color;
+      ctx.textBaseline = "top";
+
+      const maxW = cw - 4;
+      const lh = fontSize * 1.5;
+      const words = text.split(/(?<=[一-鿿])|(?=[一-鿿])|\s+/);
+      let line = "", ly = cy + 2;
+      for (const w of words) {
+        if (!w) continue;
+        const t = line ? line + " " + w : w;
+        if (ctx.measureText(t).width > maxW && line) { ctx.fillText(line, cx + 2, ly); line = w; ly += lh; }
+        else line = t;
+      }
+      if (line) ctx.fillText(line, cx + 2, ly);
+    }
+    result.push(canvas.toDataURL("image/png"));
+  }
+  return result;
+}
+
+async function fallbackMarkdown(markdown: string, onProgress?: (c: number, t: number) => void): Promise<string[]> {
+  onProgress?.(1, 1);
   const clean = markdown.replace(/!\[.*?\]\(.*?\)/g, "").replace(/<!--\s*image\s*-->/g, "");
   const { marked } = await import("marked");
   const html = await marked.parse(clean);
@@ -30,21 +103,7 @@ export async function renderAllPages(
   const { toPng } = await import("html-to-image");
   const dataUrl = await toPng(container, { pixelRatio: 2, backgroundColor: "#ffffff" });
   document.body.removeChild(container);
-
-  const A4_H = 297 * 2 * 2;
-  const img = await new Promise<HTMLImageElement>(r => { const i = new Image(); i.onload = () => r(i); i.src = dataUrl; });
-  const pages = Math.ceil(img.height / A4_H);
-  const result: string[] = [];
-  const canvas = document.createElement("canvas");
-  canvas.width = 210 * 2 * 2; canvas.height = A4_H;
-  for (let p = 0; p < pages; p++) {
-    onProgress?.(p + 1, pages);
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, -p * A4_H);
-    result.push(canvas.toDataURL("image/png"));
-  }
-  return result;
+  return [dataUrl];
 }
 
 export async function downloadPdf(dataUrls: string[], filename = "resume.pdf") {

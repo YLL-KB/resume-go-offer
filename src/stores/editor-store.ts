@@ -3,6 +3,11 @@ import type { ImageBlock } from "@/lib/pdf/image-extractor";
 import type { MdModule } from "@/lib/pdf/mineru-extractor";
 import type { ResumeData } from "@/lib/validators/resume.schema";
 
+export interface CustomPage {
+  id: string;
+  markdown: string;
+}
+
 const EMPTY_RESUME_DATA: ResumeData = {
   basic: { name: "", email: "", phone: "", location: "", website: "", title: "" },
   summary: "", education: [], experience: [], projects: [], skills: [],
@@ -34,6 +39,9 @@ interface EditorState {
   saving: boolean;
   saved: boolean;
 
+  // 自定义页面
+  customPages: CustomPage[];
+
   // Actions
   setTemplate: (id: string | undefined, url: string | undefined) => void;
   setMarkdown: (md: string, source: "mineru" | "mineru-flash" | "pdfjs") => void;
@@ -51,6 +59,11 @@ interface EditorState {
   setSaving: (v: boolean) => void;
   setSaved: (v: boolean) => void;
   reset: () => void;
+
+  // Custom page actions
+  addCustomPage: () => void;
+  removeCustomPage: (id: string) => void;
+  updateCustomPage: (id: string, markdown: string) => void;
 }
 
 const init = {
@@ -70,6 +83,7 @@ const init = {
   resumeId: null as string | null,
   saving: false,
   saved: false,
+  customPages: [] as CustomPage[],
 };
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -82,6 +96,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     editedModules: {}, deletedModules: new Set(),
     templateImages: [], editedImages: {}, deletedImages: new Set(),
     resumeData: EMPTY_RESUME_DATA,
+    customPages: [],
   }),
 
   setMarkdown: (md, src) => set({ markdown: md, markdownSource: src }),
@@ -120,4 +135,14 @@ export const useEditorStore = create<EditorState>((set) => ({
   setSaving: (v) => set({ saving: v }),
   setSaved: (v) => set({ saved: v }),
   reset: () => set({ ...init }),
+
+  addCustomPage: () => set((s) => ({
+    customPages: [...s.customPages, { id: `custom-${s.customPages.length}`, markdown: "" }],
+  })),
+  removeCustomPage: (id) => set((s) => ({
+    customPages: s.customPages.filter((p) => p.id !== id),
+  })),
+  updateCustomPage: (id, markdown) => set((s) => ({
+    customPages: s.customPages.map((p) => p.id === id ? { ...p, markdown } : p),
+  })),
 }));
