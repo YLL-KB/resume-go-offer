@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type { ImageBlock } from "@/lib/pdf/image-extractor";
 import type { MdModule } from "@/lib/pdf/mineru-extractor";
 import type { ResumeData } from "@/lib/validators/resume.schema";
@@ -6,6 +7,16 @@ import type { ResumeData } from "@/lib/validators/resume.schema";
 export interface CustomPage {
   id: string;
   markdown: string;
+}
+
+export interface AiAnalysis {
+  overview: string;
+  strengths: string[];
+  weaknesses: string[];
+  suggestions: string[];
+  score: number;
+  resumeText?: string;
+  parsedSections?: { title: string; content: string }[]; // 拆好的简历模块
 }
 
 const EMPTY_RESUME_DATA: ResumeData = {
@@ -68,6 +79,10 @@ interface EditorState {
   updateCustomPage: (id: string, markdown: string) => void;
   // Module actions
   updateModuleContent: (moduleId: string, html: string) => void;
+
+  // AI 分析
+  aiAnalysis: AiAnalysis | null;
+  setAiAnalysis: (analysis: AiAnalysis | null) => void;
 }
 
 const init = {
@@ -89,10 +104,13 @@ const init = {
   saved: false,
   customPages: [] as CustomPage[],
   moduleContents: {} as Record<string, string>,
+  aiAnalysis: null as AiAnalysis | null,
 };
 
-export const useEditorStore = create<EditorState>((set) => ({
-  ...init,
+export const useEditorStore = create<EditorState>()(
+  persist(
+    (set) => ({
+      ...init,
 
   setTemplate: (id, url) => set({
     templateId: id, pdfUrl: url,
@@ -103,6 +121,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     resumeData: EMPTY_RESUME_DATA,
     customPages: [],
     moduleContents: {},
+    aiAnalysis: null,
   }),
 
   setMarkdown: (md, src) => set({ markdown: md, markdownSource: src }),
@@ -154,4 +173,11 @@ export const useEditorStore = create<EditorState>((set) => ({
   updateModuleContent: (moduleId, html) => set((s) => ({
     moduleContents: { ...s.moduleContents, [moduleId]: html },
   })),
-}));
+  setAiAnalysis: (analysis) => set({ aiAnalysis: analysis }),
+}),
+{
+  name: "resume-editor-storage",
+  storage: createJSONStorage(() => sessionStorage),
+  partialize: (state) => ({ aiAnalysis: state.aiAnalysis }),
+},
+));

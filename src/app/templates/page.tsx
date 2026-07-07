@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileText, LayoutTemplate, Eye, Upload, Sparkles, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { AppHeader } from "@/components/ui/app-header";
 import type { TemplateItem } from "@/lib/api/templates";
 import {
   getTemplates,
@@ -109,37 +110,7 @@ export default function TemplatesPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-          <Link
-            href="/"
-            className="flex items-center gap-2 font-semibold text-lg"
-          >
-            <FileText className="size-5" />
-            Resume Go Offer
-          </Link>
-          <nav className="hidden items-center gap-6 text-sm text-muted-foreground sm:flex">
-            <Link
-              href="/analyze"
-              className="hover:text-foreground transition-colors"
-            >
-              简历分析
-            </Link>
-            <Link
-              href="/templates"
-              className="text-foreground font-medium transition-colors"
-            >
-              选择模版
-            </Link>
-          </nav>
-          <div className="flex items-center gap-3">
-            <Button asChild size="sm">
-              <Link href="/resume/new">开始制作</Link>
-            </Button>
-          </div>
-        </div>
-      </header>
+      <AppHeader active="templates" />
 
       <main className="mx-auto max-w-6xl px-4 py-8">
         {/* 页面标题 */}

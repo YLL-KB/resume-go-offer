@@ -71,7 +71,7 @@ export async function extractTextBlocks(url: string): Promise<RichTextBlock[]> {
 
     for (const item of content.items) {
       const it = item as RawTextItem;
-      const str = it.str?.trim() ?? "";
+      const str = (it.str ?? "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "").trim();
       if (!str) continue;
 
       const tx = it.transform ?? [0, 0, 0, 0, 0, 0];

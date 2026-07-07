@@ -18,6 +18,8 @@ import {
   Indent,
   Palette,
   Plus,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -77,6 +79,7 @@ interface RichTextEditorProps {
   placeholder?: string;
   className?: string;
   minHeight?: string;
+  onAiOptimize?: () => Promise<string | void>;
 }
 
 export function RichTextEditor({
@@ -85,9 +88,11 @@ export function RichTextEditor({
   placeholder,
   className,
   minHeight = "120px",
+  onAiOptimize,
 }: RichTextEditorProps) {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [customColor, setCustomColor] = useState("#000000");
+  const [aiLoading, setAiLoading] = useState(false);
 
   const editor = useEditor({
     extensions: [
@@ -323,6 +328,28 @@ export function RichTextEditor({
             </option>
           ))}
         </select>
+
+        {onAiOptimize && (
+          <>
+            <div className="w-px h-4 bg-border mx-1" />
+            <button
+              type="button"
+              disabled={aiLoading}
+              onClick={async () => {
+                setAiLoading(true);
+                try {
+                  await onAiOptimize();
+                } finally {
+                  setAiLoading(false);
+                }
+              }}
+              title="AI 优化"
+              className="p-1 rounded hover:bg-primary/10 transition-colors text-primary"
+            >
+              {aiLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+            </button>
+          </>
+        )}
       </div>
 
       <EditorContent editor={editor} />

@@ -4,13 +4,21 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEditorStore } from "@/stores/editor-store";
+async function uploadAnalysisFile(file: File) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/ai/upload-resume", { method: "POST", body: fd });
+  if (!res.ok) throw new Error("上传失败");
+  return res.json() as Promise<{ id: string; url: string }>;
+}
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import ResumeEditor, { type ResumeData } from "@/components/resume-editor";
+import { AppHeader } from "@/components/ui/app-header";
 import {
   Upload,
   FileText,
-  ArrowLeft,
   Sparkles,
   Loader2,
   CheckCircle2,
@@ -21,6 +29,7 @@ import {
   Wand2,
   Download,
   FileDown,
+  PenLine,
 } from "lucide-react";
 
 // ============================================================
@@ -38,11 +47,23 @@ async function extractText(file: File): Promise<string> {
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const content = await page.getTextContent();
-      texts.push(
-        content.items.map((item) => ("str" in item ? item.str : "")).join(" "),
-      );
+      // 按 y 坐标分行，保留段落结构
+      const lines = new Map<number, string[]>();
+      for (const item of content.items) {
+        const str = ("str" in item ? item.str : "").trim();
+        if (!str) continue;
+        const y = Math.round("transform" in item ? (item.transform as number[])[5] : 0);
+        if (!lines.has(y)) lines.set(y, []);
+        lines.get(y)!.push(str);
+      }
+      // 按 y 降序（PDF 中 y 往上递增 = 视觉上往下）
+      const sorted = [...lines.entries()]
+        .sort((a, b) => b[0] - a[0])
+        .map(([, words]) => words.join(" ").trim())
+        .filter(l => l.length > 0);
+      texts.push(sorted.join("\n"));
     }
-    return texts.join("\n");
+    return texts.join("\n\n");
   }
 
   if (ext === "docx") {
@@ -186,6 +207,8 @@ interface AnalyzeResult {
 // ============================================================
 export default function AnalyzePage() {
   const router = useRouter();
+  const setAiAnalysis = useEditorStore(s => s.setAiAnalysis);
+  const [resumeTemplateId, setResumeTemplateId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalyzeResult | null>(null);
@@ -236,9 +259,12 @@ export default function AnalyzePage() {
     setEditing(false);
     setImprovements({});
 
-    // 为 PDF 生成 object URL
+    // 为 PDF 生成 object URL，并暂存到分析目录
     if (ext === "pdf") {
       setFileUrl(URL.createObjectURL(f));
+      uploadAnalysisFile(f).then(u => setResumeTemplateId(u.id)).catch(() => {});
+    } else {
+      setResumeTemplateId(null);
     }
 
     // 为 DOCX 生成 HTML 预览
@@ -267,21 +293,81 @@ export default function AnalyzePage() {
     setLoading(true);
     setError("");
     try {
-      const text = await extractText(file);
+      // 优先用服务端 MinerU 提取（文本质量更高），失败则降级客户端 pdfjs
+      let text = "";
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (ext === "pdf" && resumeTemplateId) {
+        try {
+          const mdRes = await fetch(`/api/templates/${resumeTemplateId}/extract-markdown?source=analysis`);
+          if (mdRes.ok) {
+            const md = await mdRes.json() as { markdown?: string; warnings?: string[] };
+            text = md.markdown ?? "";
+            if (md.warnings?.length) {
+              md.warnings.forEach(w => toast.warning(w, { duration: 8000 }));
+            }
+          }
+        } catch { /* 降级 */ }
+      }
+      // 清洗：去掉空字符和不可见字符
+      const clean = (s: string) => s
+        .replace(/\\u0000/g, "")       // 字面量  
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") // 控制字符
+        .replace(/[ \t]{2,}/g, " ")     // 多空格归一
+        .replace(/\n{3,}/g, "\n\n")     // 多余空行归一
+        .trim();
+      text = clean(text);
+      // MinerU 结果太短 或 缺关键个人信息 → 降级客户端 pdfjs
+      if (!text || text.length < 80 || !/(姓名|电话|手机|邮箱|Email|求职|应聘)/i.test(text)) {
+        const raw = await extractText(file);
+        const fallback = clean(raw);
+        if (fallback.length > text.length) {
+          text = fallback;
+          toast.info("已使用备用方案提取简历文本");
+        }
+      }
       if (text.trim().length < 50) {
         throw new Error("简历内容太短，请确认文件内容完整");
       }
 
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
       const res = await fetch("/api/ai/analyze-resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: text }),
-      });
+        signal: ctrl.signal,
+      }).finally(() => clearTimeout(timer));
 
       const data: AnalyzeResult & { error?: string } = await res.json();
       if (!res.ok) throw new Error(data.error ?? "分析失败");
       setCachedText(text);
       setResult(data);
+
+      // 客户端按简历标题拆模块（秒级，不额外调 AI）
+      // 用于自动填入模版的分段
+      const sectionText = clean(text).replace(/^#{1,3}\s/gm, "");
+      const headers = [
+        "个人简历", "个人信息", "基本信息", "求职意向",
+        "专业技能", "技术栈", "技能", "技术能力",
+        "工作经历", "工作经验", "实习经历",
+        "项目经历", "项目经验", "项目",
+        "教育背景", "教育经历", "学历",
+        "自我评价", "个人评价", "关于我",
+        "证书", "获奖", "语言能力",
+      ];
+      const pattern = new RegExp(`(${headers.join("|")})[\\s：:]*`, "g");
+      const parts = sectionText.split(pattern).filter(Boolean);
+      const sections: { title: string; content: string }[] = [];
+      for (let i = 0; i < parts.length; i++) {
+        if (headers.some(h => parts[i].trim().startsWith(h))) {
+          sections.push({ title: parts[i].trim(), content: (parts[i + 1] ?? "").trim() });
+          i++;
+        }
+      }
+      if (parts.length > 0 && sections.length === 0) {
+        sections.push({ title: "简历内容", content: parts.join("").trim() });
+      }
+      setAiAnalysis({ ...data, resumeText: text, parsedSections: sections });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "分析失败";
       console.error("[分析出错]", err);
@@ -323,11 +409,14 @@ export default function AnalyzePage() {
     try {
       setParsing(true);
       setError("");
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
       const res = await fetch("/api/ai/parse-resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: cachedText }),
-      });
+        signal: ctrl.signal,
+      }).finally(() => clearTimeout(timer));
       const data: ResumeData & { error?: string } = await res.json();
       if (!res.ok) throw new Error(data.error ?? "解析失败");
       setResumeData(data);
@@ -377,25 +466,7 @@ export default function AnalyzePage() {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="size-4" />
-            返回
-          </button>
-          <Link
-            href="/"
-            className="flex items-center gap-2 font-semibold text-lg"
-          >
-            <FileText className="size-5 text-primary" />
-            Resume Go Offer
-          </Link>
-        </div>
-      </header>
+      <AppHeader active="analyze" />
 
       <main className="mx-auto max-w-6xl px-4 py-6">
         <motion.div
@@ -495,17 +566,18 @@ export default function AnalyzePage() {
                         {loading ? "分析中..." : "开始分析"}
                       </Button>
                       {cachedText && !editing && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleParse}
-                          disabled={parsing}
-                        >
-                          {parsing ? (
-                            <Loader2 className="mr-1 size-4 animate-spin" />
-                          ) : null}
-                          {parsing ? "解析中..." : "编辑简历"}
-                        </Button>
+                        <>
+                          {result && resumeTemplateId && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => router.push(`/resume/edit?template=${resumeTemplateId}&source=analysis`)}
+                            >
+                              <PenLine className="mr-1 size-4" />
+                              在模版中编辑
+                            </Button>
+                          )}
+                        </>
                       )}
                       {editing && (
                         <Button
@@ -533,15 +605,8 @@ export default function AnalyzePage() {
                 </Card>
               )}
 
-              {/* 文件预览区 */}
-              {loading && (
-                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
-                  <Loader2 className="size-8 animate-spin" />
-                  <p className="text-sm">AI 正在分析你的简历...</p>
-                </div>
-              )}
-
-              {!loading && file && (
+              {/* 文件预览区 — 分析期间保持可见 */}
+              {file && (
                 <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
                   {/* PDF 预览：直接嵌入 */}
                   {fileExt === "pdf" && fileUrl && (
@@ -598,6 +663,7 @@ export default function AnalyzePage() {
                       if (!res.ok) throw new Error(data.error ?? "分析失败");
                       setResult(data);
                       setCachedText(text);
+                      setAiAnalysis({ ...data, resumeText: text });
                     } catch (err) {
                       const msg =
                         err instanceof Error ? err.message : "分析失败";

@@ -22,7 +22,7 @@ export async function getTemplateSummary(
 
 export async function uploadTemplateFile(
   file: File,
-): Promise<{ name: string }> {
+): Promise<{ id: string; name: string; url: string }> {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -36,7 +36,7 @@ export async function uploadTemplateFile(
     throw new Error((err.error as string) ?? "上传失败");
   }
 
-  return res.json() as Promise<{ name: string }>;
+  return res.json() as Promise<{ id: string; name: string; url: string }>;
 }
 
 export interface TemplateSection {

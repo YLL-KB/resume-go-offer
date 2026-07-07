@@ -1,17 +1,11 @@
 /**
  * GET /api/templates/[id]/extract-markdown
  *
- * PDF 内容提取管线，两层可选：
+ * PDF 内容提取管线。
  *
- * Layer 1 — MinerU（内容提取）
- *   有 MINERU_TOKEN → Extract 模式（Markdown + bbox contentList）
- *   无 token         → Flash 模式（仅 Markdown）
- *
- * Layer 2 — GLM-OCR（布局分析，需 ZHIPU_API_KEY）
- *   在 MinerU 结果之上，用 GLM-OCR 做布局分类（text/table/image）
- *   补充每个元素的结构化类型和更精确的 bbox
- *
- * Query: ?layout=true  启用 GLM-OCR 布局分析
+ * Query:
+ *   ?layout=true     启用 GLM-OCR 布局分析
+ *   ?source=analysis 从分析暂存目录读取 (public/uploads/analysis/)
  */
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
@@ -113,12 +107,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const pdfPath = path.resolve(process.cwd(), "public/uploads/templates", `${id}.pdf`);
+    const url = new URL(req.url);
+    const isAnalysis = url.searchParams.get("source") === "analysis";
+    const dir = isAnalysis ? "public/uploads/analysis" : "public/uploads/templates";
+    const pdfPath = path.resolve(process.cwd(), dir, `${id}.pdf`);
     if (!fs.existsSync(pdfPath)) {
-      return NextResponse.json({ error: "模版文件不存在" }, { status: 404 });
+      return NextResponse.json({ error: isAnalysis ? "分析文件不存在或已过期" : "模版文件不存在" }, { status: 404 });
     }
 
-    const url = new URL(req.url);
     const enableLayout = url.searchParams.get("layout") === "true";
 
     const { MinerU } = await import("mineru-open-sdk");
@@ -127,6 +123,7 @@ export async function GET(
     let markdown = "";
     let contentList: Record<string, unknown>[] | null = null;
     let source = "none";
+    const warnings: string[] = [];
 
     // ── Layer 1: MinerU 提取 ──
     if (token) {
@@ -137,8 +134,13 @@ export async function GET(
         contentList = result.contentList as Record<string, unknown>[] | null;
         source = "mineru";
       } catch (err) {
-        console.warn("MinerU Extract 失败，降级 Flash:", (err as Error).message);
+        const msg = (err as Error).message;
+        console.warn("MinerU Extract 失败，降级 Flash:", msg);
+        warnings.push(`MinerU Extract 失败(${msg.slice(0, 60)})，已降级为 Flash 模式（精度较低）`);
       }
+    } else {
+      console.warn("[MinerU] MINERU_TOKEN 未设置，使用 Flash 模式。在 .env.local 中配置 MINERU_TOKEN 可启用高精度解析。");
+      warnings.push("未启用 AI 文档解析，简历识别精度受限");
     }
 
     if (!markdown) {
@@ -146,8 +148,14 @@ export async function GET(
         const client = new MinerU();
         const result = await client.flashExtract(pdfPath);
         markdown = result.markdown ?? "";
-        source = "mineru-flash";
-      } catch { /* fall through */ }
+        if (source === "none") source = "mineru-flash";
+      } catch {
+        warnings.push("简历解析服务暂不可用，已使用备用方案提取文本");
+      }
+    }
+
+    if (!markdown) {
+      warnings.push("无法解析此 PDF 文件，请确认文件可正常打开");
     }
 
     // ── Layer 2: GLM-OCR 布局分析 ──
@@ -162,6 +170,7 @@ export async function GET(
       contentList,
       layoutElements: layoutElements ?? undefined,
       source,
+      warnings: warnings.length > 0 ? warnings : undefined,
     });
   } catch (err) {
     console.error("提取失败:", err);

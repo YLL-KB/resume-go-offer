@@ -124,11 +124,12 @@ function whiteOut(page: ReturnType<PDFDocument["getPages"]>[0], b: { x: number; 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
-    const body = await req.json() as { strayEdits?: EditItem[]; moduleEdits?: ModuleEdit[]; customPages?: CustomPageItem[] };
-    const { strayEdits = [], moduleEdits = [], customPages = [] } = body;
+    const body = await req.json() as { strayEdits?: EditItem[]; moduleEdits?: ModuleEdit[]; customPages?: CustomPageItem[]; source?: string };
+    const { strayEdits = [], moduleEdits = [], customPages = [], source } = body;
 
-    const pdfPath = path.resolve(process.cwd(), "public/uploads/templates", `${id}.pdf`);
-    if (!fs.existsSync(pdfPath)) return NextResponse.json({ error: "模版不存在" }, { status: 404 });
+    const pdfDir = source === "analysis" ? "public/uploads/analysis" : "public/uploads/templates";
+    const pdfPath = path.resolve(process.cwd(), pdfDir, `${id}.pdf`);
+    if (!fs.existsSync(pdfPath)) return NextResponse.json({ error: source === "analysis" ? "分析文件不存在或已过期" : "模版不存在" }, { status: 404 });
 
     const pdfDoc = await PDFDocument.load(fs.readFileSync(pdfPath));
     pdfDoc.registerFontkit(fontkit);

@@ -14,7 +14,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少简历内容" }, { status: 400 });
     }
 
-    const parsed = await ai.parseResume(content.trim());
+    const cleaned = content.replace(/\\u0000|[\x00-\x1F\x7F]/g, "").replace(/\s+/g, " ").trim().slice(0, 4000);
+    const parsed = await ai.parseResume(cleaned);
     return NextResponse.json(parsed);
   } catch (err) {
     console.error("AI parse error:", err);
