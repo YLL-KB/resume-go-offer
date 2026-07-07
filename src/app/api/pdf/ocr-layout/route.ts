@@ -91,15 +91,17 @@ function parseLayoutResponse(raw: string, pageNum: number): PageLayout {
     const elements = Array.isArray(parsed) ? parsed : parsed.elements ?? [];
     return {
       page: pageNum,
-      elements: elements.map((el: Record<string, unknown>) => ({
+      elements: elements.map((el: Record<string, unknown>) => {
+        const bbox = el.bbox as Record<string, unknown> | undefined;
+        return {
         type: (el.type as LayoutElement["type"]) ?? "text",
-        x: Number(el.x ?? el.bbox?.x ?? 0),
-        y: Number(el.y ?? el.bbox?.y ?? 0),
-        w: Number(el.w ?? el.bbox?.w ?? el.width ?? 100),
-        h: Number(el.h ?? el.bbox?.h ?? el.height ?? 20),
+        x: Number(el.x ?? bbox?.x ?? 0),
+        y: Number(el.y ?? bbox?.y ?? 0),
+        w: Number(el.w ?? bbox?.w ?? el.width ?? 100),
+        h: Number(el.h ?? bbox?.h ?? el.height ?? 20),
         content: String(el.content ?? ""),
         confidence: el.confidence != null ? Number(el.confidence) : undefined,
-      })),
+      };}),
     };
   } catch {
     // 解析失败，返回原始文本作为单元素
