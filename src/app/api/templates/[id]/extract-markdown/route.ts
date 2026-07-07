@@ -80,7 +80,7 @@ async function enrichWithLayout(
       if (contentList?.length && layoutElements.length) {
         return contentList.map((item, i) => {
           const layout = layoutElements[i] ?? layoutElements.find(
-            (el) => Math.abs((el.y as number) - (item.bbox as number[])?.[1] ?? 0) < 20,
+            (el) => Math.abs((el.y as number) - ((item.bbox as number[] | undefined)?.[1] ?? 0)) < 20,
           );
           return {
             ...item,
