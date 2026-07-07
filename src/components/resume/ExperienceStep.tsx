@@ -1,6 +1,7 @@
 "use client";
 
 import { useFieldArray } from "react-hook-form";
+import type { ResumeData } from "@/lib/validators/resume.schema";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,9 +13,9 @@ import { ResumeForm } from "@/hooks/use-resume-form";
 export function ExperienceStep({ form }: { form: ResumeForm }) {
   const { register, control } = form;
 
-  const educationFields = useFieldArray({ control, name: "education" });
-  const workFields = useFieldArray({ control, name: "experience" });
-  const projectFields = useFieldArray({ control, name: "projects" });
+  const educationFields = useFieldArray<ResumeData>({ control, name: "education" });
+  const workFields = useFieldArray<ResumeData>({ control, name: "experience" });
+  const projectFields = useFieldArray<ResumeData>({ control, name: "projects" });
 
   return (
     <div className="space-y-10">
