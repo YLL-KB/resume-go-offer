@@ -1,271 +1,291 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, useInView } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { useAuth } from "@/hooks/use-auth";
+import { AppHeader } from "@/components/ui/app-header";
+import { cn } from "@/lib/utils";
 import {
   FileText,
   LayoutTemplate,
   Eye,
   Download,
   Send,
-  Menu,
   ArrowRight,
   CheckCircle2,
-  LogIn,
   Sparkles,
-  Upload,
+  Wand2,
+  ScanEye,
+  FileSearch,
+  MousePointerClick,
+  Zap,
+  TrendingUp,
+  ShieldCheck,
+  type LucideIcon,
 } from "lucide-react";
 
+// ── 动画预设 ──
 const fadeUp = {
   initial: { opacity: 0, y: 40 },
   whileInView: { opacity: 1, y: 0 },
-  viewport: { once: false, margin: "-80px" },
+  viewport: { once: true, margin: "-80px" },
   transition: { duration: 0.55, ease: [0.25, 0.46, 0.45, 0.94] as const },
 };
 
+const stagger = (delay = 0) => ({
+  ...fadeUp,
+  transition: { ...fadeUp.transition, delay },
+});
+
+// ── 数字滚动 ──
+function AnimatedNumber({ target, suffix = "" }: { target: number; suffix?: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-50px" });
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!inView) return;
+    let start = 0;
+    const duration = 1500;
+    const step = Math.max(1, Math.floor(target / (duration / 16)));
+    const timer = setInterval(() => {
+      start += step;
+      if (start >= target) { setCount(target); clearInterval(timer); }
+      else setCount(start);
+    }, 16);
+    return () => clearInterval(timer);
+  }, [inView, target]);
+
+  return <span ref={ref}>{count.toLocaleString()}{suffix}</span>;
+}
+
+// ── 流程步骤 ──
 const steps = [
   {
     step: 1,
     icon: FileText,
-    title: "分步填写",
-    desc: "基本信息 → 教育 → 经历 → 项目 → 技能，向导式引导，5 分钟搞定。",
+    title: "上传 / 粘贴简历",
+    desc: "支持 PDF / 图片上传，或直接粘贴纯文本。AI 自动解析为结构化内容。",
+    color: "from-violet-500 to-purple-600",
   },
   {
     step: 2,
-    icon: Eye,
-    title: "实时预览",
-    desc: "经典 / 现代 / 极简模板一键切换，所见即所得。",
+    icon: Wand2,
+    title: "AI 智能优化",
+    desc: "一键润色经历描述、生成自我总结、分析竞争力评分，让简历脱颖而出。",
+    color: "from-blue-500 to-cyan-500",
   },
   {
     step: 3,
     icon: Download,
-    title: "导出投递",
-    desc: "浏览器端一键导出 PDF，同步记录投递进度。",
+    title: "导出高清 PDF",
+    desc: "选择专业模板，实时预览效果，一键导出排版精美的 PDF 简历。",
+    color: "from-emerald-500 to-teal-500",
   },
 ];
 
-const features = [
+// ── AI 能力卡片 ──
+const aiFeatures = [
+  {
+    icon: ScanEye,
+    title: "简历智能解析",
+    desc: "上传 PDF 自动提取姓名、经历、技能等结构化信息，告别手动录入。",
+    highlight: "OCR + AI",
+  },
+  {
+    icon: Sparkles,
+    title: "AI 润色优化",
+    desc: "用有力的动词和量化成果改写经历描述，让 HR 一眼看到亮点。",
+    highlight: "GPT / DeepSeek",
+  },
+  {
+    icon: FileSearch,
+    title: "竞争力分析",
+    desc: "AI 从 HR 视角评分，指出具体不足并给出可替换的改写建议。",
+    highlight: "评分 + 建议",
+  },
   {
     icon: LayoutTemplate,
-    title: "多套模板",
-    desc: "至少 3 套专业模板，适配不同行业风格。",
+    title: "专业模板库",
+    desc: "经典、现代、极简多套模板一键切换，适配不同行业和职级。",
+    highlight: "持续更新",
   },
   {
-    icon: Send,
-    title: "投递追踪",
-    desc: "看板视图管理已投 / 初筛 / 面试 / Offer，不遗漏。",
+    icon: MousePointerClick,
+    title: "可视化编辑器",
+    desc: "所见即所得编辑 PDF 模板，原位替换文字，保留原始排版不变。",
+    highlight: "原位编辑",
   },
   {
-    icon: CheckCircle2,
-    title: "版本对比",
-    desc: "同一岗位多版本简历，随时对比回滚。",
+    icon: TrendingUp,
+    title: "投递追踪看板",
+    desc: "看板管理已投 / 初筛 / 面试 / Offer 全流程，求职进度不遗漏。",
+    highlight: "看板视图",
   },
 ];
 
-const navLinks = [
-  { href: "/analyze", label: "简历分析" },
-  { href: "/templates", label: "选择模版" },
+// ── 亮点数据 ──
+const stats = [
+  { value: 5, suffix: " 分钟", label: "完成一份专业简历" },
+  { value: 3, suffix: " 套+", label: "精选简历模板" },
+  { value: 98, suffix: "%", label: "AI 解析准确率" },
+  { value: 0, suffix: " 元起", label: "基础功能永久免费" },
 ];
 
-export default function HomePage() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const { user, isSignedIn } = useAuth();
+// ── 底部功能列表 ──
+const bottomFeatures = [
+  { icon: Zap, title: "极速导出", desc: "浏览器端渲染，无需等待服务端，秒级导出 PDF" },
+  { icon: ShieldCheck, title: "数据安全", desc: "文件 30 分钟自动清理，不上传至第三方存储" },
+  { icon: Eye, title: "实时预览", desc: "编辑内容即时反馈，所见即所得，支持多模板切换" },
+];
 
+function SectionTitle({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-          <Link
-            href="/"
-            className="flex items-center gap-2 font-semibold text-lg"
-          >
-            <FileText className="size-5" />
-            Resume Go Offer
-          </Link>
-          <nav className="hidden items-center gap-6 text-sm text-muted-foreground sm:flex">
-            {navLinks.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className="hover:text-foreground transition-colors"
-              >
-                {l.label}
-              </Link>
-            ))}
-          </nav>
-          <div className="flex items-center gap-3">
-            {/* 根据登录状态切换：未登录 → 登录按钮，已登录 → 用户菜单 */}
-            {isSignedIn ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                asChild
-                className="hidden sm:inline-flex"
-              >
-                <Link href="/dashboard">{user?.name ?? "我的"}</Link>
-              </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                asChild
-                className="hidden sm:inline-flex"
-              >
-                <Link href="/login">
-                  <LogIn className="mr-1.5 size-4" />
-                  登录
-                </Link>
-              </Button>
-            )}
-            <Button asChild size="sm" className="hidden sm:inline-flex">
-              <Link href="/resume/new">开始制作</Link>
-            </Button>
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="hidden sm:inline-flex"
-            >
-              <Link href="/templates">
-                <Upload className="mr-1.5 size-4" />
-                上传模版
-              </Link>
-            </Button>
-            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-              <SheetTrigger asChild className="sm:hidden">
-                <Button variant="ghost" size="icon">
-                  <Menu className="size-5" />
-                  <span className="sr-only">打开菜单</span>
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-64 pt-12">
-                <nav className="flex flex-col gap-4">
-                  {navLinks.map((l) => (
-                    <Link
-                      key={l.href}
-                      href={l.href}
-                      className="text-lg font-medium hover:text-primary transition-colors"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      {l.label}
-                    </Link>
-                  ))}
-                  {/* 移动端：根据登录状态切换 */}
-                  {isSignedIn ? (
-                    <Link
-                      href="/dashboard"
-                      className="flex items-center gap-2 text-lg font-medium hover:text-primary transition-colors"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      {user?.name ?? "我的仪表盘"}
-                    </Link>
-                  ) : (
-                    <Link
-                      href="/login"
-                      className="flex items-center gap-2 text-lg font-medium hover:text-primary transition-colors"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      <LogIn className="size-5" />
-                      登录
-                    </Link>
-                  )}
-                  <Separator />
-                  <div className="flex flex-col gap-2">
-                    <Button
-                      asChild
-                      size="lg"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      <Link href="/resume/new">开始制作</Link>
-                    </Button>
-                    <Button
-                      asChild
-                      variant="outline"
-                      size="lg"
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      <Link href="/templates">
-                        <Upload className="mr-1.5 size-4" />
-                        上传模版
-                      </Link>
-                    </Button>
-                  </div>
-                </nav>
-              </SheetContent>
-            </Sheet>
-          </div>
-        </div>
-      </header>
+    <h2 className={cn("text-center text-2xl font-bold tracking-tight sm:text-3xl", className)}>
+      {children}
+    </h2>
+  );
+}
+
+function SectionDesc({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mx-auto mt-4 max-w-xl text-center text-muted-foreground text-base leading-relaxed">
+      {children}
+    </p>
+  );
+}
+
+// ═══════════════════════════════════════════════════════
+export default function HomePage() {
+  return (
+    <div className="min-h-screen bg-background overflow-x-hidden">
+      <AppHeader />
 
       <main>
-        {/* Hero */}
-        <section className="px-4 pt-24 pb-16 text-center">
-          <motion.h1
-            className="mx-auto max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
-            {...fadeUp}
-          >
-            做出专业简历
-            <br />
-            <span className="text-primary">拿下心仪 Offer</span>
-          </motion.h1>
-          <motion.p
-            className="mx-auto mt-6 max-w-lg text-muted-foreground text-lg leading-relaxed"
-            {...fadeUp}
-            transition={{ duration: 0.6, delay: 0.1, ease: "easeOut" }}
-          >
-            在线简历工具 — 分步填写、多模板预览、一键导出
-            PDF，配合投递看板追踪每次机会。
-          </motion.p>
-          <motion.div
-            className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
-            {...fadeUp}
-            transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}
-          >
-            <Button
-              asChild
-              variant="outline"
-              size="lg"
-              className="w-full sm:w-auto"
+        {/* ═══ Hero ═══ */}
+        <section className="relative px-4 pt-20 pb-12 sm:pt-28 sm:pb-20">
+          {/* 背景光晕 */}
+          <div className="pointer-events-none absolute inset-0 -top-24 overflow-hidden">
+            <div className="absolute left-1/2 top-0 h-[500px] w-[800px] -translate-x-1/2 rounded-full bg-gradient-to-b from-primary/15 via-primary/5 to-transparent blur-3xl" />
+          </div>
+
+          <div className="relative mx-auto max-w-4xl text-center">
+            {/* Badge */}
+            <motion.div {...stagger(0)}>
+              <Badge variant="secondary" className="mb-6 gap-1.5 px-4 py-1.5 text-sm">
+                <Sparkles className="size-3.5 text-primary" />
+                AI 驱动的智能简历工具
+              </Badge>
+            </motion.div>
+
+            {/* 主标题 */}
+            <motion.h1
+              className="mx-auto max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl"
+              {...stagger(0.1)}
             >
-              <Link href="/analyze">
-                <Sparkles className="mr-2 size-4" />
-                AI 简历分析
-              </Link>
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              分步引导 · 实时预览 · 多模板切换
-            </p>
+              让 AI 帮你
+              <br />
+              <span className="bg-gradient-to-r from-primary via-primary to-cyan-400 bg-clip-text text-transparent">
+                做出脱颖而出的简历
+              </span>
+            </motion.h1>
+
+            {/* 副标题 */}
+            <motion.p
+              className="mx-auto mt-6 max-w-lg text-muted-foreground text-lg leading-relaxed"
+              {...stagger(0.2)}
+            >
+              上传简历 → AI 智能解析优化 → 选择专业模板 → 一键导出
+              PDF，从零到投递只需 5 分钟。
+            </motion.p>
+
+            {/* CTA */}
+            <motion.div
+              className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
+              {...stagger(0.3)}
+            >
+              <Button asChild size="lg" className="h-12 px-8 text-base shadow-lg shadow-primary/25">
+                <Link href="/resume/new">
+                  开始制作简历 <ArrowRight className="ml-1 size-5" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="lg" className="h-12 px-8 text-base">
+                <Link href="/analyze">
+                  <ScanEye className="mr-1.5 size-5" />
+                  AI 简历分析
+                </Link>
+              </Button>
+            </motion.div>
+
+            {/* 信任条 */}
+            <motion.p
+              className="mt-6 text-xs text-muted-foreground/70"
+              {...stagger(0.4)}
+            >
+              无需注册 · 基础功能永久免费 · 数据自动清理
+            </motion.p>
+          </div>
+        </section>
+
+        {/* ═══ 数据行 ═══ */}
+        <section className="mx-auto max-w-3xl px-4 pb-16">
+          <motion.div
+            className="grid grid-cols-2 gap-4 sm:grid-cols-4"
+            {...fadeUp}
+          >
+            {stats.map((s) => (
+              <Card key={s.label} className="border-border/40 bg-muted/30 text-center">
+                <CardContent className="p-5">
+                  <div className="text-2xl font-extrabold text-primary tabular-nums sm:text-3xl">
+                    <AnimatedNumber target={s.value} suffix={s.suffix} />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{s.label}</p>
+                </CardContent>
+              </Card>
+            ))}
           </motion.div>
         </section>
 
-        {/* How It Works */}
-        <section className="mx-auto max-w-6xl px-4 py-20">
-          <motion.h2 className="text-center text-2xl font-semibold" {...fadeUp}>
-            三步做出专业简历
-          </motion.h2>
-          <div className="mt-12 grid gap-8 sm:grid-cols-3">
+        {/* ═══ 三步流程 ═══ */}
+        <section className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+          <SectionTitle>三步搞定专业简历</SectionTitle>
+          <SectionDesc>从空白到投递，AI 全程辅助每一步。</SectionDesc>
+
+          <div className="mt-14 grid gap-6 sm:grid-cols-3">
             {steps.map((s, i) => (
               <motion.div
                 key={s.step}
-                className="relative text-center"
-                {...fadeUp}
-                transition={{ duration: 0.6, delay: i * 0.15, ease: "easeOut" }}
+                className="group relative"
+                {...stagger(i * 0.12)}
               >
-                <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <s.icon className="size-6" />
-                </div>
+                <Card className="relative h-full border-border/40 bg-card/50 transition-shadow hover:shadow-lg hover:shadow-primary/5">
+                  <CardContent className="flex flex-col items-center p-6 pt-14 text-center">
+                    {/* 步骤号 */}
+                    <div
+                      className={cn(
+                        "absolute -top-5 left-1/2 flex size-10 -translate-x-1/2 items-center justify-center rounded-full bg-gradient-to-br text-white text-sm font-bold shadow-lg",
+                        s.color,
+                      )}
+                    >
+                      {s.step}
+                    </div>
+                    {/* 图标 */}
+                    <div className="mb-4 flex size-12 items-center justify-center rounded-xl bg-muted group-hover:bg-primary/10 transition-colors">
+                      <s.icon className="size-6 text-primary" />
+                    </div>
+                    <h3 className="font-semibold text-lg">{s.title}</h3>
+                    <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
+                  </CardContent>
+                </Card>
+
+                {/* 连接线 */}
                 {i < steps.length - 1 && (
-                  <div className="absolute top-7 left-[60%] hidden w-[80%] border-t-2 border-dashed border-border sm:block" />
+                  <div className="absolute top-9 left-[60%] hidden w-[80%] border-t-2 border-dashed border-border/60 sm:block" />
                 )}
-                <h3 className="mt-4 font-semibold">{s.title}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{s.desc}</p>
               </motion.div>
             ))}
           </div>
@@ -273,64 +293,76 @@ export default function HomePage() {
 
         <Separator className="mx-auto max-w-6xl" />
 
-        {/* Features */}
-        <section className="mx-auto max-w-6xl px-4 py-20">
-          <div className="grid items-center gap-12 lg:grid-cols-2">
-            <motion.div {...fadeUp}>
-              <h2 className="text-2xl font-semibold sm:text-3xl">
-                不只做简历，
-                <br />
-                更帮你管理求职全程
-              </h2>
-              <p className="mt-4 text-muted-foreground leading-relaxed">
-                从简历版本管理到投递状态追踪，一个工具覆盖求职全流程，不再用
-                Excel 到处记。
-              </p>
-            </motion.div>
-            <div className="space-y-4">
-              {features.map((f, i) => (
-                <motion.div
-                  key={f.title}
-                  {...fadeUp}
-                  transition={{
-                    duration: 0.5,
-                    delay: i * 0.12,
-                    ease: "easeOut",
-                  }}
-                >
-                  <Card className="border-border/60">
-                    <CardContent className="flex items-start gap-4 p-5">
-                      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <f.icon className="size-5" />
+        {/* ═══ AI 能力 ═══ */}
+        <section className="mx-auto max-w-6xl px-4 py-16 sm:py-24">
+          <SectionTitle>
+            <span className="inline-flex items-center gap-2">
+              <Sparkles className="size-6 text-primary" />
+              AI 核心能力
+            </span>
+          </SectionTitle>
+          <SectionDesc>不止做简历，AI 从解析、润色到分析全方位提升求职竞争力。</SectionDesc>
+
+          <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {aiFeatures.map((f, i) => (
+              <motion.div key={f.title} {...stagger(i * 0.08)}>
+                <Card className="group h-full border-border/40 bg-card/50 transition-all hover:border-primary/30 hover:shadow-md hover:shadow-primary/5">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between">
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 group-hover:bg-primary/15 transition-colors">
+                        <f.icon className="size-5 text-primary" />
                       </div>
-                      <div>
-                        <h3 className="font-semibold">{f.title}</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {f.desc}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      <Badge variant="secondary" className="text-[10px] font-mono">
+                        {f.highlight}
+                      </Badge>
+                    </div>
+                    <h3 className="mt-4 font-semibold">{f.title}</h3>
+                    <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        </section>
+
+        {/* ═══ 底部亮点 ═══ */}
+        <section className="bg-muted/30 px-4 py-16 sm:py-20">
+          <div className="mx-auto max-w-3xl">
+            <div className="grid gap-6 sm:grid-cols-3">
+              {bottomFeatures.map((f, i) => (
+                <motion.div key={f.title} className="text-center" {...stagger(i * 0.1)}>
+                  <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-background ring-1 ring-border">
+                    <f.icon className="size-4 text-primary" />
+                  </div>
+                  <h3 className="mt-4 font-semibold text-sm">{f.title}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{f.desc}</p>
                 </motion.div>
               ))}
             </div>
           </div>
         </section>
 
-        {/* CTA Banner */}
-        <section className="bg-muted/50 px-4 py-20 text-center">
+        {/* ═══ CTA ═══ */}
+        <section className="px-4 py-20 text-center">
           <motion.div {...fadeUp}>
-            <h2 className="text-2xl font-semibold sm:text-3xl">
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
               准备好拿下心仪 Offer 了吗？
             </h2>
             <p className="mt-3 text-muted-foreground">
               基础功能永久免费，高级模板按需解锁。
             </p>
-            <Button asChild size="lg" className="mt-6">
-              <Link href="/resume/new">
-                开始制作简历 <ArrowRight className="ml-2 size-4" />
-              </Link>
-            </Button>
+            <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+              <Button asChild size="lg" className="h-12 px-8 text-base shadow-lg shadow-primary/25">
+                <Link href="/resume/new">
+                  立即开始 <ArrowRight className="ml-1.5 size-5" />
+                </Link>
+              </Button>
+              <Button asChild variant="ghost" size="lg">
+                <Link href="/templates">
+                  浏览模板库 <LayoutTemplate className="ml-1.5 size-4" />
+                </Link>
+              </Button>
+            </div>
           </motion.div>
         </section>
       </main>
@@ -338,8 +370,7 @@ export default function HomePage() {
       {/* Footer */}
       <footer className="border-t py-8 text-center text-sm text-muted-foreground">
         <p>
-          Resume Go Offer &copy; {new Date().getFullYear()} — 跑在 Cloudflare
-          Pages 上
+          Resume Go Offer &copy; {new Date().getFullYear()} — 跑在 Cloudflare Pages 上
         </p>
       </footer>
     </div>
