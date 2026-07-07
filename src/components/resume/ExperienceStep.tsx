@@ -1,7 +1,6 @@
 "use client";
 
 import { useFieldArray } from "react-hook-form";
-import type { ResumeData } from "@/lib/validators/resume.schema";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,11 +10,13 @@ import { Plus, Trash2, GraduationCap, Building2, FolderCode } from "lucide-react
 import { ResumeForm } from "@/hooks/use-resume-form";
 
 export function ExperienceStep({ form }: { form: ResumeForm }) {
-  const { register, control } = form;
+  const { register, control: rawControl } = form;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const control = rawControl as any;
 
-  const educationFields = useFieldArray<ResumeData>({ control, name: "education" });
-  const workFields = useFieldArray<ResumeData>({ control, name: "experience" });
-  const projectFields = useFieldArray<ResumeData>({ control, name: "projects" });
+  const educationFields = useFieldArray({ control, name: "education" });
+  const workFields = useFieldArray({ control, name: "experience" });
+  const projectFields = useFieldArray({ control, name: "projects" });
 
   return (
     <div className="space-y-10">
