@@ -45,7 +45,7 @@ async function extractText(file: File): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase();
   if (ext === "pdf") {
     const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
+    pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs?v=${pdfjs.version}`;
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
     const texts: string[] = [];

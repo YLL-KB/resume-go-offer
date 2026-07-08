@@ -7,7 +7,7 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { Loader2 } from "lucide-react";
 
 // pdf.js worker — must be set before any PDF operations
-pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
+pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs?v=${pdfjs.version}`;
 
 export function PdfPageView({ url }: { url: string }) {
   const [numPages, setNumPages] = useState(0);

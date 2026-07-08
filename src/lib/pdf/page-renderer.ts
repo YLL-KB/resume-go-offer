@@ -30,7 +30,7 @@ export async function renderAllPages(
 
   // 2. 按页分组 + 渲染背景
   const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs?v=${pdfjsLib.version}`;
   const pdf = await pdfjsLib.getDocument({ url: pdfUrl }).promise;
 
   const pageMap = new Map<number, RichTextBlock[]>();

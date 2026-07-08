@@ -11,7 +11,7 @@ import type { BlockTextData } from "@/lib/editor/html-parser";
 import type { ImageBlock } from "@/lib/pdf/image-extractor";
 import type { Module } from "@/lib/pdf/module-detector";
 
-pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.mjs";
+pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.mjs?v=${pdfjs.version}`;
 
 export interface TextBlock {
   x: number; y: number; width: number; height: number;
