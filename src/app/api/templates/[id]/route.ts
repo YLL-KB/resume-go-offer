@@ -33,10 +33,10 @@ export async function GET(
 ) {
   const { id } = await params;
   const { pdf: pdfPath } = filePaths(id);
-  const staticUrl = `/uploads/templates/${id}.pdf`;
 
+  let fileBuffer: Buffer;
   try {
-    await fs.access(pdfPath);
+    fileBuffer = await fs.readFile(pdfPath);
   } catch {
     return NextResponse.json(
       { error: "模版文件不存在" },
@@ -45,11 +45,19 @@ export async function GET(
   }
 
   const searchParams = request.nextUrl.searchParams;
-  // 预览和下载都 302 → 静态 PDF
-  return NextResponse.redirect(
-    new URL(staticUrl + (searchParams.get("download") === "1" ? "?download=1" : ""), request.url),
-    302,
-  );
+  const isDownload = searchParams.get("download") === "1";
+
+  return new NextResponse(fileBuffer, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Length": String(fileBuffer.length),
+      "Cache-Control": "public, max-age=3600",
+      ...(isDownload
+        ? { "Content-Disposition": `attachment; filename="${id}.pdf"` }
+        : { "Content-Disposition": "inline" }),
+    },
+  });
 }
 
 // ── DELETE ──

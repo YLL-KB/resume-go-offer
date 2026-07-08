@@ -252,7 +252,7 @@ export default function TemplatesPage() {
                               {t.url && (
                                 <Button variant="ghost" size="sm" className="flex-1 h-8 text-xs" asChild
                                   onClick={e => e.stopPropagation()}>
-                                  <a href={`/uploads/templates/${t.id}.pdf`} download={`${t.name}.pdf`}>
+                                  <a href={`/api/templates/${t.id}?download=1`} download={`${t.name}.pdf`}>
                                     <FileText className="mr-1 size-3" />下载
                                   </a>
                                 </Button>
