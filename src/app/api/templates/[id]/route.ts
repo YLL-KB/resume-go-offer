@@ -31,7 +31,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = rawId.endsWith(".pdf") ? rawId.slice(0, -4) : rawId;
   const { pdf: pdfPath } = filePaths(id);
 
   let fileBuffer: Buffer;
@@ -47,7 +48,7 @@ export async function GET(
   const searchParams = request.nextUrl.searchParams;
   const isDownload = searchParams.get("download") === "1";
 
-  return new NextResponse(fileBuffer, {
+  return new NextResponse(new Uint8Array(fileBuffer), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",
@@ -65,7 +66,8 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = rawId.endsWith(".pdf") ? rawId.slice(0, -4) : rawId;
   const { pdf: pdfPath, meta: metaPath } = filePaths(id);
 
   // ============================================================
