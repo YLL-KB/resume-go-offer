@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     const buf = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(path.join(UPLOAD_DIR, `${id}.pdf`), buf);
 
-    return NextResponse.json({ id, url: `/uploads/analysis/${id}.pdf` });
+    return NextResponse.json({ id, url: `/api/analysis/${id}.pdf` });
   } catch (err) {
     console.error("Upload resume error:", err);
     return NextResponse.json({ error: "上传失败" }, { status: 500 });

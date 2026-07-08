@@ -28,7 +28,7 @@ export function ResumeNewContent() {
   const { data: uploaded = [] } = useRequest(getTemplates);
   const tpl = templateId ? uploaded.find((t: TemplateItem) => t.id === templateId) : undefined;
   // 分析来源用 analysis 目录，模版用 templates 目录
-  const pdfDir = source === "analysis" ? "uploads/analysis" : "uploads/templates";
+  const pdfDir = source === "analysis" ? "api/analysis" : "api/templates";
   const pdfUrl = templateId ? `/${pdfDir}/${templateId}.pdf` : undefined;
 
   const parsing = useEditorStore(s => s.parsing);
@@ -69,7 +69,7 @@ export function ResumeNewContent() {
           setBlocks(b);
           setEdits({});
         }
-      } catch { /* ignore */ }
+      } catch (e) { console.error("文字块提取失败:", e); }
       finally { if (!cancelled) setParsing(false); }
     })();
     return () => { cancelled = true; };
