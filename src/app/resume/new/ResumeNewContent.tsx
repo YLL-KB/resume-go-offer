@@ -192,7 +192,7 @@ export function ResumeNewContent() {
               <FileText className="size-3" />
               第1页 (模版)
             </button>
-            {aiAnalysis && (
+            {source === "analysis" && aiAnalysis && (
               <button
                 onClick={() => setActivePage("ai-analysis")}
                 className={`shrink-0 flex items-center gap-1 px-3 py-1.5 text-xs border-b-2 transition-colors ${
