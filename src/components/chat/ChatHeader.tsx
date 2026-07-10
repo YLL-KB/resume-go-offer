@@ -1,63 +1,66 @@
 "use client";
 
+import { useCallback } from "react";
 import { useChatStore } from "@/stores/chat-store";
-import { Eye, EyeOff, Plus, LogIn, LogOut, User } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Eye, Plus, Menu, PanelLeftClose } from "lucide-react";
 
-export function ChatHeader() {
-  const { showPreview, setShowPreview, resumeData, startNewChat, messages } = useChatStore();
+export function ChatHeader({
+  onToggleSidebar,
+  showSidebar,
+}: {
+  onToggleSidebar: () => void;
+  showSidebar: boolean;
+}) {
+  const { resumeData, startNewChat, messages } = useChatStore();
 
   const hasResume = resumeData !== null;
   const hasStarted = messages.length > 0;
 
+  const handlePreview = useCallback(() => {
+    const src = document.querySelector(".print-resume");
+    if (!src) return;
+    let root = document.getElementById("print-root");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "print-root";
+      root.className = "hidden print:block";
+      document.body.appendChild(root);
+    }
+    root.innerHTML = "";
+    const clone = src.cloneNode(true) as HTMLElement;
+    clone.className = "print-resume w-[210mm] min-h-[297mm] bg-white";
+    root.appendChild(clone);
+    window.print();
+    setTimeout(() => root?.remove(), 500);
+  }, []);
+
   return (
     <header className="flex items-center justify-between border-b px-4 py-3">
       <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={onToggleSidebar}>
+          {showSidebar ? (
+            <PanelLeftClose className="size-4" />
+          ) : (
+            <Menu className="size-4" />
+          )}
+        </Button>
         <h1 className="text-base font-semibold">简历顾问</h1>
         {hasStarted && (
-          <button
-            onClick={startNewChat}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted transition-colors"
-          >
-            <Plus className="size-3" />
+          <Button variant="ghost" size="sm" onClick={startNewChat}>
+            <Plus />
             新对话
-          </button>
+          </Button>
         )}
       </div>
 
       <div className="flex items-center gap-2">
-        {/* 预览按钮 */}
         {hasResume && (
-          <button
-            onClick={() => setShowPreview(!showPreview)}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              showPreview
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
-          >
-            {showPreview ? (
-              <>
-                <EyeOff className="size-3.5" />
-                收起预览
-              </>
-            ) : (
-              <>
-                <Eye className="size-3.5" />
-                查看简历
-              </>
-            )}
-          </button>
+          <Button size="sm" onClick={handlePreview}>
+            <Eye />
+            查看简历
+          </Button>
         )}
-
-        {/* 登录按钮 */}
-        <a
-          href="/login"
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
-        >
-          <LogIn className="size-3.5" />
-          登录
-        </a>
       </div>
     </header>
   );

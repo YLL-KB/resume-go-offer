@@ -30,16 +30,25 @@ interface ChatState {
   isExtracting: boolean;
   showPreview: boolean;
 
+  // 对话列表
+  conversations: Array<{ id: string; title: string; updatedAt: string }>;
+  isLoadingHistory: boolean;
+
   // 操作
   setConversationId: (id: string) => void;
   addMessage: (msg: ChatMessage) => void;
+  setMessages: (msgs: ChatMessage[]) => void;
   appendToLastMessage: (content: string) => void;
   setStreaming: (v: boolean) => void;
   setError: (err: string | null) => void;
   setResumeData: (data: Partial<ResumeData>) => void;
   setExtracting: (v: boolean) => void;
   setShowPreview: (v: boolean) => void;
+  setConversations: (list: Array<{ id: string; title: string; updatedAt: string }> | ((prev: Array<{ id: string; title: string; updatedAt: string }>) => Array<{ id: string; title: string; updatedAt: string }>)) => void;
+  renameConversation: (id: string, title: string) => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
   startNewChat: () => void;
+  loadConversation: (conversationId: string) => Promise<void>;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -50,11 +59,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   resumeData: null,
   isExtracting: false,
   showPreview: false,
+  conversations: [],
+  isLoadingHistory: false,
 
-  setConversationId: (id) => set({ conversationId: id }),
+  setConversationId: (id) => {
+    set({ conversationId: id });
+    if (typeof window !== "undefined") localStorage.setItem("chat_conversation_id", id);
+  },
 
   addMessage: (msg) =>
     set((s) => ({ messages: [...s.messages, msg] })),
+
+  setMessages: (msgs) => set({ messages: msgs }),
 
   appendToLastMessage: (content) =>
     set((s) => {
@@ -83,7 +99,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setShowPreview: (v) => set({ showPreview: v }),
 
-  startNewChat: () =>
+  setConversations: (list) => set((s) => ({ conversations: typeof list === "function" ? list(s.conversations) : list })),
+
+  startNewChat: () => {
+    if (typeof window !== "undefined") localStorage.removeItem("chat_conversation_id");
     set({
       conversationId: null,
       messages: [],
@@ -92,5 +111,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
       resumeData: null,
       isExtracting: false,
       showPreview: false,
-    }),
+    });
+  },
+
+  loadConversation: async (conversationId) => {
+    set({ isLoadingHistory: true });
+    try {
+      const res = await fetch(`/api/chat/history?conversationId=${conversationId}`);
+      const data = await res.json() as { messages: ChatMessage[] };
+      set({
+        messages: data.messages ?? [],
+        conversationId,
+        isLoadingHistory: false,
+      });
+      if (typeof window !== "undefined") localStorage.setItem("chat_conversation_id", conversationId);
+    } catch {
+      set({ isLoadingHistory: false });
+    }
+  },
+
+  renameConversation: async (id, title) => {
+    await fetch(`/api/chat/history/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === id ? { ...c, title } : c
+      ),
+    }));
+  },
+
+  deleteConversation: async (id) => {
+    await fetch(`/api/chat/history/${id}`, { method: "DELETE" });
+    set((s) => ({
+      conversations: s.conversations.filter((c) => c.id !== id),
+      conversationId: s.conversationId === id ? null : s.conversationId,
+      messages: s.conversationId === id ? [] : s.messages,
+      showPreview: s.conversationId === id ? false : s.showPreview,
+    }));
+    if (get().conversationId === null && typeof window !== "undefined") {
+      localStorage.removeItem("chat_conversation_id");
+    }
+  },
 }));

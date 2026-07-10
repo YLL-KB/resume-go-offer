@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore, type ChatMessage as ChatMessageType } from "@/stores/chat-store";
 import { FormCard, type FormType } from "./FormCard";
+import { Button } from "@/components/ui/button";
 import { marked } from "marked";
 import { User, Bot } from "lucide-react";
 
@@ -163,12 +164,9 @@ export function ChatMessages() {
 
         {hasFormDone && (
           <div className="flex justify-center">
-            <button
-              onClick={() => window.dispatchEvent(new CustomEvent("form-done"))}
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-lg transition-all hover:bg-primary/90 active:scale-95"
-            >
+            <Button size="lg" className="rounded-full shadow-lg" onClick={() => window.dispatchEvent(new CustomEvent("form-done"))}>
               ✨ 生成简历
-            </button>
+            </Button>
           </div>
         )}
 

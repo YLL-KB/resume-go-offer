@@ -37,6 +37,7 @@ function BasicForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unknow
   const [phone, setPhone] = useState("");
   const [location, setLocation] = useState("");
   const [title, setTitle] = useState("");
+  const [salary, setSalary] = useState("");
 
   return (
     <div className="space-y-3">
@@ -46,8 +47,8 @@ function BasicForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unknow
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="张三" className="mt-1 h-9 text-sm" />
         </div>
         <div>
-          <Label className="text-xs">求职意向</Label>
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="前端工程师" className="mt-1 h-9 text-sm" />
+          <Label className="text-xs">求职意向 *</Label>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="前端开发工程师" className="mt-1 h-9 text-sm" />
         </div>
         <div>
           <Label className="text-xs">邮箱 *</Label>
@@ -57,14 +58,18 @@ function BasicForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unknow
           <Label className="text-xs">电话</Label>
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="138xxxx" className="mt-1 h-9 text-sm" />
         </div>
-        <div className="col-span-2">
+        <div>
           <Label className="text-xs">城市</Label>
           <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="北京" className="mt-1 h-9 text-sm" />
+        </div>
+        <div>
+          <Label className="text-xs">期望薪资</Label>
+          <Input value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="15k-25k / 面议" className="mt-1 h-9 text-sm" />
         </div>
       </div>
       <div className="flex justify-end gap-2 pt-1">
         <Button variant="ghost" size="sm" onClick={onCancel}>跳过</Button>
-        <Button size="sm" onClick={() => onSubmit({ name, email, phone, location, title })} disabled={!name || !email}>
+        <Button size="sm" onClick={() => onSubmit({ name, email, phone, location, title, salary })} disabled={!name || !email || !title}>
           <Send className="mr-1.5 size-3" />提交
         </Button>
       </div>
@@ -222,9 +227,9 @@ function SkillsForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkno
           {skills.map((s) => (
             <Badge key={s} variant="secondary" className="gap-1 pr-1">
               {s}
-              <button onClick={() => setSkills(skills.filter((x) => x !== s))}>
+              <Button variant="ghost" size="icon" className="size-4 p-0" onClick={() => setSkills(skills.filter((x) => x !== s))}>
                 <X className="size-3" />
-              </button>
+              </Button>
             </Badge>
           ))}
         </div>

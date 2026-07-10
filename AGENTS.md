@@ -64,7 +64,14 @@ import { Badge } from "@/components/ui/badge";
 <span className="tag">推荐</span>
 ```
 
-### 3. API 路由
+### 3. 组件规模与新增规则
+
+- **每个组件文件不超过 600 行。** 超过则拆分：抽 hooks → `hooks/`、拆子组件 → 同目录、提工具函数 → `lib/`。
+- **新增组件必须使用 shadcn/ui + Tailwind CSS。** 禁止原生 `<button>` `<input>` `<select>` `<textarea>` `<nav>` `<header>` `<footer>` `<section>` 等交互/语义标签，禁止 inline `style={{}}`（动态计算除外），禁止自定义 CSS（`@media print` 等用 Tailwind `print:` 变体，`@page` 等用 `@layer base`）。
+- **所有代码必须通过 ESLint 检查。** 提交前确保 `pnpm lint` 零错误零警告。禁止提交带有 `@typescript-eslint/no-unused-vars`、`react-hooks/exhaustive-deps` 等警告的代码。
+- **以上规则适用于 `src/` 下所有组件文件，无例外。**
+
+### 4. API 路由
 
 ```ts
 // 每个需要 Node.js 运行时（fs、path 等）的 API 路由顶部必须声明：
@@ -78,7 +85,7 @@ export const dynamic = "force-dynamic";
 - 需要返回 PDF → API 路由做 302 重定向到 `/uploads/xxx.pdf`，不在路由内读文件响应
 - 文件修改后 Next.js 热更新自动生效，无需重启
 
-### 4. 模版系统
+### 5. 模版系统
 
 **上传：**
 - 仅接受 PDF 文件
@@ -112,7 +119,7 @@ export const dynamic = "force-dynamic";
 - 删除接口预留了管理员校验
 - 当前硬编码 `isAdmin = true`，后续接入用户系统后替换
 
-### 5. 导航结构
+### 6. 导航结构
 
 | 路径 | 页面 | 说明 |
 |------|------|------|

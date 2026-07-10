@@ -8,7 +8,7 @@
  */
 
 import { NextRequest } from "next/server";
-import { ai } from "@/lib/ai";
+import { ai, openai } from "@/lib/ai";
 import { SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       await db.insert(conversations).values({
         id: convId,
         userId,
-        title: message.slice(0, 50),
+        title: "新对话",
         createdAt: now,
         updatedAt: now,
       });
@@ -138,6 +138,25 @@ export async function POST(request: NextRequest) {
               });
             } catch (saveErr) {
               console.error("Failed to save AI reply:", saveErr);
+            }
+
+            // 第一条回复后自动生成对话标题
+            if (history.length === 0) {
+              try {
+                const titleRes = await openai.chat.completions.create({
+                  model: process.env.AI_MODEL ?? "gpt-4o-mini",
+                  temperature: 0.3,
+                  max_tokens: 30,
+                  messages: [
+                    { role: "system", content: "根据用户和AI的第一轮对话，生成一个简短的对话标题（8字以内）。只返回标题文本。" },
+                    { role: "user", content: `用户: ${message.trim()}\nAI: ${fullReply.slice(0, 200)}` },
+                  ],
+                });
+                const title = titleRes.choices[0]?.message?.content?.trim()?.replace(/["「」""]/g, "") ?? "新对话";
+                await db.update(conversations).set({ title: title.slice(0, 20) }).where(eq(conversations.id, convId!));
+                // 把标题通过 SSE 发给前端
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ title: title.slice(0, 20) })}\n\n`));
+              } catch { /* 标题生成失败不影响对话 */ }
             }
           }
 

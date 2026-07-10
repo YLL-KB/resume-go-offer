@@ -11,7 +11,7 @@
 
 import OpenAI from "openai";
 
-const openai = new OpenAI({
+export const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? "sk-placeholder",
   baseURL: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
 });

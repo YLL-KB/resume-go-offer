@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { FileText, Menu, LogIn, ScanEye, LayoutTemplate, User } from "lucide-react";
+import { FileText, Menu, LogIn, ScanEye, LayoutTemplate, User, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
 const links = [
+  { href: "/chat", label: "AI 对话", icon: MessageSquare },
   { href: "/analyze", label: "简历分析", icon: ScanEye },
   { href: "/templates", label: "选择模版", icon: LayoutTemplate },
 ] as const;

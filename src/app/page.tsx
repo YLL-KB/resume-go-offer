@@ -10,22 +10,18 @@ import { Separator } from "@/components/ui/separator";
 import { AppHeader } from "@/components/ui/app-header";
 import { cn } from "@/lib/utils";
 import {
-  FileText,
   LayoutTemplate,
   Eye,
   Download,
-  Send,
   ArrowRight,
-  CheckCircle2,
   Sparkles,
-  Wand2,
   ScanEye,
   FileSearch,
   MousePointerClick,
   Zap,
   TrendingUp,
   ShieldCheck,
-  type LucideIcon,
+  MessageSquare,
 } from "lucide-react";
 
 // ── 动画预设 ──
@@ -67,23 +63,23 @@ function AnimatedNumber({ target, suffix = "" }: { target: number; suffix?: stri
 const steps = [
   {
     step: 1,
-    icon: FileText,
-    title: "上传 / 粘贴简历",
-    desc: "支持 PDF / 图片上传，或直接粘贴纯文本。AI 自动解析为结构化内容。",
+    icon: MessageSquare,
+    title: "跟 AI 聊你的经历",
+    desc: "像跟朋友聊天一样，告诉 AI 你的工作经历、技能、项目经验，AI 会主动追问细节。",
     color: "from-violet-500 to-purple-600",
   },
   {
     step: 2,
-    icon: Wand2,
-    title: "AI 智能优化",
-    desc: "一键润色经历描述、生成自我总结、分析竞争力评分，让简历脱颖而出。",
+    icon: Sparkles,
+    title: "AI 帮你组织优化",
+    desc: "AI 自动把口语描述转成专业简历语言，用 STAR 法则改写经历，量化成果。",
     color: "from-blue-500 to-cyan-500",
   },
   {
     step: 3,
     icon: Download,
     title: "导出高清 PDF",
-    desc: "选择专业模板，实时预览效果，一键导出排版精美的 PDF 简历。",
+    desc: "实时预览排版效果，一键导出专业排版的 PDF 简历，直接拿去投递。",
     color: "from-emerald-500 to-teal-500",
   },
 ];
@@ -187,10 +183,10 @@ export default function HomePage() {
               className="mx-auto max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl"
               {...stagger(0.1)}
             >
-              让 AI 帮你
+              跟 AI 聊聊
               <br />
               <span className="bg-gradient-to-r from-primary via-primary to-cyan-400 bg-clip-text text-transparent">
-                做出脱颖而出的简历
+                一份专业简历就出来了
               </span>
             </motion.h1>
 
@@ -199,8 +195,7 @@ export default function HomePage() {
               className="mx-auto mt-6 max-w-lg text-muted-foreground text-lg leading-relaxed"
               {...stagger(0.2)}
             >
-              上传简历 → AI 智能解析优化 → 选择专业模板 → 一键导出
-              PDF，从零到投递只需 5 分钟。
+              像跟朋友聊天一样告诉 AI 你的经历，AI 会主动追问、帮你组织语言，聊完自动生成排版精美的简历 PDF。
             </motion.p>
 
             {/* CTA */}
@@ -209,14 +204,14 @@ export default function HomePage() {
               {...stagger(0.3)}
             >
               <Button asChild size="lg" className="h-12 px-8 text-base shadow-lg shadow-primary/25">
-                <Link href="/resume/builder">
-                  开始制作简历 <ArrowRight className="ml-1 size-5" />
+                <Link href="/chat">
+                  <Sparkles className="mr-1.5 size-5" />
+                  开始对话 <ArrowRight className="ml-1 size-5" />
                 </Link>
               </Button>
               <Button asChild variant="outline" size="lg" className="h-12 px-8 text-base">
-                <Link href="/analyze">
-                  <ScanEye className="mr-1.5 size-5" />
-                  AI 简历分析
+                <Link href="/resume/builder">
+                  手动填表单
                 </Link>
               </Button>
             </motion.div>
@@ -353,13 +348,13 @@ export default function HomePage() {
             </p>
             <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <Button asChild size="lg" className="h-12 px-8 text-base shadow-lg shadow-primary/25">
-                <Link href="/resume/builder">
-                  立即开始 <ArrowRight className="ml-1.5 size-5" />
+                <Link href="/chat">
+                  <Sparkles className="mr-1.5 size-5" />开始对话 <ArrowRight className="ml-1.5 size-5" />
                 </Link>
               </Button>
               <Button asChild variant="ghost" size="lg">
-                <Link href="/templates">
-                  浏览模板库 <LayoutTemplate className="ml-1.5 size-4" />
+                <Link href="/resume/builder">
+                  手动填表单 <LayoutTemplate className="ml-1.5 size-4" />
                 </Link>
               </Button>
             </div>

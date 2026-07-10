@@ -2,6 +2,8 @@
 
 import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
 import { useChatStore, type ResumeData } from "@/stores/chat-store";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Send, Square, Loader2 } from "lucide-react";
 
 export function ChatInput() {
@@ -20,6 +22,7 @@ export function ChatInput() {
     setResumeData,
     setExtracting,
     setShowPreview,
+    setConversations,
   } = useChatStore();
 
   // 自动调整高度
@@ -80,6 +83,9 @@ export function ChatInput() {
               const parsed = JSON.parse(data);
               if (typeof parsed.content === "string") appendToLastMessage(parsed.content);
               if (parsed.conversationId && !conversationId) setConversationId(parsed.conversationId);
+              if (parsed.title && conversationId) {
+                setConversations((prev) => prev.map((c) => c.id === conversationId ? { ...c, title: parsed.title as string } : c));
+              }
               if (parsed.error) setError(parsed.error);
             } catch { buffer += line + "\n"; }
           } else if (line.trim()) { buffer += line + "\n"; }
@@ -91,7 +97,7 @@ export function ChatInput() {
       setStreaming(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setStreaming, setError]);
+  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError]);
 
   // ── 监听表单事件 ──
   useEffect(() => {
@@ -167,15 +173,17 @@ export function ChatInput() {
   const hasMessages = messages.length > 0;
 
   return (
-    <div className="border-t bg-background px-4 py-4">
+    <div className="print:hidden border-t bg-background px-4 py-4">
       <div className="mx-auto max-w-2xl">
         {/* 操作按钮行 */}
         {hasMessages && !isStreaming && (
           <div className="mb-3 flex justify-center">
-            <button
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-full"
               onClick={handleExtract}
               disabled={isExtracting}
-              className="inline-flex items-center gap-2 rounded-full border bg-background px-4 py-2 text-sm text-muted-foreground shadow-sm transition-colors hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
             >
               {isExtracting ? (
                 <>
@@ -187,35 +195,28 @@ export function ChatInput() {
                   ✨ 生成简历预览
                 </>
               )}
-            </button>
+            </Button>
           </div>
         )}
 
         {/* 输入区 */}
         <div className="flex items-end gap-2 rounded-2xl border bg-muted/30 px-4 py-3 focus-within:border-primary/50 focus-within:bg-background transition-colors">
-          <textarea
+          <Textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              adjustHeight();
-            }}
+            onChange={(e) => { setInput(e.target.value); adjustHeight(); }}
             onKeyDown={handleKeyDown}
             placeholder="说说你的情况..."
             rows={1}
-            className="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="flex-1 resize-none border-0 bg-transparent text-sm shadow-none focus-visible:ring-0 placeholder:text-muted-foreground"
           />
-          <button
+          <Button
+            size="icon"
             onClick={sendMessage}
             disabled={!input.trim() || isStreaming}
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
           >
-            {isStreaming ? (
-              <Square className="size-4" />
-            ) : (
-              <Send className="size-4" />
-            )}
-          </button>
+            {isStreaming ? <Square className="size-4" /> : <Send className="size-4" />}
+          </Button>
         </div>
 
         <p className="mt-2 text-center text-xs text-muted-foreground">
