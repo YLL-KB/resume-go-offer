@@ -209,7 +209,7 @@ export default function HomePage() {
               {...stagger(0.3)}
             >
               <Button asChild size="lg" className="h-12 px-8 text-base shadow-lg shadow-primary/25">
-                <Link href="/resume/new">
+                <Link href="/resume/builder">
                   开始制作简历 <ArrowRight className="ml-1 size-5" />
                 </Link>
               </Button>
@@ -353,7 +353,7 @@ export default function HomePage() {
             </p>
             <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <Button asChild size="lg" className="h-12 px-8 text-base shadow-lg shadow-primary/25">
-                <Link href="/resume/new">
+                <Link href="/resume/builder">
                   立即开始 <ArrowRight className="ml-1.5 size-5" />
                 </Link>
               </Button>

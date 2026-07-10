@@ -41,8 +41,8 @@
 	 * 注意: AUTHING_APP_SECRET 是敏感信息，生产环境用 `wrangler secret put AUTHING_APP_SECRET`
 	 */
 	"vars": {
-		"AUTHING_APP_ID": "你的AppID",
-		"NEXT_PUBLIC_APP_URL": "https://你的域名.com"
+		"AUTHING_APP_ID": "6a4f3e289a0ee980079eaa1a",
+		"NEXT_PUBLIC_APP_URL": "http://www.resumeoffer.cn"
 	},
 	"d1_databases": [
 		{

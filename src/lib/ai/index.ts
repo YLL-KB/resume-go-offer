@@ -106,6 +106,43 @@ export function streamToResponse(
 
 export const ai = {
   /**
+   * 对话聊天 — 流式返回
+   *
+   * @param messages - 完整对话历史 [{ role: "user"|"assistant"|"system", content }]
+   * @returns OpenAI stream
+   */
+  chat(messages: Array<{ role: "system" | "user" | "assistant"; content: string }>) {
+    return openai.chat.completions.create({
+      model: DEFAULT_MODEL,
+      temperature: 0.7,
+      max_tokens: 2048,
+      stream: true,
+      messages,
+    });
+  },
+
+  /**
+   * 从对话历史提取结构化简历数据
+   *
+   * @param conversationHistory - 对话记录文本
+   * @returns ResumeData JSON 对象
+   */
+  async extractResumeData(conversationHistory: string): Promise<Record<string, unknown> | null> {
+    const { buildExtractPrompt } = await import("./prompts");
+    const res = await openai.chat.completions.create({
+      model: DEFAULT_MODEL,
+      temperature: 0.3,
+      max_tokens: 4096,
+      messages: [
+        { role: "user", content: buildExtractPrompt(conversationHistory) },
+      ],
+    });
+
+    const text = res.choices[0]?.message?.content?.trim() ?? "";
+    return safeJsonParse<Record<string, unknown>>(text);
+  },
+
+  /**
    * 润色简历经历描述
    *
    * @param text - 用户写的原始描述，如"负责前端开发"

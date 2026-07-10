@@ -1,6 +1,42 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 
 // ============================================================
+// User — 用户
+// ============================================================
+export const users = sqliteTable("users", {
+	id: text("id").primaryKey(),
+	authingSub: text("authing_sub").unique(), // Authing 用户标识，未登录为 null
+	name: text("name"),
+	email: text("email"),
+	avatarUrl: text("avatar_url"),
+	createdAt: text("created_at").notNull(),
+	updatedAt: text("updated_at").notNull(),
+});
+
+// ============================================================
+// Conversation — 对话
+// ============================================================
+export const conversations = sqliteTable("conversations", {
+	id: text("id").primaryKey(),
+	userId: text("user_id").notNull(),
+	resumeId: text("resume_id"), // 关联生成的简历
+	title: text("title").default("新对话"),
+	createdAt: text("created_at").notNull(),
+	updatedAt: text("updated_at").notNull(),
+});
+
+// ============================================================
+// Message — 消息
+// ============================================================
+export const messages = sqliteTable("messages", {
+	id: text("id").primaryKey(),
+	conversationId: text("conversation_id").notNull(),
+	role: text("role").notNull(), // "user" | "assistant" | "system"
+	content: text("content").notNull(),
+	createdAt: text("created_at").notNull(),
+});
+
+// ============================================================
 // Resume — 简历主表
 // ============================================================
 export const resumes = sqliteTable("resumes", {

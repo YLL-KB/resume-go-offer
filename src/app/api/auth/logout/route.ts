@@ -8,7 +8,8 @@ import { NextResponse } from "next/server";
 import { clearSessionCookie } from "@/lib/auth/oidc";
 
 export async function GET() {
-  const response = NextResponse.redirect(new URL("/", "http://localhost:3000"));
+  const host = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const response = NextResponse.redirect(new URL("/", host));
 
   clearSessionCookie(response.headers);
 
