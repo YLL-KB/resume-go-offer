@@ -7,6 +7,7 @@
 import { create } from "zustand";
 import { DEFAULT_RESUME_DATA, type ResumeData } from "@/lib/validators/resume.schema";
 import { GREETING_NEW_USER } from "@/lib/ai/prompts";
+import { randomUUID } from "@/lib/utils/uuid";
 
 // ── 类型 ──
 
@@ -107,7 +108,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       conversationId: null,
       messages: [{
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         role: "assistant" as const,
         content: GREETING_NEW_USER,
         createdAt: new Date().toISOString(),

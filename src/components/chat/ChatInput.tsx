@@ -5,6 +5,7 @@ import { useChatStore, type ResumeData } from "@/stores/chat-store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send, Square, Loader2 } from "lucide-react";
+import { randomUUID } from "@/lib/utils/uuid";
 
 export function ChatInput() {
   const [input, setInput] = useState("");
@@ -41,7 +42,7 @@ export function ChatInput() {
     setError(null);
 
     const userMsg = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       role: "user" as const,
       content: text,
       createdAt: new Date().toISOString(),
@@ -49,7 +50,7 @@ export function ChatInput() {
     addMessage(userMsg);
 
     const assistantMsg = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       role: "assistant" as const,
       content: "",
       createdAt: new Date().toISOString(),

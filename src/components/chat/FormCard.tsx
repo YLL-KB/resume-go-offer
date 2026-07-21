@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { X, Plus, Send } from "lucide-react";
+import { randomUUID } from "@/lib/utils/uuid";
 
 // ── 表单类型 ──
 
@@ -90,7 +91,7 @@ function EducationForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, un
 
   const addEntry = () => {
     if (!school.trim()) return;
-    setEntries([...entries, { id: crypto.randomUUID(), school: school.trim(), degree: degree.trim(), major: major.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]);
+    setEntries([...entries, { id: randomUUID(), school: school.trim(), degree: degree.trim(), major: major.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]);
     setSchool(""); setDegree(""); setMajor(""); setStartDate(""); setEndDate("");
   };
 
@@ -101,7 +102,7 @@ function EducationForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, un
   const handleSubmit = () => {
     // 如果当前有正在填写的，先自动添加
     const allEntries = school.trim()
-      ? [...entries, { id: crypto.randomUUID(), school: school.trim(), degree: degree.trim(), major: major.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]
+      ? [...entries, { id: randomUUID(), school: school.trim(), degree: degree.trim(), major: major.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]
       : entries;
     onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
   };
@@ -184,7 +185,7 @@ function ExperienceForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, u
 
   const addEntry = () => {
     if (!company.trim()) return;
-    setEntries([...entries, { id: crypto.randomUUID(), company: company.trim(), title: title.trim(), startDate: startDate.trim(), endDate: endDate.trim(), description: description.trim() }]);
+    setEntries([...entries, { id: randomUUID(), company: company.trim(), title: title.trim(), startDate: startDate.trim(), endDate: endDate.trim(), description: description.trim() }]);
     setCompany(""); setTitle(""); setStartDate(""); setEndDate(""); setDescription("");
   };
 
@@ -194,7 +195,7 @@ function ExperienceForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, u
 
   const handleSubmit = () => {
     const allEntries = company.trim()
-      ? [...entries, { id: crypto.randomUUID(), company: company.trim(), title: title.trim(), startDate: startDate.trim(), endDate: endDate.trim(), description: description.trim() }]
+      ? [...entries, { id: randomUUID(), company: company.trim(), title: title.trim(), startDate: startDate.trim(), endDate: endDate.trim(), description: description.trim() }]
       : entries;
     onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
   };
@@ -272,7 +273,7 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
 
   const addEntry = () => {
     if (!name.trim()) return;
-    setEntries([...entries, { id: crypto.randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim() }]);
+    setEntries([...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim() }]);
     setName(""); setTechStack(""); setDescription(""); setUrl("");
   };
 
@@ -282,7 +283,7 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
 
   const handleSubmit = () => {
     const allEntries = name.trim()
-      ? [...entries, { id: crypto.randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim() }]
+      ? [...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim() }]
       : entries;
     onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
   };
