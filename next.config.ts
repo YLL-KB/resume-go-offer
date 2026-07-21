@@ -2,7 +2,17 @@ import type { NextConfig } from "next";
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
 const nextConfig: NextConfig = {
-	serverExternalPackages: ["pdfjs-dist", "@napi-rs/canvas"],
+	serverExternalPackages: [
+	  "pdfjs-dist",
+	  "@napi-rs/canvas",
+	  "@langchain/core",
+	  "@langchain/openai",
+	  "@langchain/langgraph",
+	  "openai",
+	  "drizzle-orm",
+	  "zod",
+	  "langsmith",
+	],
 };
 
 // Enable calling `getCloudflareContext()` in `next dev`.
