@@ -14,6 +14,10 @@ import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { getUser } from "@/lib/auth";
 import { eq, asc } from "drizzle-orm";
+import { streamAgent } from "@/lib/ai/graph";
+
+// 环境变量控制：启用 LangGraph Agent 模式
+const USE_LANGGRAPH = process.env.LANGGRAPH_ENABLED === "true";
 
 // 匿名用户 ID（未登录时使用）
 function getAnonymousId(request: NextRequest): string {
@@ -106,27 +110,77 @@ export async function POST(request: NextRequest) {
       createdAt: now,
     });
 
-    // ── 调用 AI 流式输出 ──
-    const stream = await ai.chat(chatMessages);
-
-    // ── 收集完整回复（用于后续持久化） ──
+    // ── 调用 AI 流式输出（LangGraph Agent 或 原始 Chat）──
+    const encoder = new TextEncoder();
     let fullReply = "";
 
-    // ── SSE 流式返回 ──
-    const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
+        const send = (data: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        };
+
         try {
-          for await (const chunk of stream) {
-            const content = chunk.choices[0]?.delta?.content;
-            if (content) {
-              fullReply += content;
-              const sse = `data: ${JSON.stringify({ content, conversationId: convId })}\n\n`;
-              controller.enqueue(encoder.encode(sse));
+          if (USE_LANGGRAPH) {
+            // ── LangGraph Agent 模式 ──
+            const agentInput = chatMessages.filter(
+              (m): m is { role: "user" | "assistant" | "system"; content: string } =>
+                m.role === "user" || m.role === "assistant" || m.role === "system",
+            );
+
+            for await (const event of streamAgent({ messages: agentInput })) {
+              switch (event.event) {
+                case "on_chat_model_stream": {
+                  const content = event.data?.chunk?.content;
+                  if (content) {
+                    fullReply += content;
+                    send({ content, conversationId: convId });
+                  }
+                  break;
+                }
+                case "on_chat_model_end": {
+                  // 检查 tool_calls
+                  const toolCalls = event.data?.output?.tool_calls;
+                  if (toolCalls && toolCalls.length > 0) {
+                    for (const tc of toolCalls) {
+                      send({
+                        tool_call: { name: tc.name, args: tc.args },
+                        conversationId: convId,
+                      });
+                    }
+                  }
+                  break;
+                }
+                case "on_tool_end": {
+                  if (event.name === "extractResume") {
+                    const raw = event.data?.output;
+                    if (typeof raw === "string") {
+                      try {
+                        const parsed = JSON.parse(raw);
+                        send({ resumeData: parsed, conversationId: convId });
+                      } catch {
+                        send({ error: "简历数据解析失败" });
+                      }
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+          } else {
+            // ── 原始 Chat 模式（兼容旧行为）──
+            const stream = await ai.chat(chatMessages);
+
+            for await (const chunk of stream) {
+              const content = chunk.choices[0]?.delta?.content;
+              if (content) {
+                fullReply += content;
+                send({ content, conversationId: convId });
+              }
             }
           }
 
-          // 保存 AI 回复
+          // ── 保存 AI 回复 ──
           if (fullReply) {
             try {
               await db.insert(messages).values({
@@ -154,17 +208,16 @@ export async function POST(request: NextRequest) {
                 });
                 const title = titleRes.choices[0]?.message?.content?.trim()?.replace(/["「」""]/g, "") ?? "新对话";
                 await db.update(conversations).set({ title: title.slice(0, 20) }).where(eq(conversations.id, convId!));
-                // 把标题通过 SSE 发给前端
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ title: title.slice(0, 20) })}\n\n`));
+                send({ title: title.slice(0, 20) });
               } catch { /* 标题生成失败不影响对话 */ }
             }
           }
 
-          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
           console.error("Stream error:", err);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "AI 回复出错，请重试" })}\n\n`));
+          send({ error: "AI 回复出错，请重试" });
           controller.close();
         }
       },

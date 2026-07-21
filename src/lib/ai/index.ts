@@ -16,14 +16,14 @@ export const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
 });
 
-const DEFAULT_MODEL = process.env.AI_MODEL ?? "gpt-4o-mini";
+export const DEFAULT_MODEL = process.env.AI_MODEL ?? "gpt-4o-mini";
 
 if (process.env.LANGCHAIN_TRACING_V2 === "true" && process.env.LANGCHAIN_API_KEY) {
   console.log("[AI] LangSmith tracing enabled");
 }
 
 // ── 健壮的 JSON 解析：处理 AI 返回的常见格式瑕疵 ──
-function safeJsonParse<T>(text: string): T | null {
+export function safeJsonParse<T>(text: string): T | null {
   // 1. 去掉 markdown 代码块包裹
   const cleaned = text
     .replace(/```(?:json)?\s*([\s\S]*?)```/g, "$1")
@@ -115,7 +115,7 @@ export const ai = {
     return openai.chat.completions.create({
       model: DEFAULT_MODEL,
       temperature: 0.7,
-      max_tokens: 2048,
+      max_tokens: 4096,
       stream: true,
       messages,
     });
@@ -129,17 +129,35 @@ export const ai = {
    */
   async extractResumeData(conversationHistory: string): Promise<Record<string, unknown> | null> {
     const { buildExtractPrompt } = await import("./prompts");
+    // 截断对话历史到后 16000 字，保留最近的对话内容
+    const truncated = conversationHistory.length > 16000
+      ? conversationHistory.slice(conversationHistory.length - 16000)
+      : conversationHistory;
     const res = await openai.chat.completions.create({
       model: DEFAULT_MODEL,
-      temperature: 0.3,
-      max_tokens: 4096,
+      temperature: 0.5, // 提高一点温度，让输出更丰富自然
+      max_tokens: 8192, // 加大输出 token，确保多项目简历完整
       messages: [
-        { role: "user", content: buildExtractPrompt(conversationHistory) },
+        { role: "user", content: buildExtractPrompt(truncated) },
       ],
     });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
-    return safeJsonParse<Record<string, unknown>>(text);
+    const parsed = safeJsonParse<Record<string, unknown>>(text);
+    // 如果解析失败，可能是 JSON 被截断，重试一次
+    if (!parsed) {
+      const retry = await openai.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0.3,
+        max_tokens: 8192,
+        messages: [
+          { role: "user", content: buildExtractPrompt(truncated) + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON，不要遗漏任何经历。" },
+        ],
+      });
+      const retryText = retry.choices[0]?.message?.content?.trim() ?? "";
+      return safeJsonParse<Record<string, unknown>>(retryText);
+    }
+    return parsed;
   },
 
   /**
