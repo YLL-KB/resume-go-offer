@@ -6,6 +6,7 @@
 
 import { create } from "zustand";
 import { DEFAULT_RESUME_DATA, type ResumeData } from "@/lib/validators/resume.schema";
+import { GREETING_NEW_USER } from "@/lib/ai/prompts";
 
 // ── 类型 ──
 
@@ -105,7 +106,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (typeof window !== "undefined") localStorage.removeItem("chat_conversation_id");
     set({
       conversationId: null,
-      messages: [],
+      messages: [{
+        id: crypto.randomUUID(),
+        role: "assistant" as const,
+        content: GREETING_NEW_USER,
+        createdAt: new Date().toISOString(),
+      }],
       isStreaming: false,
       error: null,
       resumeData: null,
@@ -144,7 +150,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   deleteConversation: async (id) => {
-    await fetch(`/api/chat/history/${id}`, { method: "DELETE" });
+    const res = await fetch(`/api/chat/history/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("删除失败");
     set((s) => ({
       conversations: s.conversations.filter((c) => c.id !== id),
       conversationId: s.conversationId === id ? null : s.conversationId,

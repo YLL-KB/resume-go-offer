@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore, type ChatMessage as ChatMessageType } from "@/stores/chat-store";
 import { FormCard, type FormType } from "./FormCard";
-import { Button } from "@/components/ui/button";
 import { marked } from "marked";
 import { User, Bot } from "lucide-react";
 
@@ -101,6 +100,8 @@ export function ChatMessages() {
   const { messages, isStreaming, setShowPreview, setResumeData, setExtracting, conversationId } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [formState] = useState<Map<string, { type: FormType; submitted?: boolean }>>(new Map());
+  // LangGraph: tool-push-form 事件触发的表单
+  const [toolForms, setToolForms] = useState<Array<{ key: string; type: FormType }>>([]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -135,18 +136,64 @@ export function ChatMessages() {
       }
     };
 
+    // LangGraph: tool-push-form 事件 → 展示表单卡片
+    const handleToolPushForm = (e: Event) => {
+      const { type } = (e as CustomEvent).detail as { type: string };
+      const key = `tool-${type}-${Date.now()}`;
+      setToolForms((prev) => [...prev, { key, type: type as FormType }]);
+    };
+
     window.addEventListener("form-submit", handleSubmit);
     window.addEventListener("form-cancel", handleCancel);
     window.addEventListener("form-done", handleDone);
+    window.addEventListener("tool-push-form", handleToolPushForm);
     return () => {
       window.removeEventListener("form-submit", handleSubmit);
       window.removeEventListener("form-cancel", handleCancel);
       window.removeEventListener("form-done", handleDone);
+      window.removeEventListener("tool-push-form", handleToolPushForm);
     };
   }, [conversationId, setExtracting, setResumeData, setShowPreview, formState]);
 
   const lastMsg = messages[messages.length - 1];
   const hasFormDone = lastMsg?.role === "assistant" && /\[FORM:done\]/.test(lastMsg.content);
+
+  // 检测到 [FORM:done] 自动提取简历并展示预览
+  const lastDoneRef = useRef<string | null>(null);
+  const storeResumeData = useChatStore((s) => s.resumeData);
+  useEffect(() => {
+    if (hasFormDone && conversationId && lastDoneRef.current !== lastMsg.id) {
+      lastDoneRef.current = lastMsg.id;
+      setExtracting(true);
+      fetch("/api/chat/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId }),
+      })
+        .then(async (res) => {
+          const json = await res.json() as { data?: Record<string, unknown> };
+          if (json.data) {
+            // 合并：AI 提取的数据优先（AI 有完整对话上下文 + 优化建议），表单数据补充填充
+            const aiData = json.data as Record<string, unknown>;
+            const formData = storeResumeData ?? ({} as Record<string, unknown>);
+            const merged = {
+              ...formData,
+              ...aiData,
+              basic: { ...(formData.basic as Record<string, unknown> ?? {}), ...(aiData.basic as Record<string, unknown> ?? {}) },
+              education: (aiData.education as unknown[] ?? []).length > 0 ? aiData.education : formData.education,
+              experience: (aiData.experience as unknown[] ?? []).length > 0 ? aiData.experience : formData.experience,
+              projects: (aiData.projects as unknown[] ?? []).length > 0 ? aiData.projects : formData.projects,
+              skills: (aiData.skills as unknown[] ?? []).length > 0 ? aiData.skills : formData.skills,
+              summary: (aiData.summary as string) || formData.summary,
+            };
+            setResumeData(merged as Parameters<typeof setResumeData>[0]);
+            setShowPreview(true);
+          }
+        })
+        .catch(console.error)
+        .finally(() => setExtracting(false));
+    }
+  }, [hasFormDone, conversationId, lastMsg?.id, setExtracting, setResumeData, setShowPreview, storeResumeData]);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -162,13 +209,21 @@ export function ChatMessages() {
           <ChatBubble key={msg.id} msg={msg} formMessages={formState} />
         ))}
 
-        {hasFormDone && (
-          <div className="flex justify-center">
-            <Button size="lg" className="rounded-full shadow-lg" onClick={() => window.dispatchEvent(new CustomEvent("form-done"))}>
-              ✨ 生成简历
-            </Button>
-          </div>
-        )}
+        {/* LangGraph: tool-push-form 触发的表单卡片 */}
+        {toolForms.filter((tf) => !formState.get(tf.key)?.submitted).map((tf) => (
+          <FormCard
+            key={tf.key}
+            type={tf.type}
+            onSubmit={(_t, data) => {
+              formState.set(tf.key, { type: tf.type, submitted: true });
+              window.dispatchEvent(new CustomEvent("form-data", { detail: { type: tf.type, data } }));
+            }}
+            onCancel={() => {
+              formState.set(tf.key, { type: tf.type, submitted: true });
+              window.dispatchEvent(new CustomEvent("form-skip", { detail: { type: tf.type } }));
+            }}
+          />
+        ))}
 
         {isStreaming && messages[messages.length - 1]?.content === "" && <TypingIndicator />}
 

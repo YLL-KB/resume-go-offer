@@ -14,6 +14,7 @@ export function ChatInput() {
     isStreaming,
     isExtracting,
     messages,
+    resumeData,
     setConversationId,
     addMessage,
     appendToLastMessage,
@@ -87,6 +88,17 @@ export function ChatInput() {
                 setConversations((prev) => prev.map((c) => c.id === conversationId ? { ...c, title: parsed.title as string } : c));
               }
               if (parsed.error) setError(parsed.error);
+              // LangGraph: tool call 事件 → 触发前端行为
+              if (parsed.tool_call?.name === "pushForm") {
+                window.dispatchEvent(new CustomEvent("tool-push-form", {
+                  detail: { type: parsed.tool_call.args.type as string },
+                }));
+              }
+              // LangGraph: 简历提取结果
+              if (parsed.resumeData) {
+                setResumeData(parsed.resumeData as Partial<ResumeData>);
+                setShowPreview(true);
+              }
             } catch { buffer += line + "\n"; }
           } else if (line.trim()) { buffer += line + "\n"; }
         }
@@ -107,6 +119,30 @@ export function ChatInput() {
         basic: "基本信息", education: "教育经历", experience: "工作经历",
         project: "项目经验", skills: "技能标签", summary: "个人总结",
       };
+
+      // 直接写入 store，确保表单数据不丢失
+      const current = useChatStore.getState().resumeData ?? { basic: {}, education: [], experience: [], projects: [], skills: [], summary: "" };
+      const merged = { ...current as Record<string, unknown> };
+
+      if (type === "basic") {
+        merged.basic = { ...(current.basic as Record<string, unknown> ?? {}), ...data };
+      } else if (type === "education") {
+        // 支持多条教育经历：表单提交 { entries: [...] }，也兼容旧的单条格式
+        const newEntries = Array.isArray(data.entries) ? data.entries : [data];
+        merged.education = [...((current.education as unknown[]) ?? []), ...newEntries];
+      } else if (type === "experience") {
+        const newEntries = Array.isArray(data.entries) ? data.entries : [data];
+        merged.experience = [...((current.experience as unknown[]) ?? []), ...newEntries];
+      } else if (type === "project") {
+        const newEntries = Array.isArray(data.entries) ? data.entries : [data];
+        merged.projects = [...((current.projects as unknown[]) ?? []), ...newEntries];
+      } else if (type === "skills") {
+        merged.skills = data.skills ?? [];
+      } else if (type === "summary") {
+        merged.summary = data.summary ?? "";
+      }
+      setResumeData(merged as Partial<ResumeData>);
+
       const msg = `[已填写：${labels[type] || type}]\n${JSON.stringify(data)}`;
       sendRaw(msg);
     };
@@ -164,13 +200,14 @@ export function ChatInput() {
 
   // 键盘事件
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    // IME 输入法组合中（如中文拼音选词），不触发发送
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       sendMessage();
     }
   };
 
-  const hasMessages = messages.length > 0;
+  const hasMessages = messages.filter(m => m.role === "user").length > 0;
 
   return (
     <div className="print:hidden border-t bg-background px-4 py-4">

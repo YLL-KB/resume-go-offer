@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from "react";
 import { useChatStore } from "@/stores/chat-store";
 import { TemplateClassic } from "@/components/resume/TemplateClassic";
 import { TemplateModern } from "@/components/resume/TemplateModern";
-import { EditResumeForm } from "./EditResumeForm";
 import { Button } from "@/components/ui/button";
 import { Download, X, FileText, FileCode, Palette } from "lucide-react";
 
@@ -17,7 +16,7 @@ const TEMPLATES: { key: Template; label: string }[] = [
 ];
 
 export function ResumePreviewPanel() {
-  const { resumeData, showPreview, setShowPreview, setResumeData } = useChatStore();
+  const { resumeData, showPreview, setShowPreview } = useChatStore();
   const [template, setTemplate] = useState<Template>("modern");
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const printRef = useRef<HTMLDivElement>(null);
@@ -30,6 +29,9 @@ export function ResumePreviewPanel() {
       let root = document.getElementById("print-root");
       if (!root) { root = document.createElement("div"); root.id = "print-root"; document.body.appendChild(root); }
       root.innerHTML = "";
+      const style = document.createElement("style");
+      style.textContent = `* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`;
+      root.appendChild(style);
       const clone = src.cloneNode(true) as HTMLElement;
       clone.className = "w-[210mm] min-h-[297mm] bg-white";
       root.appendChild(clone);
@@ -47,13 +49,10 @@ export function ResumePreviewPanel() {
 
   const handleExport = () => {
     if (format === "pdf") { window.print(); } else {
-      const html = printRef.current?.outerHTML ?? "";
-      const fullDoc = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>简历_${resumeData.basic.name || "未命名"}</title><script src="https://cdn.tailwindcss.com"><\\/script><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;display:flex;justify-content:center;padding:40px;background:#e5e7eb;font-family:system-ui,-apple-system,sans-serif}</style></head><body>${html}</body></html>`;
-      const blob = new Blob([fullDoc], { type: "text/html;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `简历_${resumeData.basic.name || "未命名"}.html`; a.click();
-      URL.revokeObjectURL(url);
+      // 存到 localStorage，打开同 App 预览页，样式一致
+      localStorage.setItem("resume_preview_data", JSON.stringify(resumeData));
+      localStorage.setItem("resume_preview_template", template);
+      window.open("/resume/preview", "_blank");
     }
   };
 
@@ -80,17 +79,13 @@ export function ResumePreviewPanel() {
       </div>
 
       <div className="flex-1 overflow-auto p-4">
-        <div ref={printRef} className="print-resume mx-auto bg-white shadow-lg w-[210mm] min-h-[297mm] scale-[0.45] origin-top">
+        <div ref={printRef} className="print-resume mx-auto bg-white shadow-lg w-full max-w-[210mm] min-h-[297mm]">
           <TemplateComponent data={resumeData} />
         </div>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
           {format === "pdf" ? "打开打印预览 → 目标打印机选「另存为 PDF」" : "下载为独立 HTML 文件，可直接用浏览器打开"}
         </p>
-
-        <div className="mt-4">
-          <EditResumeForm data={resumeData} onSave={(d) => setResumeData(d)} />
-        </div>
       </div>
     </div>
   );
