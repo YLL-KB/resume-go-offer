@@ -52,17 +52,20 @@ export function ResumePreviewPanel() {
       const targetMm = pages * pageHeightMm;
       const paddingMm = Math.max(0, targetMm - contentHeightMm);
 
-      // ── 阶段 2：补 padding 撑到整页倍数，inline style 保证背景色生效 ──
+      // ── 阶段 2：内容 + 显式背景块填满尾页 ──
       let root = document.getElementById("print-root");
       if (!root) { root = document.createElement("div"); root.id = "print-root"; document.body.appendChild(root); }
       root.innerHTML = "";
 
       const clone = src.cloneNode(true) as HTMLElement;
       clone.style.minHeight = "0";
-      clone.style.background = "#f3f4f6";
-      clone.style.paddingBottom = `${paddingMm}mm`;
-      clone.style.boxSizing = "border-box";
       root.appendChild(clone);
+
+      if (paddingMm > 0) {
+        const filler = document.createElement("div");
+        filler.style.cssText = `width:210mm;height:${paddingMm}mm;margin:0 auto;background:#f3f4f6;page-break-before:avoid;`;
+        root.appendChild(filler);
+      }
     };
     const afterPrint = () => {
       document.getElementById("print-root")?.remove();
