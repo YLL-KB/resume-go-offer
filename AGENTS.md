@@ -3,8 +3,9 @@
 ## 项目信息
 
 - **项目根：** `/Users/loong/code/resume-go-offer`
-- **框架：** Next.js 16 App Router
+- **框架：** Next.js 16 App Router (Turbopack)
 - **数据库：** Cloudflare D1（本地开发用 wrangler d1）
+- **AI Agent：** LangGraph + LangChain（OpenAI 兼容 SDK）
 - **包管理：** `pnpm`
 - **开发命令：** `pnpm dev`（端口 3000）
 - **构建命令：** `pnpm build`
@@ -42,7 +43,7 @@ const router = useRouter();
 页面内所有交互 UI 必须使用 `@/components/ui/` 中的 shadcn/ui 组件，禁止使用原生 HTML 交互标签。
 
 **可用组件：**
-`Button` `Card` `CardContent` `Dialog` `DialogContent` `DialogHeader` `DialogTitle` `DialogDescription` `DialogFooter` `Badge` `Skeleton` `Separator` `Sheet` `Input` `Label` `ScrollArea`
+`Button` `Card` `CardContent` `Dialog` `DialogContent` `DialogHeader` `DialogTitle` `DialogDescription` `DialogFooter` `Badge` `Skeleton` `Separator` `Sheet` `Input` `Label` `ScrollArea` `Textarea` `Tabs` `Select`
 
 | 标签 | 规则 |
 |------|------|
@@ -85,7 +86,51 @@ export const dynamic = "force-dynamic";
 - 需要返回 PDF → API 路由做 302 重定向到 `/uploads/xxx.pdf`，不在路由内读文件响应
 - 文件修改后 Next.js 热更新自动生效，无需重启
 
-### 5. 模版系统
+### 5. AI 对话（核心）
+
+**架构：**
+```
+ChatInput（用户输入）
+  → /api/chat（SSE Streaming）
+    → LangGraph Agent（工具调用循环）
+      → pushForm / extractResume / suggestOptimization
+    → 前端实时渲染 Markdown + 表单卡片
+  → ChatMessages（消息列表 + ChatBubble 气泡）
+  → ResumePreviewPanel（简历预览面板，分栏拖拽）
+```
+
+**关键文件：**
+- `src/lib/ai/index.ts` — AI Agent 封装（LangGraph StateGraph + 工具注册）
+- `src/lib/ai/prompts.ts` — 系统提示词 + 提取提示词 + 开场白
+- `src/stores/chat-store.ts` — 对话状态管理（Zustand）：消息流、流式输出、引用、表单、简历数据
+- `src/components/chat/ChatMessages.tsx` — 消息列表 + 单条气泡（Markdown 渲染、表单卡片、引用弹窗）
+- `src/components/chat/ChatInput.tsx` — 输入框（SSE 流接收、引用拼接、表单事件监听）
+- `src/components/chat/FormCard.tsx` — 6 种结构化表单（basic / education / experience / project / skills / summary）
+- `src/components/chat/ResumePreviewPanel.tsx` — 简历预览面板（模板切换、打印导出、背景色注入）
+
+**工具调用流程：**
+```
+AI 输出 tool_call: { name: "pushForm", args: { type: "experience" } }
+  → SSE 事件 → 前端 dispatchEvent("tool-push-form")
+  → ChatMessages 渲染 FormCard 组件
+  → 用户填写 → dispatchEvent("form-data")
+  → ChatInput 监听 → sendRaw() 将数据发给 AI 继续对话
+```
+
+**提示词设计：**
+- 系统提示词约 190 行，覆盖：核心信念、文案优化铁律（禁用词/强动词库）、STAR 追问法则、个人标签提炼、对话节奏
+- 提取提示词约 100 行，以 JSON 格式输出完整简历数据，含 company 去括号规范化、project 数量校验、语言铁律
+- 开场白：两套（新用户 / 已有简历用户）
+
+**Streaming 格式：**
+```
+data: {"content":"xxx","conversationId":"uuid","title":"对话标题"}
+data: {"tool_call":{"name":"pushForm","args":{"type":"basic"}}}
+data: {"resumeData":{...}}
+data: [DONE]
+```
+
+### 6. 模版系统
 
 **上传：**
 - 仅接受 PDF 文件
@@ -115,20 +160,16 @@ export const dynamic = "force-dynamic";
 - 下载：直接 `<a href="/uploads/templates/{id}.pdf" download>`
 - iframe 片段（`#view=FitH`）不会随 302 传递，需在静态 URL 上加
 
-**权限：**
-- 删除接口预留了管理员校验
-- 当前硬编码 `isAdmin = true`，后续接入用户系统后替换
-
-### 6. 导航结构
+### 7. 导航结构
 
 | 路径 | 页面 | 说明 |
 |------|------|------|
-| `/` | 首页 | |
-| `/resume/new` | 新建简历 | 支持 `?template=xxx` 参数 |
-| `/resume/[id]` | 简历预览 | |
-| `/resume/[id]/edit` | 编辑简历 | |
-| `/analyze` | 简历分析 | AI 分析评分 |
-| `/templates` | 模版管理 | 上传/预览/删除模版 |
+| `/` | 首页 | 营销落地页，唯一 CTA 指向 `/chat` |
+| `/chat` | AI 对话 | **核心入口**，对话式简历生成 |
+| `/resume/new?template=xxx` | 新建简历 | PDF 编辑器 |
+| `/resume/builder` | 手动填表 | 遗留功能 |
+| `/resume/preview` | 独立预览 | 从 localStorage 读取数据渲染 |
+| `/login` | 登录 | Authing OIDC |
 
 ---
 
@@ -177,13 +218,8 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
 
 ### 状态管理
 
-所有编辑器状态集中在 `src/stores/editor-store.ts`（Zustand）：
-
-- `templateId` / `pdfUrl` — 模版标识
-- `markdown` / `mdModules` / `editedModules` — MinerU 管线（预留）
-- `customPages: CustomPage[]` — 自定义页
-- `resumeData` / `resumeId` / `saving` — 持久化
-- 切换模版时自动重置所有状态
+- `chat-store.ts` — 对话状态：conversationId、messages、isStreaming、resumeData、quoteText、showPreview
+- `editor-store.ts` — 编辑器状态：templateId、pdfUrl、markdown、customPages、resumeData、aiAnalysis
 
 ### 字体依赖
 
@@ -210,7 +246,8 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
 ### AI 调用
 
 - 封装在 `src/lib/ai/index.ts`
-- 基于 OpenAI 兼容 SDK，支持 DeepSeek / 通义千问 等
+- 基于 OpenAI 兼容 SDK + LangGraph StateGraph
+- 支持 DeepSeek v4 / 智谱 GLM-4-Plus 等模型
 - 通过 `.env.local` 切换 `OPENAI_BASE_URL` 和 `AI_MODEL`
 
 ### pdf-lib vs Canvas 截图
@@ -226,16 +263,23 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
 ```
 src/
 ├── app/
-│   ├── page.tsx                        # 首页
+│   ├── page.tsx                        # 首页（营销落地页）
 │   ├── layout.tsx                      # 根布局
+│   ├── chat/
+│   │   └── page.tsx                    # AI 对话页（核心入口，分栏拖拽布局）
 │   ├── resume/
-│   │   └── new/
-│   │       ├── page.tsx                # 新建简历页
-│   │       └── ResumeNewContent.tsx    # 编辑器主组件（页签切换、导出逻辑）
-│   ├── templates/page.tsx              # 模版管理页
-│   ├── analyze/page.tsx                # 简历分析页
-│   ├── ai-test/page.tsx                # AI 润色测试页
+│   │   ├── new/
+│   │   │   ├── page.tsx                # 新建简历页
+│   │   │   └── ResumeNewContent.tsx    # 编辑器主组件（页签切换、导出逻辑）
+│   │   ├── edit/page.tsx               # 编辑已有简历
+│   │   ├── builder/page.tsx            # 手动填表（遗留）
+│   │   └── preview/page.tsx            # 独立简历预览页
 │   └── api/
+│       ├── chat/
+│       │   ├── route.ts                # POST SSE Streaming（LangGraph Agent）
+│       │   ├── history/route.ts        # GET 对话列表
+│       │   ├── history/[id]/route.ts   # DELETE 删除对话
+│       │   └── extract/route.ts        # POST 提取简历数据
 │       ├── templates/
 │       │   ├── route.ts                # GET 列表
 │       │   ├── upload/route.ts         # POST 上传
@@ -244,26 +288,37 @@ src/
 │       │       ├── fill/route.ts       # POST PDF 填充输出（核心）
 │       │       ├── extract-markdown/
 │       │       │   └── route.ts        # GET MinerU 提取
-│       │       ├── analyze/route.ts    # POST AI 分析
+│       │       ├── analyze/route.ts    # POST AI 分析模版结构
 │       │       └── summary/route.ts    # POST AI 摘要
 │       ├── ai/
 │       │   ├── analyze-resume/route.ts
 │       │   ├── improve-resume/route.ts
 │       │   ├── improve/route.ts
-│       │   └── parse-resume/route.ts
-│       └── resume/
-│           ├── route.ts                # POST 创建 + GET 列表
-│           └── [id]/route.ts           # GET/PUT/DELETE 单个简历
+│       │   ├── parse-resume/route.ts
+│       │   ├── generate-summary/route.ts
+│       │   └── upload-resume/route.ts
+│       ├── resume/
+│       │   ├── route.ts                # POST 创建 + GET 列表
+│       │   └── [id]/route.ts           # GET/PUT/DELETE 单个简历
+│       ├── pdf/                        # PDF 工具（合并/拆分/旋转）
+│       └── analysis/[id]/route.ts      # 分析文件服务
 ├── components/
 │   ├── ui/                             # shadcn/ui 组件库
+│   │   └── app-header.tsx              # 全局导航头（仅含 AI 对话入口）
+│   ├── chat/
+│   │   ├── ChatHeader.tsx              # 对话页顶栏 + 移动端菜单按钮
+│   │   ├── ChatMessages.tsx            # 消息列表 + ChatBubble + 引用弹窗 + 表单卡片
+│   │   ├── ChatInput.tsx               # 输入框 + SSE 流处理 + 表单事件桥接
+│   │   ├── FormCard.tsx                # 6 种结构化表单组件
+│   │   ├── ResumePreviewPanel.tsx      # 简历预览面板（模板切换 + 打印导出）
+│   │   └── EditResumeForm.tsx          # 简历编辑弹窗
 │   ├── editor/
 │   │   ├── RichTextEditor.tsx          # TipTap 富文本编辑器（自定义页用）
-│   │   ├── MarkdownEditor.tsx          # 纯文本 Markdown 编辑器（预留）
+│   │   ├── MarkdownEditor.tsx          # 纯文本 Markdown 编辑器
 │   │   ├── FullEditor.tsx              # 结构化表单编辑器
 │   │   ├── SectionEditor.tsx           # 按模块分区的编辑器
-│   │   ├── ModuleList.tsx              # 模块列表（预留 MinerU 管线）
+│   │   ├── ModuleList.tsx              # 模块列表
 │   │   ├── UploadZone.tsx              # 文件拖拽上传区
-│   │   ├── milkdown.css                # Milkdown/ProseMirror 样式（预留）
 │   │   └── extensions/                 # TipTap 自定义扩展
 │   │       ├── FontSize.ts
 │   │       └── TextIndent.ts
@@ -275,52 +330,47 @@ src/
 │   │   ├── use-auto-one-page.ts        # 自动单页缩放 hook
 │   │   └── use-content-height.ts       # 内容高度监听 hook
 │   ├── resume/
+│   │   ├── TemplateModern.tsx          # 现代风格简历模板（核心输出模板）
+│   │   ├── TemplateClassic.tsx         # 经典风格简历模板
 │   │   ├── BasicInfoStep.tsx           # 基本信息表单
 │   │   ├── EducationStep.tsx
 │   │   ├── ExperienceStep.tsx
 │   │   ├── ProjectStep.tsx
 │   │   ├── SkillsStep.tsx
-│   │   ├── WorkStep.tsx
-│   │   ├── StepIndicator.tsx
-│   │   └── TemplateClassic.tsx
+│   │   └── StepIndicator.tsx
+│   ├── resume-editor.tsx               # 简历编辑器（供旧页面使用）
 │   └── templates/
-│       ├── classic/                    # 经典模版
+│       ├── classic/                    # 经典模版渲染器
 │       │   ├── config.ts
 │       │   └── index.tsx
 │       ├── types.ts
 │       ├── registry.ts                 # 模版注册表
-│       └── index.tsx
-├── hooks/
-│   ├── use-auth.ts                     # 认证 hook
-│   └── use-resume-form.ts             # 简历表单 hook
+│       └── index.tsx                   # 模版渲染入口
 ├── stores/
-│   └── editor-store.ts                # 编辑器全局状态（Zustand）
+│   ├── chat-store.ts                   # 对话状态管理（Zustand）
+│   └── editor-store.ts                 # 编辑器全局状态（Zustand）
 ├── lib/
-│   ├── ai/index.ts                     # AI SDK 封装
+│   ├── ai/
+│   │   ├── index.ts                    # AI Agent 封装（LangGraph + OpenAI SDK）
+│   │   └── prompts.ts                  # 系统提示词 + 提取提示词 + 开场白
 │   ├── auth/                           # Authing OIDC 认证
-│   │   ├── index.ts
-│   │   ├── oidc.ts
-│   │   └── types.ts
 │   ├── db/
 │   │   ├── schema.ts                   # Drizzle ORM Schema
 │   │   └── index.ts                    # DB 连接（D1 / SQLite fallback）
 │   ├── pdf/
 │   │   ├── text-extractor.ts           # pdfjs-dist 文字块提取
-│   │   ├── mineru-extractor.ts         # MinerU 客户端封装（预留）
+│   │   ├── mineru-extractor.ts         # MinerU 客户端封装
 │   │   ├── image-extractor.ts          # PDF 图片提取
-│   │   ├── module-detector.ts          # 模块检测（预留 MinerU 管线）
 │   │   └── page-renderer.ts            # Canvas 页面渲染
-│   ├── editor/
-│   │   └── html-parser.ts              # PDF 字体/颜色映射
 │   ├── api/
 │   │   ├── resume.ts                   # 简历 CRUD API 客户端
 │   │   └── templates.ts                # 模版 API 客户端
 │   ├── validators/
-│   │   └── resume.schema.ts            # 简历数据 Zod Schema
+│   │   └── resume.schema.ts            # 简历数据 Zod Schema（含 highlights 字段）
 │   ├── extract.ts                      # 内容提取入口
 │   └── utils.ts                        # 通用工具
 └── types/
-    └── mineru-open-sdk.d.ts            # MinerU SDK 类型声明
+    └── mineru-open-sdk.d.ts
 ```
 
 ## 常见问题
@@ -343,5 +393,8 @@ A: `pnpm dlx shadcn@latest add <component-name>`，然后用 `@/components/ui` �
 **Q: 如何切换 AI 模型？**
 A: 修改 `.env.local` 中的 `OPENAI_BASE_URL` 和 `AI_MODEL`。
 
-**Q: 删除模版接口提示 403？**
-A: 检查 `src/app/api/templates/[id]/route.ts` 中 DELETE 方法的内置模版保护逻辑。
+**Q: 如何添加新的对话工具（tool）？**
+A: 在 `src/lib/ai/index.ts` 中注册新的 LangGraph tool，然后在前端 `ChatMessages.tsx` 中添加对应的事件监听和处理逻辑。
+
+**Q: 简历打印第二页背景是白的？**
+A: `ResumePreviewPanel.tsx` 的 `beforeprint` 处理器会注入 `position: fixed` 背景层 + `globals.css` 的 `@media print` 规则中 `body::before` 也会铺满每页。如果还是不生效，检查打印对话框是否勾选「背景图形」。

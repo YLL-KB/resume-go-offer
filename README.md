@@ -1,14 +1,15 @@
 # Resume Go Offer
 
-AI 驱动的简历制作与分析工具。支持上传 PDF 模版，在线编辑文字块，追加自定义页，导出真 PDF。
+跟 AI 聊聊你的经历，一份专业简历就出来了。AI 驱动的对话式简历生成工具，聊完直接导出 PDF。
 
 ## 功能
 
-- **PDF 模版编辑** — 上传 PDF 简历模版，自动提取文字块（坐标、字号、颜色），逐块原位编辑替换，保留原始排版
-- **自定义追加页** — 支持新增页面，继承模版视觉风格（边框、线条、装饰），用富文本编辑器自由填写内容
-- **真 PDF 导出** — pdf-lib + CJK 字体嵌入，输出文字可选中的真 PDF（非截图）
-- **AI 分析** — AI 评分 + 优缺点分析 + 改进建议 + 简历润色
-- **模版管理** — 上传/预览/下载/删除 PDF 模版，AI 自动提取标题和摘要
+- **AI 对话式简历** — 像跟朋友聊天一样告诉 AI 你的工作经历、技能、项目，AI 主动追问细节，用 STAR 法则优化文案
+- **Agent 工作流** — LangGraph + LangChain 驱动的多轮对话 Agent，自动推送表单卡片收集信息，聊完一键提取生成简历
+- **实时预览** — 右侧面板实时预览简历排版，支持打印导出 PDF（背景图形完整）
+- **简历亮点捕捉** — AI 在对话中自动识别用户硬核战绩、稀缺能力、个人特质，生成「个人亮点」卡片
+- **PDF 编辑器** — 上传 PDF 简历模版，自动提取文字块，原位编辑替换，追加自定义页，输出文字可选中的真 PDF
+- **对话历史管理** — 多轮对话持久化，支持重命名、删除、切换历史记录
 
 ## 技术栈
 
@@ -16,11 +17,14 @@ AI 驱动的简历制作与分析工具。支持上传 PDF 模版，在线编辑
 |-----|------|
 | 框架 | Next.js 16 (App Router) |
 | 语言 | TypeScript |
-| UI | shadcn/ui + Tailwind CSS + TipTap 富文本 |
+| UI | shadcn/ui + Tailwind CSS v4 + Framer Motion |
+| AI Agent | LangGraph + LangChain + OpenAI 兼容 SDK（智谱 GLM-4 / DeepSeek v4） |
+| 向量检索 | 自研 VectorStore + Embedding RAG（技术文档问答） |
 | PDF 解析 | pdfjs-dist（文字块提取）+ react-pdf（预览） |
 | PDF 生成 | pdf-lib + @pdf-lib/fontkit（CJK 字体嵌入） |
-| 数据库 | Cloudflare D1（本地: SQLite fallback） |
-| AI | OpenAI 兼容 SDK（DeepSeek / 通义千问 / GPT） |
+| 富文本 | TipTap + 自定义扩展（字号/缩进） |
+| 状态管理 | Zustand（chat-store / editor-store） |
+| 数据库 | Cloudflare D1 + Drizzle ORM |
 | 认证 | Authing OIDC |
 | 部署 | OpenNext + Cloudflare Workers |
 | 包管理 | pnpm |
@@ -82,16 +86,33 @@ pnpm dev
 npx wrangler d1 execute resume-go-offer-db --local --file=./drizzle/0000_freezing_famine.sql
 ```
 
-## 编辑器架构
+## 架构
+
+### AI 对话流程
+
+```
+用户说话
+    │
+    ▼
+LangGraph Agent ──► 工具调用（pushForm / extractResume / suggestOptimization）
+    │
+    ▼
+SSE Streaming ──► 前端实时渲染 Markdown + 表单卡片
+    │
+    ▼
+收集完整信息 ──► extractResume() ──► 生成简历 JSON ──► 预览面板
+```
+
+### PDF 编辑器流程
 
 ```
 上传 PDF 模版
     │
     ▼
-pdfjs-dist 提取文字块 ──► 模版页逐块编辑（textarea 原位替换 / 删除涂白）
+pdfjs-dist 提取文字块 ──► 逐块原位编辑（textarea 替换 / 删除涂白）
     │
     ▼
-点击「+ 添加页面」──► 复制模版底版 → 涂白原文 → TipTap 富文本自由编辑
+「+ 添加页面」──► 复制模版底版 → 涂白原文 → TipTap 富文本自由编辑
     │
     ▼
 生成预览 ──► fill API (pdf-lib) ──► 合并输出真 PDF
@@ -106,40 +127,51 @@ src/
 ├── app/
 │   ├── page.tsx                        # 首页
 │   ├── layout.tsx                      # 根布局
-│   ├── resume/new/
-│   │   ├── page.tsx                    # 新建简历页
-│   │   └── ResumeNewContent.tsx        # 编辑器主组件（页签、导出）
-│   ├── templates/page.tsx              # 模版管理
-│   ├── analyze/page.tsx                # AI 简历分析
+│   ├── chat/
+│   │   └── page.tsx                    # AI 对话页（核心）
+│   ├── resume/
+│   │   ├── new/                        # 新建简历（编辑器）
+│   │   ├── edit/                       # 编辑已有简历
+│   │   ├── builder/                    # 手动填表（遗留）
+│   │   └── preview/                    # 简历预览页
 │   └── api/
-│       ├── templates/                  # 模版 CRUD + AI 摘要
+│       ├── chat/                       # 对话 API（SSE Streaming）
+│       │   ├── route.ts                # 主对话
+│       │   ├── history/                # 对话历史 CRUD
+│       │   └── extract/route.ts        # 简历提取
+│       ├── templates/                  # 模版 CRUD + PDF 填充
 │       │   └── [id]/
 │       │       ├── fill/route.ts       # PDF 填充输出（核心）
 │       │       └── extract-markdown/   # MinerU 提取
 │       ├── ai/                         # AI 分析/润色
-│       └── resume/                     # 简历 CRUD
+│       ├── resume/                     # 简历 CRUD
+│       └── pdf/                        # PDF 工具（合并/拆分/旋转）
 ├── components/
 │   ├── ui/                             # shadcn/ui 组件
-│   ├── editor/
-│   │   ├── RichTextEditor.tsx          # TipTap 富文本编辑器
-│   │   └── extensions/                # 自定义扩展（字号/缩进）
+│   ├── chat/
+│   │   ├── ChatHeader.tsx              # 对话页顶栏
+│   │   ├── ChatMessages.tsx            # 消息列表 + 气泡
+│   │   ├── ChatInput.tsx               # 输入框 + 发送
+│   │   ├── FormCard.tsx                # 结构化表单卡片
+│   │   ├── ResumePreviewPanel.tsx      # 简历预览面板（侧边）
+│   │   └── EditResumeForm.tsx          # 简历编辑表单
+│   ├── editor/                         # TipTap 富文本编辑器 + 扩展
 │   ├── preview/                        # PDF 预览组件
-│   ├── resume/                         # 结构化表单组件
-│   └── templates/                      # 模版渲染组件
+│   ├── resume/                         # 简历模板组件（Modern / Classic）
+│   └── templates/                      # 模版渲染注册表
 ├── stores/
-│   └── editor-store.ts                # 编辑器全局状态（Zustand）
+│   ├── chat-store.ts                   # 对话状态（Zustand）
+│   └── editor-store.ts                 # 编辑器全局状态（Zustand）
 ├── lib/
-│   ├── pdf/
-│   │   ├── text-extractor.ts           # pdfjs-dist 文字块提取
-│   │   ├── mineru-extractor.ts         # MinerU 客户端封装
-│   │   ├── image-extractor.ts          # PDF 图片提取
-│   │   └── page-renderer.ts            # Canvas 页面渲染
-│   ├── ai/index.ts                     # AI SDK 封装
+│   ├── ai/
+│   │   ├── index.ts                    # AI Agent 封装（LangGraph）
+│   │   └── prompts.ts                  # 系统提示词 + 提取提示词
+│   ├── pdf/                            # pdfjs / MinerU / 图片提取
 │   ├── auth/                           # Authing OIDC
 │   ├── db/                             # Drizzle ORM + D1/SQLite
 │   └── validators/                     # Zod 校验
 └── types/
-    └── mineru-open-sdk.d.ts            # MinerU SDK 类型声明
+    └── mineru-open-sdk.d.ts
 ```
 
 ## 页面导航
@@ -147,11 +179,11 @@ src/
 | 路径 | 说明 |
 |------|------|
 | `/` | 首页 |
-| `/resume/new?template=xxx` | 新建简历，选择模版后进入编辑器 |
-| `/resume/[id]` | 简历预览 |
-| `/resume/[id]/edit` | 编辑已有简历 |
-| `/analyze` | AI 简历分析评分 |
-| `/templates` | 模版管理（上传、预览、下载、删除） |
+| `/chat` | AI 对话式简历（核心入口） |
+| `/resume/new?template=xxx` | 新建简历编辑器 |
+| `/resume/builder` | 手动填表（遗留功能） |
+| `/resume/preview` | 独立简历预览页 |
+| `/login` | Authing OIDC 登录 |
 
 ## 开发规范
 

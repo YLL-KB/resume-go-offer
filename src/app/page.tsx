@@ -20,7 +20,6 @@ import {
   TrendingUp,
   ShieldCheck,
   MessageSquare,
-  FileText,
 } from "lucide-react";
 
 // ── 动画预设 ──
@@ -114,16 +113,16 @@ const aiFeatures = [
 // ── 亮点数据 ──
 const stats = [
   { value: 5, suffix: " 分钟", label: "完成一份专业简历" },
-  { value: 3, suffix: " 套+", label: "精选简历模板" },
-  { value: 98, suffix: "%", label: "AI 解析准确率" },
   { value: 0, suffix: " 元起", label: "基础功能永久免费" },
+  { value: 99, suffix: "%", label: "AI 润色满意度" },
+  { value: 1, suffix: " 次对话", label: "即可生成完整简历" },
 ];
 
 // ── 底部功能列表 ──
 const bottomFeatures = [
   { icon: Zap, title: "极速导出", desc: "浏览器端渲染，无需等待服务端，秒级导出 PDF" },
-  { icon: ShieldCheck, title: "数据安全", desc: "文件 30 分钟自动清理，不上传至第三方存储" },
-  { icon: Eye, title: "实时预览", desc: "编辑内容即时反馈，所见即所得，支持多模板切换" },
+  { icon: ShieldCheck, title: "数据安全", desc: "对话数据加密存储，不上传至第三方服务" },
+  { icon: Eye, title: "实时预览", desc: "聊完即刻预览简历效果，所见即所得，一键打印" },
 ];
 
 function SectionTitle({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -194,11 +193,6 @@ export default function HomePage() {
                 <Link href="/chat">
                   <Sparkles className="mr-1.5 size-5" />
                   开始对话 <ArrowRight className="ml-1 size-5" />
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="lg" className="h-12 px-8 text-base">
-                <Link href="/resume/builder">
-                  手动填表单
                 </Link>
               </Button>
             </motion.div>
@@ -283,7 +277,7 @@ export default function HomePage() {
               AI 核心能力
             </span>
           </SectionTitle>
-          <SectionDesc>不止做简历，AI 从解析、润色到分析全方位提升求职竞争力。</SectionDesc>
+          <SectionDesc>AI 从对话、润色到导出，一站式搞定专业简历。</SectionDesc>
 
           <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {aiFeatures.map((f, i) => (
@@ -337,11 +331,6 @@ export default function HomePage() {
               <Button asChild size="lg" className="h-12 px-8 text-base shadow-lg shadow-primary/25">
                 <Link href="/chat">
                   <Sparkles className="mr-1.5 size-5" />开始对话 <ArrowRight className="ml-1.5 size-5" />
-                </Link>
-              </Button>
-              <Button asChild variant="ghost" size="lg">
-                <Link href="/resume/builder">
-                  手动填表单 <FileText className="ml-1.5 size-4" />
                 </Link>
               </Button>
             </div>
