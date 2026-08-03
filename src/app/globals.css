@@ -138,16 +138,17 @@
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
-    /* 固定背景层：position:fixed 伪元素会在每页都渲染，填满所有页面 */
+    /* 固定背景层：每页铺满灰色，内容在其之上 */
     body::before {
       content: "";
       position: fixed;
       inset: 0;
       background: #f3f4f6;
-      z-index: -1;
+      z-index: 0;
     }
-    body {
-      background: transparent !important;
+    body > * {
+      position: relative;
+      z-index: 1;
     }
   }
 }
