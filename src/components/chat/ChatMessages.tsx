@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useChatStore, type ChatMessage as ChatMessageType } from "@/stores/chat-store";
 import { FormCard, type FormType } from "./FormCard";
 import { marked } from "marked";
-import { User, Bot } from "lucide-react";
+import { User, Bot, Copy, Check, Quote, TextSelect } from "lucide-react";
 
 // ── 解析消息中的表单标记 ──
 
@@ -25,12 +25,105 @@ function parseForms(content: string): { text: string; forms: FormType[] } {
 function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages: Map<string, { type: FormType; submitted?: boolean }> }) {
   const isUser = msg.role === "user";
   const { text, forms } = parseForms(msg.content);
+  const [copied, setCopied] = useState(false);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const setQuoteText = useChatStore((s) => s.setQuoteText);
+
+  // ── 选中引用 ──
+  const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number } | null>(null);
+
+  const showSelectionPopup = useCallback(() => {
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+        setSelectionPopup(null);
+        return;
+      }
+      const bubbleEl = bubbleRef.current;
+      if (!bubbleEl) return;
+      try {
+        const range = sel.getRangeAt(0);
+        if (!bubbleEl.contains(range.commonAncestorContainer)) {
+          setSelectionPopup(null);
+          return;
+        }
+        const rect = range.getBoundingClientRect();
+        setSelectionPopup({
+          text: sel.toString().trim(),
+          x: Math.min(rect.left + rect.width / 2, window.innerWidth - 80),
+          y: rect.bottom + 6,
+        });
+      } catch {
+        setSelectionPopup(null);
+      }
+    }, 0);
+  }, []);
+
+  const handleMouseUp = showSelectionPopup;
+  const handleTouchEnd = showSelectionPopup;
+
+  // 移动端「选择文本」：全选气泡文字并弹出引用
+  const handleSelectText = useCallback(() => {
+    const contentEl = contentRef.current;
+    if (!contentEl) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+    const range = document.createRange();
+    range.selectNodeContents(contentEl);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    showSelectionPopup();
+  }, [showSelectionPopup]);
+
+  // 点击外部关闭引用弹窗
+  useEffect(() => {
+    if (!selectionPopup) return;
+    const handleClick = (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target.closest("[data-quote-popup]")) return;
+      setSelectionPopup(null);
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("touchstart", handleClick);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("touchstart", handleClick);
+    };
+  }, [selectionPopup]);
+
+  const handleQuote = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (selectionPopup) {
+      setQuoteText(selectionPopup.text);
+      setSelectionPopup(null);
+      window.getSelection()?.removeAllRanges();
+    }
+  }, [selectionPopup, setQuoteText]);
+
+  const handleCopy = useCallback(async () => {
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = marked.parse(text, { async: false }) as string;
+    const plainText = tempDiv.textContent ?? tempDiv.innerText ?? text;
+    await navigator.clipboard.writeText(plainText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [text]);
+
+  const handleQuoteFull = useCallback(() => {
+    // 引用整条消息的纯文本
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = marked.parse(text, { async: false }) as string;
+    const plainText = (tempDiv.textContent ?? tempDiv.innerText ?? text).trim();
+    setQuoteText(plainText);
+  }, [text, setQuoteText]);
 
   const hasContent = text.length > 0 || forms.length > 0;
   if (!hasContent) return null;
 
   return (
-    <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
+    <div className={`group flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <div
         className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm ${
           isUser ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
@@ -39,20 +132,52 @@ function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages:
         {isUser ? <User className="size-4" /> : <Bot className="size-4" />}
       </div>
 
-      <div className={`max-w-[80%] space-y-3 ${isUser ? "items-end" : ""}`}>
+      <div ref={bubbleRef} className={`max-w-[85%] md:max-w-[80%] space-y-3 ${isUser ? "items-end" : "min-w-0"}`}>
         {text && (
-          <div
-            className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-              isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
-            }`}
-          >
-            {isUser ? (
-              <p className="whitespace-pre-wrap">{text}</p>
-            ) : (
+          <div>
+            <div
+              className={`rounded-2xl px-4 py-3 text-sm ${
+                isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+              }`}
+              onMouseUp={!isUser ? handleMouseUp : undefined}
+              onTouchEnd={!isUser ? handleTouchEnd : undefined}
+            >
               <div
-                className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                ref={contentRef}
+                className={`md-content select-text ${isUser ? "[&_strong]:text-primary-foreground [&_code]:bg-white/20" : ""}`}
                 dangerouslySetInnerHTML={{ __html: marked.parse(text, { async: false }) as string }}
               />
+            </div>
+
+            {/* 底部操作栏 — 移动端始终显示，桌面端 hover 显示 */}
+            {!isUser && (
+              <div className="flex items-center gap-1 mt-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={handleCopy}
+                  className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  title="复制"
+                >
+                  {copied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+                  {copied ? "已复制" : "复制"}
+                </button>
+                <button
+                  onClick={handleQuoteFull}
+                  className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  title="引用追问"
+                >
+                  <Quote className="size-3" />
+                  引用
+                </button>
+                {/* 移动端专属：选择文本 */}
+                <button
+                  onClick={handleSelectText}
+                  className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors md:hidden"
+                  title="选择文本"
+                >
+                  <TextSelect className="size-3" />
+                  选择文本
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -73,6 +198,25 @@ function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages:
           );
         })}
       </div>
+
+      {/* 浮动引用按钮 */}
+      {selectionPopup && (
+        <div
+          data-quote-popup
+          className="fixed z-50"
+          style={{ left: selectionPopup.x, top: selectionPopup.y, transform: "translateX(-50%)" }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <button
+            onClick={handleQuote}
+            onMouseDown={(e) => e.preventDefault()}
+            className="flex items-center gap-1 rounded-lg border bg-background px-2.5 py-1.5 text-xs font-medium shadow-md hover:bg-muted transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+            引用追问
+          </button>
+        </div>
+      )}
     </div>
   );
 }

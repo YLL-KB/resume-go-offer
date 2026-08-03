@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "re
 import { useChatStore, type ResumeData } from "@/stores/chat-store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Send, Square, Loader2 } from "lucide-react";
+import { Send, Square, Loader2, X, Quote } from "lucide-react";
 import { randomUUID } from "@/lib/utils/uuid";
 
 export function ChatInput() {
@@ -16,6 +16,7 @@ export function ChatInput() {
     isExtracting,
     messages,
     resumeData,
+    quoteText,
     setConversationId,
     addMessage,
     appendToLastMessage,
@@ -25,6 +26,7 @@ export function ChatInput() {
     setExtracting,
     setShowPreview,
     setConversations,
+    setQuoteText,
   } = useChatStore();
 
   // 自动调整高度
@@ -163,13 +165,23 @@ export function ChatInput() {
     };
   }, [sendRaw]);
 
+  // 引用后自动 focus
+  useEffect(() => {
+    if (quoteText) {
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [quoteText]);
+
   // ── 用户手动发消息 ──
   const sendMessage = useCallback(async () => {
     const text = input.trim();
     if (!text) return;
     setInput("");
-    await sendRaw(text);
-  }, [input, sendRaw]);
+    // 有引用时，把引用内容拼到消息前面
+    const fullText = quoteText ? `> "${quoteText}"\n\n${text}` : text;
+    setQuoteText(null);
+    await sendRaw(fullText);
+  }, [input, sendRaw, quoteText, setQuoteText]);
 
   // 提取简历
   const handleExtract = useCallback(async () => {
@@ -234,6 +246,20 @@ export function ChatInput() {
                 </>
               )}
             </Button>
+          </div>
+        )}
+
+        {/* 引用条 */}
+        {quoteText && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-xs sm:text-sm">
+            <Quote className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="flex-1 truncate text-muted-foreground">{quoteText}</span>
+            <button
+              onClick={() => setQuoteText(null)}
+              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <X className="size-3.5" />
+            </button>
           </div>
         )}
 

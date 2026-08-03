@@ -1,7 +1,7 @@
 "use client";
 
 import { ResumeData } from "@/lib/validators/resume.schema";
-import { MapPin, Mail, Phone, Globe, Calendar, Briefcase, FolderOpen } from "lucide-react";
+import { MapPin, Mail, Phone, Globe, Calendar, Briefcase, FolderOpen, Star } from "lucide-react";
 
 interface Props { data: ResumeData }
 
@@ -15,10 +15,26 @@ const SectionIcon = ({ icon: Icon, label }: { icon: React.ElementType; label: st
 );
 
 export function TemplateModern({ data }: Props) {
-  const { basic, summary, education, experience, projects, skills } = data;
+  const { basic, summary, education, experience, projects, skills, highlights } = data as ResumeData & { highlights?: string[] };
+
+  // ── 同公司经历合并 ──
+  const norm = (name: string) => name.replace(/[（(][^)）]*[)）]/g, "").trim();
+  const groupedExp: Array<{ company: string; roles: typeof experience }> = [];
+  for (const exp of experience) {
+    const key = norm(exp.company);
+    const existing = groupedExp.find(g => norm(g.company) === key);
+    if (existing) {
+      if (norm(existing.company) !== existing.company && norm(exp.company) === exp.company) {
+        existing.company = exp.company;
+      }
+      existing.roles.push(exp);
+    } else {
+      groupedExp.push({ company: exp.company, roles: [exp] });
+    }
+  }
 
   return (
-    <div className="bg-white text-gray-800 min-h-[297mm] max-w-[210mm] mx-auto font-sans text-sm leading-relaxed shadow-lg flex">
+    <div className="bg-gray-100 text-gray-800 max-w-[210mm] mx-auto font-sans text-sm leading-relaxed shadow-lg flex print:min-h-0">
       {/* ── Left Sidebar ── */}
       <aside className="w-[42%] bg-gray-900 text-white p-6 flex flex-col gap-5">
         {/* Avatar + Name */}
@@ -71,10 +87,25 @@ export function TemplateModern({ data }: Props) {
             ))}
           </div>
         )}
+
+        {/* 个人亮点 — AI 从对话中捕捉的优点 */}
+        {highlights && highlights.length > 0 && (
+          <div className="mt-auto">
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-400 mb-2">个人亮点</h3>
+            <ul className="space-y-1 text-[10px] text-gray-300">
+              {highlights.map((h, i) => (
+                <li key={i} className="flex items-start gap-1.5">
+                  <Star className="size-2.5 text-primary/60 shrink-0 mt-0.5" />
+                  <span>{h}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </aside>
 
       {/* ── Right Main Content ── */}
-      <main className="flex-1 p-6 flex flex-col gap-4">
+      <main className="flex-1 p-6 flex flex-col gap-4 bg-white">
         {/* Summary */}
         {summary && (
           <section>
@@ -87,15 +118,21 @@ export function TemplateModern({ data }: Props) {
           <section>
             <SectionIcon icon={Briefcase} label="工作经历" />
             <div className="space-y-3">
-              {experience.map((exp, i) => (
-                <div key={i} className="relative pl-4 border-l-2 border-gray-200 pb-2">
+              {groupedExp.map((group, gi) => (
+                <div key={gi} className="relative pl-4 border-l-2 border-gray-200 pb-2">
                   <div className="absolute top-0 left-[-5px] size-2.5 rounded-full bg-primary" />
-                  <div className="flex justify-between items-baseline">
-                    <h3 className="font-semibold text-sm">{exp.company}</h3>
-                    <span className="text-[10px] text-gray-400 flex items-center gap-1"><Calendar className="size-2.5" />{exp.startDate} — {exp.endDate || "至今"}</span>
-                  </div>
-                  <p className="text-xs text-primary/70 font-medium">{exp.title}</p>
-                  {exp.description && <p className="text-gray-600 mt-1 text-xs">{exp.description}</p>}
+                  {group.company && <h3 className="font-semibold text-sm">{group.company}</h3>}
+                  {group.roles.map((role, ri) => (
+                    <div key={ri} className={ri > 0 ? "mt-2 pt-2 border-t border-gray-100" : (group.company ? "mt-1" : "mt-0")}>
+                      <div className="flex justify-between items-baseline">
+                        <p className="text-xs text-primary/70 font-medium">{role.title}</p>
+                        <span className="text-[10px] text-gray-400 flex items-center gap-1 shrink-0 ml-2">
+                          <Calendar className="size-2.5" />{role.startDate} — {role.endDate || "至今"}
+                        </span>
+                      </div>
+                      {role.description && <p className="text-gray-600 mt-0.5 text-xs">{role.description}</p>}
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>

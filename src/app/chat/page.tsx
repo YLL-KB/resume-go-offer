@@ -75,14 +75,31 @@ function ConversationItem({
 
 export default function ChatPage() {
   const { conversationId, resumeData, loadConversation, conversations, setConversations, startNewChat, isLoadingHistory, renameConversation, deleteConversation, showPreview } = useChatStore();
-  const [showSidebar, setShowSidebar] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; title: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+
+  // ── 移动端检测 ──
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDesktop(window.innerWidth >= 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // ── 分栏拖拽调整 ──
   const [splitRatio, setSplitRatio] = useState(50); // 左侧聊天面板宽度百分比
   const containerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+
+  // ── 重置拖拽状态（内联样式的清理必须始终执行，否则 body 上的 userSelect=none 会阻止文本选择/复制）──
+  const resetDragState = useCallback(() => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }, []);
 
   const handleMouseDown = useCallback(() => {
     dragging.current = true;
@@ -98,18 +115,20 @@ export default function ChatPage() {
       const pct = (x / rect.width) * 100;
       setSplitRatio(Math.min(Math.max(pct, 30), 70)); // 限制 30% ~ 70%
     };
-    const handleMouseUp = () => {
-      dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
     document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("mouseup", resetDragState);
+    // 安全网：鼠标离开文档 / 窗口失焦时强制重置，防止 body 上残留 userSelect=none
+    document.addEventListener("mouseleave", resetDragState);
+    window.addEventListener("blur", resetDragState);
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("mouseup", resetDragState);
+      document.removeEventListener("mouseleave", resetDragState);
+      window.removeEventListener("blur", resetDragState);
+      // 组件卸载时兜底清理
+      resetDragState();
     };
-  }, []);
+  }, [resetDragState]);
 
   useEffect(() => {
     const savedId = typeof window !== "undefined" ? localStorage.getItem("chat_conversation_id") : null;
@@ -124,6 +143,11 @@ export default function ChatPage() {
       .then((data: unknown) => setConversations((data as { conversations?: [] }).conversations ?? []))
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 生成简历预览后自动收起移动端侧边栏
+  useEffect(() => {
+    if (showPreview) setShowMobileSidebar(false);
+  }, [showPreview]);
 
   const handleDelete = async () => {
     if (!confirmDelete) return;
@@ -143,13 +167,24 @@ export default function ChatPage() {
     <div className="flex h-screen flex-col overflow-hidden bg-background print:hidden">
       <AppHeader />
 
+      <ChatHeader onToggleSidebar={() => setShowMobileSidebar(true)} />
+
       <div ref={containerRef} className="flex flex-1 overflow-hidden">
-      {showSidebar && (
-        <div className="print:hidden w-64 shrink-0 border-r bg-muted/20 flex flex-col">
-          <div className="flex items-center justify-between border-b px-4 py-3">
+        {/* 移动端遮罩 */}
+        {showMobileSidebar && (
+          <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={() => setShowMobileSidebar(false)} />
+        )}
+
+        {/* 历史对话侧边栏 */}
+        {/* 移动端：fixed overlay；桌面端：生成预览后自动收起，留更多空间给简历 */}
+        <div className={`print:hidden w-60 shrink-0 border-r bg-muted/20 flex flex-col
+          ${showMobileSidebar ? "fixed inset-y-0 left-0 z-40 w-72" : "hidden"}
+          ${showPreview ? "md:hidden" : "md:relative md:flex md:z-auto md:w-60"}`}
+        >
+          <div className="flex items-center justify-between border-b px-4 py-3 md:hidden">
             <span className="text-sm font-medium">历史对话</span>
-            <Button variant="ghost" size="icon" className="size-7" onClick={() => { startNewChat(); setShowSidebar(false); }}>
-              <Plus className="size-4" />
+            <Button variant="ghost" size="icon" className="size-7" onClick={() => setShowMobileSidebar(false)}>
+              <X className="size-4" />
             </Button>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
@@ -160,46 +195,53 @@ export default function ChatPage() {
               <ConversationItem
                 key={c.id} id={c.id} title={c.title} updatedAt={c.updatedAt}
                 isActive={c.id === conversationId}
-                onSelect={() => { loadConversation(c.id); setShowSidebar(false); }}
+                onSelect={() => { loadConversation(c.id); setShowMobileSidebar(false); }}
                 onDelete={() => setConfirmDelete({ id: c.id, title: c.title })}
                 onRename={(title) => renameConversation(c.id, title)}
               />
             ))}
           </div>
         </div>
-      )}
 
-      <div
-        className={`flex flex-col min-w-0 ${showPreview ? "" : "flex-1"}`}
-        style={showPreview ? { width: `${splitRatio}%` } : undefined}
-      >
-        <ChatHeader onToggleSidebar={() => setShowSidebar(!showSidebar)} showSidebar={showSidebar} />
-        {isLoadingHistory ? (
-          <div className="flex flex-1 items-center justify-center">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <ChatMessages />
-        )}
-        <ChatInput />
-      </div>
-
-      {/* 可拖拽分界线 */}
-      {showPreview && (
+        {/* 聊天区 */}
         <div
-          className="group relative w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/50 transition-colors"
-          onMouseDown={handleMouseDown}
+          className={`flex flex-col min-w-0 flex-1 ${showPreview ? "md:flex-initial" : ""}`}
+          style={showPreview && isDesktop ? { width: `${splitRatio}%` } : undefined}
         >
-          <div className="absolute inset-y-0 -left-1 -right-1" />
+          {isLoadingHistory ? (
+            <div className="flex flex-1 items-center justify-center">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <ChatMessages />
+          )}
+          <ChatInput />
         </div>
-      )}
 
-      {/* 简历预览面板 — 右侧自动填充剩余宽度 */}
-      {showPreview && (
-        <div className="flex-1 min-w-0">
-          <ResumePreviewPanel />
-        </div>
-      )}
+        {/* 可拖拽分界线 — 仅桌面端 */}
+        {showPreview && (
+          <div
+            className="hidden md:block group relative w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/50 transition-colors"
+            onMouseDown={handleMouseDown}
+          >
+            <div className="absolute inset-y-0 -left-1 -right-1" />
+          </div>
+        )}
+
+        {/* 简历预览面板 */}
+        {/* 桌面端：右侧并排；移动端：全屏 overlay */}
+        {showPreview && (
+          <>
+            {/* 桌面端 */}
+            <div className="hidden md:flex flex-1 min-w-0">
+              <ResumePreviewPanel />
+            </div>
+            {/* 移动端 overlay */}
+            <div className="md:hidden fixed inset-0 z-50 bg-background">
+              <ResumePreviewPanel />
+            </div>
+          </>
+        )}
       </div>
 
       {/* 删除确认对话框 */}

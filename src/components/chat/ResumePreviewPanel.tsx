@@ -30,13 +30,27 @@ export function ResumePreviewPanel() {
       if (!root) { root = document.createElement("div"); root.id = "print-root"; document.body.appendChild(root); }
       root.innerHTML = "";
       const style = document.createElement("style");
-      style.textContent = `* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`;
-      root.appendChild(style);
+      style.textContent = [
+        `* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
+        `html { height: auto !important; background: #f3f4f6 !important; }`,
+        `body { height: auto !important; min-height: 100vh !important; background: #f3f4f6 !important; margin: 0 !important; padding: 0 !important; }`,
+      ].join("\n");
+      style.setAttribute("data-print-bg", "1");
+      document.head.appendChild(style);
+      // 固定背景层：print 模式下 position:fixed 会每页重复渲染
+      const bg = document.createElement("div");
+      bg.style.cssText = "position:fixed;inset:0;background:#f3f4f6;z-index:0;";
+      root.appendChild(bg);
       const clone = src.cloneNode(true) as HTMLElement;
-      clone.className = "w-[210mm] min-h-[297mm] bg-white";
+      clone.className = "mx-auto w-[210mm] min-h-[297mm] bg-gray-100";
+      clone.style.position = "relative";
+      clone.style.zIndex = "1";
       root.appendChild(clone);
     };
-    const afterPrint = () => { document.getElementById("print-root")?.remove(); };
+    const afterPrint = () => {
+      document.getElementById("print-root")?.remove();
+      document.querySelector("style[data-print-bg]")?.remove();
+    };
     window.addEventListener("beforeprint", beforePrint);
     window.addEventListener("afterprint", afterPrint);
     return () => {
@@ -79,7 +93,7 @@ export function ResumePreviewPanel() {
       </div>
 
       <div className="flex-1 overflow-auto p-4">
-        <div ref={printRef} className="print-resume mx-auto bg-white shadow-lg w-full max-w-[210mm] min-h-[297mm]">
+        <div ref={printRef} className="print-resume mx-auto bg-gray-100 shadow-lg w-full max-w-[210mm] min-h-[297mm]">
           <TemplateComponent data={resumeData} />
         </div>
 

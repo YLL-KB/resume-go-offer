@@ -104,6 +104,77 @@ export function streamToResponse(
   });
 }
 
+// ── 智能截断：优先保留用户内容，压缩 AI 追问 ──
+
+function smartTruncate(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+
+  // 按消息分块：[用户]: ... [顾问]: ...
+  const blocks = text.split(/(?=\[用户\]:|\[顾问\]:)/);
+  const userBlocks: string[] = [];
+  const assistantBlocks: string[] = [];
+
+  for (const block of blocks) {
+    if (block.startsWith("[用户]:")) {
+      userBlocks.push(block);
+    } else if (block.startsWith("[顾问]:")) {
+      assistantBlocks.push(block);
+    }
+  }
+
+  // 策略：保留所有用户消息，压缩中间的 AI 追问消息
+  const userTotal = userBlocks.reduce((sum, b) => sum + b.length, 0);
+
+  // 用户内容超过上限：从最早的用户消息开始截断
+  if (userTotal >= maxChars) {
+    let kept = "";
+    for (let i = userBlocks.length - 1; i >= 0; i--) {
+      if (kept.length + userBlocks[i].length > maxChars) {
+        kept = userBlocks[i].slice(-(maxChars - kept.length)) + kept;
+        break;
+      }
+      kept = userBlocks[i] + kept;
+    }
+    return kept;
+  }
+
+  // 用户内容在范围内：尽量保留，剩余的配额给 AI 回复
+  let remaining = maxChars - userTotal;
+  const keptAssistant: string[] = [];
+
+  // 优先保留最近的 AI 回复（从后往前取）
+  for (let i = assistantBlocks.length - 1; i >= 0 && remaining > 0; i--) {
+    const block = assistantBlocks[i];
+    if (block.length <= remaining) {
+      keptAssistant.unshift(block);
+      remaining -= block.length;
+    } else {
+      // 截断这个 AI 回复，保留最后部分（通常是总结/优化建议）
+      keptAssistant.unshift(block.slice(-remaining) + "...(截断)");
+      remaining = 0;
+    }
+  }
+
+  // 按原始顺序交错拼接
+  const result: string[] = [];
+  let ui = 0;
+  let ai = 0;
+  for (const block of blocks) {
+    if (block.startsWith("[用户]:") && ui < userBlocks.length) {
+      // 检查这个用户 block 是否在保留列表中
+      if (userBlocks.includes(block)) result.push(block);
+      ui++;
+    } else if (block.startsWith("[顾问]:") && ai < assistantBlocks.length) {
+      if (keptAssistant.includes(assistantBlocks[ai])) {
+        result.push(assistantBlocks[ai]);
+      }
+      ai++;
+    }
+  }
+
+  return result.join("");
+}
+
 export const ai = {
   /**
    * 对话聊天 — 流式返回
@@ -129,14 +200,14 @@ export const ai = {
    */
   async extractResumeData(conversationHistory: string): Promise<Record<string, unknown> | null> {
     const { buildExtractPrompt } = await import("./prompts");
-    // 截断对话历史到后 16000 字，保留最近的对话内容
-    const truncated = conversationHistory.length > 16000
-      ? conversationHistory.slice(conversationHistory.length - 16000)
-      : conversationHistory;
+
+    // 智能截断：优先保留用户消息，从 AI 的长篇追问中截断
+    const truncated = smartTruncate(conversationHistory, 24000);
+
     const res = await openai.chat.completions.create({
       model: DEFAULT_MODEL,
-      temperature: 0.5, // 提高一点温度，让输出更丰富自然
-      max_tokens: 8192, // 加大输出 token，确保多项目简历完整
+      temperature: 0.5,
+      max_tokens: 12288, // 加大输出，确保多项目简历完整
       messages: [
         { role: "user", content: buildExtractPrompt(truncated) },
       ],
@@ -149,7 +220,7 @@ export const ai = {
       const retry = await openai.chat.completions.create({
         model: DEFAULT_MODEL,
         temperature: 0.3,
-        max_tokens: 8192,
+        max_tokens: 12288,
         messages: [
           { role: "user", content: buildExtractPrompt(truncated) + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON，不要遗漏任何经历。" },
         ],

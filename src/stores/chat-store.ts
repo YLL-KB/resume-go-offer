@@ -36,6 +36,10 @@ interface ChatState {
   conversations: Array<{ id: string; title: string; updatedAt: string }>;
   isLoadingHistory: boolean;
 
+  // 引用追问
+  quoteText: string | null;
+  setQuoteText: (text: string | null) => void;
+
   // 操作
   setConversationId: (id: string) => void;
   addMessage: (msg: ChatMessage) => void;
@@ -63,6 +67,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   showPreview: false,
   conversations: [],
   isLoadingHistory: false,
+  quoteText: null,
 
   setConversationId: (id) => {
     set({ conversationId: id });
@@ -100,6 +105,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setExtracting: (v) => set({ isExtracting: v }),
 
   setShowPreview: (v) => set({ showPreview: v }),
+
+  setQuoteText: (text) => set({ quoteText: text }),
 
   setConversations: (list) => set((s) => ({ conversations: typeof list === "function" ? list(s.conversations) : list })),
 
