@@ -34,10 +34,14 @@ export function ResumePreviewPanel() {
       ].join("\n");
       document.head.appendChild(style);
 
-      // ── 阶段 1：测量内容高度，计算需要几页 ──
+      // ── 阶段 1：测量真实内容高度（去掉 min-height 避免虚高）──
       const measureClone = src.cloneNode(true) as HTMLElement;
-      measureClone.style.cssText = "position:absolute;visibility:hidden;width:210mm;top:0;left:0;";
+      measureClone.style.cssText = "position:absolute;visibility:hidden;width:210mm;top:0;left:0;min-height:0;";
       document.body.appendChild(measureClone);
+      // 把内部模板的 min-height 也干掉
+      measureClone.querySelectorAll("*").forEach((el) => {
+        (el as HTMLElement).style.minHeight = "0";
+      });
       const contentHeightPx = measureClone.scrollHeight;
       document.body.removeChild(measureClone);
 
@@ -48,12 +52,14 @@ export function ResumePreviewPanel() {
       const targetMm = pages * pageHeightMm;
       const paddingMm = Math.max(0, targetMm - contentHeightMm);
 
-      // ── 阶段 2：用 padding-bottom 把内容撑到整页倍数，背景色铺满尾页 ──
+      // ── 阶段 2：补 padding 撑到整页倍数，inline style 保证背景色生效 ──
       let root = document.getElementById("print-root");
       if (!root) { root = document.createElement("div"); root.id = "print-root"; document.body.appendChild(root); }
       root.innerHTML = "";
 
       const clone = src.cloneNode(true) as HTMLElement;
+      clone.style.minHeight = "0";
+      clone.style.background = "#f3f4f6";
       clone.style.paddingBottom = `${paddingMm}mm`;
       clone.style.boxSizing = "border-box";
       root.appendChild(clone);
