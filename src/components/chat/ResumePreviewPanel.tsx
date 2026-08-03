@@ -30,15 +30,15 @@ export function ResumePreviewPanel() {
       style.setAttribute("data-print-bg", "1");
       style.textContent = [
         `* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
-        `html, body { margin: 0 !important; padding: 0 !important; background: #f3f4f6 !important; }`,
+        `html, body { margin: 0 !important; padding: 0 !important; }`,
+        `@page { margin: 0; size: A4; }`,
       ].join("\n");
       document.head.appendChild(style);
 
-      // ── 阶段 1：测量真实内容高度（去掉 min-height 避免虚高）──
+      // ── 阶段 1：测量真实内容高度 ──
       const measureClone = src.cloneNode(true) as HTMLElement;
       measureClone.style.cssText = "position:absolute;visibility:hidden;width:210mm;top:0;left:0;min-height:0;";
       document.body.appendChild(measureClone);
-      // 把内部模板的 min-height 也干掉
       measureClone.querySelectorAll("*").forEach((el) => {
         (el as HTMLElement).style.minHeight = "0";
       });
@@ -52,10 +52,18 @@ export function ResumePreviewPanel() {
       const targetMm = pages * pageHeightMm;
       const paddingMm = Math.max(0, targetMm - contentHeightMm);
 
-      // ── 阶段 2：内容 + 显式背景块填满尾页 ──
+      // ── 阶段 2：全页 fixed 背景 + 内容 + 尾页填充 ──
+      // 关键：fixed 元素必须是 body 直接子元素，打印时才会逐页渲染
+      const bg = document.createElement("div");
+      bg.id = "print-bg";
+      bg.style.cssText = "position:fixed;top:0;left:0;right:0;bottom:0;background:#f3f4f6;z-index:0;";
+      document.body.appendChild(bg);
+
       let root = document.getElementById("print-root");
       if (!root) { root = document.createElement("div"); root.id = "print-root"; document.body.appendChild(root); }
       root.innerHTML = "";
+      root.style.position = "relative";
+      root.style.zIndex = "1";
 
       const clone = src.cloneNode(true) as HTMLElement;
       clone.style.minHeight = "0";
@@ -63,12 +71,13 @@ export function ResumePreviewPanel() {
 
       if (paddingMm > 0) {
         const filler = document.createElement("div");
-        filler.style.cssText = `width:210mm;height:${paddingMm}mm;margin:0 auto;background:#f3f4f6;page-break-before:avoid;`;
+        filler.style.cssText = `height:${paddingMm}mm;background:#f3f4f6;`;
         root.appendChild(filler);
       }
     };
     const afterPrint = () => {
       document.getElementById("print-root")?.remove();
+      document.getElementById("print-bg")?.remove();
       document.querySelector("style[data-print-bg]")?.remove();
     };
     window.addEventListener("beforeprint", beforePrint);
