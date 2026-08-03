@@ -10,18 +10,17 @@ import { Separator } from "@/components/ui/separator";
 import { AppHeader } from "@/components/ui/app-header";
 import { cn } from "@/lib/utils";
 import {
-  LayoutTemplate,
   Eye,
   Download,
   ArrowRight,
   Sparkles,
-  ScanEye,
   FileSearch,
   MousePointerClick,
   Zap,
   TrendingUp,
   ShieldCheck,
   MessageSquare,
+  FileText,
 } from "lucide-react";
 
 // ── 动画预设 ──
@@ -87,12 +86,6 @@ const steps = [
 // ── AI 能力卡片 ──
 const aiFeatures = [
   {
-    icon: ScanEye,
-    title: "简历智能解析",
-    desc: "上传 PDF 自动提取姓名、经历、技能等结构化信息，告别手动录入。",
-    highlight: "OCR + AI",
-  },
-  {
     icon: Sparkles,
     title: "AI 润色优化",
     desc: "用有力的动词和量化成果改写经历描述，让 HR 一眼看到亮点。",
@@ -103,12 +96,6 @@ const aiFeatures = [
     title: "竞争力分析",
     desc: "AI 从 HR 视角评分，指出具体不足并给出可替换的改写建议。",
     highlight: "评分 + 建议",
-  },
-  {
-    icon: LayoutTemplate,
-    title: "专业模板库",
-    desc: "经典、现代、极简多套模板一键切换，适配不同行业和职级。",
-    highlight: "持续更新",
   },
   {
     icon: MousePointerClick,
@@ -354,7 +341,7 @@ export default function HomePage() {
               </Button>
               <Button asChild variant="ghost" size="lg">
                 <Link href="/resume/builder">
-                  手动填表单 <LayoutTemplate className="ml-1.5 size-4" />
+                  手动填表单 <FileText className="ml-1.5 size-4" />
                 </Link>
               </Button>
             </div>
