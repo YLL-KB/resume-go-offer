@@ -26,9 +26,6 @@ export function ResumePreviewPanel() {
     const beforePrint = () => {
       const src = document.querySelector(".print-resume");
       if (!src) return;
-      let root = document.getElementById("print-root");
-      if (!root) { root = document.createElement("div"); root.id = "print-root"; document.body.appendChild(root); }
-      root.innerHTML = "";
       const style = document.createElement("style");
       style.setAttribute("data-print-bg", "1");
       style.textContent = [
@@ -36,19 +33,33 @@ export function ResumePreviewPanel() {
         `html, body { margin: 0 !important; padding: 0 !important; background: #f3f4f6 !important; }`,
       ].join("\n");
       document.head.appendChild(style);
-      // 固定背景层：必须是 body 的直接子元素，打印时才会每页重复渲染
-      const bg = document.createElement("div");
-      bg.id = "print-bg-layer";
-      bg.style.cssText = "position:fixed;inset:0;background:#f3f4f6;z-index:0;";
-      document.body.appendChild(bg);
+
+      // ── 阶段 1：测量内容高度，计算需要几页 ──
+      const measureClone = src.cloneNode(true) as HTMLElement;
+      measureClone.style.cssText = "position:absolute;visibility:hidden;width:210mm;top:0;left:0;";
+      document.body.appendChild(measureClone);
+      const contentHeightPx = measureClone.scrollHeight;
+      document.body.removeChild(measureClone);
+
+      const mmPerPx = 25.4 / 96;
+      const contentHeightMm = contentHeightPx * mmPerPx;
+      const pageHeightMm = 297;
+      const pages = Math.max(1, Math.ceil(contentHeightMm / pageHeightMm));
+      const targetMm = pages * pageHeightMm;
+      const paddingMm = Math.max(0, targetMm - contentHeightMm);
+
+      // ── 阶段 2：用 padding-bottom 把内容撑到整页倍数，背景色铺满尾页 ──
+      let root = document.getElementById("print-root");
+      if (!root) { root = document.createElement("div"); root.id = "print-root"; document.body.appendChild(root); }
+      root.innerHTML = "";
+
       const clone = src.cloneNode(true) as HTMLElement;
-      clone.style.position = "relative";
-      clone.style.zIndex = "1";
+      clone.style.paddingBottom = `${paddingMm}mm`;
+      clone.style.boxSizing = "border-box";
       root.appendChild(clone);
     };
     const afterPrint = () => {
       document.getElementById("print-root")?.remove();
-      document.getElementById("print-bg-layer")?.remove();
       document.querySelector("style[data-print-bg]")?.remove();
     };
     window.addEventListener("beforeprint", beforePrint);
