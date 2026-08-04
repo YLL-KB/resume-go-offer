@@ -21,7 +21,7 @@ export interface AiAnalysis {
 
 const EMPTY_RESUME_DATA: ResumeData = {
   basic: { name: "", email: "", phone: "", location: "", website: "", title: "" },
-  summary: "", education: [], experience: [], projects: [], skills: [], highlights: [],
+  summary: "", education: [], experience: [], projects: [], skills: [], highlights: [], categorizedSkills: {},
 };
 
 interface EditorState {

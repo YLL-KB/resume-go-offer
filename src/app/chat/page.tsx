@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useChatStore } from "@/stores/chat-store";
 import { ResumePreviewPanel } from "@/components/chat/ResumePreviewPanel";
-import { TemplateModern } from "@/components/resume/TemplateModern";
+import { TemplateResume } from "@/components/resume/TemplateResume";
 import { MessageSquare, Plus, Loader2, Trash2, Pencil, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -266,7 +266,7 @@ export default function ChatPage() {
       {resumeData && (
         <div className="hidden">
           <div className="print-resume w-[210mm] min-h-[297mm] bg-white">
-            <TemplateModern data={resumeData} />
+            <TemplateResume data={resumeData} />
           </div>
         </div>
       )}

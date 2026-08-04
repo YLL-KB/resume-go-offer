@@ -16,7 +16,7 @@ import { WorkStep } from "@/components/resume/WorkStep";
 import { ProjectStep } from "@/components/resume/ProjectStep";
 import { SkillsStep } from "@/components/resume/SkillsStep";
 import { StepIndicator } from "@/components/resume/StepIndicator";
-import { TemplateClassic } from "@/components/resume/TemplateClassic";
+import { TemplateResume } from "@/components/resume/TemplateResume";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, Check, Eye, Download, Edit3 } from "lucide-react";
 
@@ -65,7 +65,7 @@ export default function ResumeBuilderPage() {
         </div>
         <div className="flex justify-center py-10">
           <div className="bg-white shadow-xl" style={{ width: "210mm", minHeight: "297mm" }}>
-            <TemplateClassic data={resumeData} />
+            <TemplateResume data={resumeData} />
           </div>
         </div>
       </div>

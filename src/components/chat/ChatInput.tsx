@@ -24,6 +24,8 @@ export function ChatInput() {
     setError,
     setResumeData,
     setExtracting,
+    setExtractStreamText,
+    appendExtractStreamText,
     setShowPreview,
     setConversations,
     setQuoteText,
@@ -183,13 +185,16 @@ export function ChatInput() {
     await sendRaw(fullText);
   }, [input, sendRaw, quoteText, setQuoteText]);
 
-  // 提取简历
+  // 提取简历（SSE 流式）
   const handleExtract = useCallback(async () => {
     if (!conversationId || isExtracting) return;
 
     setExtracting(true);
+    setError(null);
+    setExtractStreamText("");
 
     try {
+      const { readExtractSSE } = await import("@/lib/utils/sse");
       const res = await fetch("/api/chat/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -197,19 +202,23 @@ export function ChatInput() {
       });
 
       if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        throw new Error(err.error ?? "提取失败");
+        const err = await res.json().catch(() => ({ error: "请求失败" }));
+        throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
       }
 
-      const json = await res.json() as { data: ResumeData };
-      setResumeData(json.data);
+      const data = await readExtractSSE(res, (chunk) => {
+        appendExtractStreamText(chunk);
+      });
+      if (!data) throw new Error("提取失败，请再聊几句");
+
+      setResumeData(data as ResumeData);
       setShowPreview(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "提取失败，请再聊几句");
     } finally {
       setExtracting(false);
     }
-  }, [conversationId, isExtracting, setExtracting, setResumeData, setShowPreview, setError]);
+  }, [conversationId, isExtracting, setExtracting, setResumeData, setShowPreview, setError, appendExtractStreamText]);
 
   // 键盘事件
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

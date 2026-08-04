@@ -102,22 +102,21 @@ function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages:
     }
   }, [selectionPopup, setQuoteText]);
 
-  const handleCopy = useCallback(async () => {
+  const handleCopy = async () => {
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = marked.parse(text, { async: false }) as string;
     const plainText = tempDiv.textContent ?? tempDiv.innerText ?? text;
     await navigator.clipboard.writeText(plainText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [text]);
+  };
 
-  const handleQuoteFull = useCallback(() => {
-    // 引用整条消息的纯文本
+  const handleQuoteFull = () => {
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = marked.parse(text, { async: false }) as string;
     const plainText = (tempDiv.textContent ?? tempDiv.innerText ?? text).trim();
     setQuoteText(plainText);
-  }, [text, setQuoteText]);
+  };
 
   const hasContent = text.length > 0 || forms.length > 0;
   if (!hasContent) return null;
@@ -241,7 +240,7 @@ function TypingIndicator() {
 // ── 消息列表 ──
 
 export function ChatMessages() {
-  const { messages, isStreaming, setShowPreview, setResumeData, setExtracting, conversationId } = useChatStore();
+  const { messages, isStreaming, setShowPreview, setResumeData, setExtracting, conversationId, extractStreamText, setExtractStreamText, appendExtractStreamText } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [formState] = useState<Map<string, { type: FormType; submitted?: boolean }>>(new Map());
   // LangGraph: tool-push-form 事件触发的表单
@@ -266,17 +265,18 @@ export function ChatMessages() {
     const handleDone = () => {
       if (conversationId) {
         setExtracting(true);
-        fetch("/api/chat/extract", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ conversationId }),
-        })
-          .then(async (res) => {
-            const json = await res.json() as { data?: Record<string, unknown> };
-            if (json.data) { setResumeData(json.data); setShowPreview(true); }
+        setExtractStreamText("");
+        import("@/lib/utils/sse").then(({ readExtractSSE }) =>
+          fetch("/api/chat/extract", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ conversationId }),
           })
-          .catch(console.error)
-          .finally(() => setExtracting(false));
+            .then((res) => readExtractSSE(res, (chunk) => { appendExtractStreamText(chunk); }))
+            .then((data) => { if (data) { setResumeData(data); setShowPreview(true); } })
+            .catch(console.error)
+            .finally(() => setExtracting(false)),
+        );
       }
     };
 
@@ -309,33 +309,35 @@ export function ChatMessages() {
     if (hasFormDone && conversationId && lastDoneRef.current !== lastMsg.id) {
       lastDoneRef.current = lastMsg.id;
       setExtracting(true);
-      fetch("/api/chat/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId }),
-      })
-        .then(async (res) => {
-          const json = await res.json() as { data?: Record<string, unknown> };
-          if (json.data) {
-            // 合并：AI 提取的数据优先（AI 有完整对话上下文 + 优化建议），表单数据补充填充
-            const aiData = json.data as Record<string, unknown>;
-            const formData = storeResumeData ?? ({} as Record<string, unknown>);
-            const merged = {
-              ...formData,
-              ...aiData,
-              basic: { ...(formData.basic as Record<string, unknown> ?? {}), ...(aiData.basic as Record<string, unknown> ?? {}) },
-              education: (aiData.education as unknown[] ?? []).length > 0 ? aiData.education : formData.education,
-              experience: (aiData.experience as unknown[] ?? []).length > 0 ? aiData.experience : formData.experience,
-              projects: (aiData.projects as unknown[] ?? []).length > 0 ? aiData.projects : formData.projects,
-              skills: (aiData.skills as unknown[] ?? []).length > 0 ? aiData.skills : formData.skills,
-              summary: (aiData.summary as string) || formData.summary,
-            };
-            setResumeData(merged as Parameters<typeof setResumeData>[0]);
-            setShowPreview(true);
-          }
+      setExtractStreamText("");
+      import("@/lib/utils/sse").then(({ readExtractSSE }) =>
+        fetch("/api/chat/extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ conversationId }),
         })
-        .catch(console.error)
-        .finally(() => setExtracting(false));
+          .then((res) => readExtractSSE(res, (chunk) => { appendExtractStreamText(chunk); }))
+          .then((aiData) => {
+            if (aiData) {
+              // 合并：AI 提取的数据优先（AI 有完整对话上下文 + 优化建议），表单数据补充填充
+              const formData = storeResumeData ?? ({} as Record<string, unknown>);
+              const merged = {
+                ...formData,
+                ...aiData,
+                basic: { ...(formData.basic as Record<string, unknown> ?? {}), ...(aiData.basic as Record<string, unknown> ?? {}) },
+                education: ((aiData.education as unknown[] ?? []).length > 0 ? aiData.education : formData.education),
+                experience: ((aiData.experience as unknown[] ?? []).length > 0 ? aiData.experience : formData.experience),
+                projects: ((aiData.projects as unknown[] ?? []).length > 0 ? aiData.projects : formData.projects),
+                skills: ((aiData.skills as unknown[] ?? []).length > 0 ? aiData.skills : formData.skills),
+                summary: (aiData.summary as string) || formData.summary,
+              };
+              setResumeData(merged as Parameters<typeof setResumeData>[0]);
+              setShowPreview(true);
+            }
+          })
+          .catch(console.error)
+          .finally(() => setExtracting(false)),
+      );
     }
   }, [hasFormDone, conversationId, lastMsg?.id, setExtracting, setResumeData, setShowPreview, storeResumeData]);
 
@@ -352,6 +354,17 @@ export function ChatMessages() {
         {messages.filter((m) => m.role !== "system").map((msg) => (
           <ChatBubble key={msg.id} msg={msg} formMessages={formState} />
         ))}
+
+        {/* 提取简历流式输出 */}
+        {extractStreamText && (
+          <div className="flex gap-3">
+            <span className="mt-1 shrink-0 text-sm font-bold text-muted-foreground">🤖</span>
+            <div className="rounded-lg bg-muted/60 px-4 py-3 text-sm leading-relaxed">
+              <p className="mb-1 font-semibold text-xs text-muted-foreground">AI 正在提取简历...</p>
+              <pre className="whitespace-pre-wrap break-all font-mono text-xs text-muted-foreground max-h-60 overflow-y-auto">{extractStreamText}</pre>
+            </div>
+          </div>
+        )}
 
         {/* LangGraph: tool-push-form 触发的表单卡片 */}
         {toolForms.filter((tf) => !formState.get(tf.key)?.submitted).map((tf) => (

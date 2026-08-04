@@ -16,7 +16,18 @@ export const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
 });
 
+/** 提取专用客户端：可用不同提供商（如 DeepSeek）追求速度 */
+export const extractClient = new OpenAI({
+  apiKey: process.env.AI_EXTRACT_API_KEY ?? process.env.OPENAI_API_KEY ?? "sk-placeholder",
+  baseURL: process.env.AI_EXTRACT_BASE_URL ?? process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
+});
+
 export const DEFAULT_MODEL = process.env.AI_MODEL ?? "gpt-4o-mini";
+
+/** 结构化提取等非聊天任务可用更快模型，默认复用 DEFAULT_MODEL */
+export const EXTRACT_MODEL = process.env.AI_EXTRACT_MODEL ?? DEFAULT_MODEL;
+
+console.log(`[AI] 聊天模型=${DEFAULT_MODEL}  提取模型=${EXTRACT_MODEL}`);
 
 if (process.env.LANGCHAIN_TRACING_V2 === "true" && process.env.LANGCHAIN_API_KEY) {
   console.log("[AI] LangSmith tracing enabled");
@@ -200,35 +211,111 @@ export const ai = {
    */
   async extractResumeData(conversationHistory: string): Promise<Record<string, unknown> | null> {
     const { buildExtractPrompt } = await import("./prompts");
+    const t0 = Date.now();
 
     // 智能截断：优先保留用户消息，从 AI 的长篇追问中截断
     const truncated = smartTruncate(conversationHistory, 24000);
+    const prompt = buildExtractPrompt(truncated);
 
-    const res = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
-      temperature: 0.5,
-      max_tokens: 12288, // 加大输出，确保多项目简历完整
+    console.log(`[extract] 模型=${EXTRACT_MODEL}  prompt=${prompt.length}chars  历史=${conversationHistory.length}chars`);
+
+    const res = await extractClient.chat.completions.create({
+      model: EXTRACT_MODEL,
+      temperature: 0.3,
+      max_tokens: 8192,
+      timeout: 90_000,
+      response_format: { type: "json_object" },
       messages: [
-        { role: "user", content: buildExtractPrompt(truncated) },
+        { role: "user", content: prompt },
       ],
     });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
+    const t1 = Date.now();
+    console.log(`[extract] AI 响应 ${(t1 - t0) / 1000}s  output=${text.length}chars`);
+
     const parsed = safeJsonParse<Record<string, unknown>>(text);
-    // 如果解析失败，可能是 JSON 被截断，重试一次
     if (!parsed) {
-      const retry = await openai.chat.completions.create({
-        model: DEFAULT_MODEL,
-        temperature: 0.3,
-        max_tokens: 12288,
+      console.warn(`[extract] JSON 解析失败，重试中...`);
+      const retry = await extractClient.chat.completions.create({
+        model: EXTRACT_MODEL,
+        temperature: 0.1,
+        max_tokens: 8192,
+        timeout: 90_000,
+        response_format: { type: "json_object" },
         messages: [
-          { role: "user", content: buildExtractPrompt(truncated) + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON，不要遗漏任何经历。" },
+          { role: "user", content: prompt + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON，不要遗漏任何经历。" },
         ],
       });
       const retryText = retry.choices[0]?.message?.content?.trim() ?? "";
+      const t2 = Date.now();
+      console.log(`[extract] 重试完成 ${((t2 - t0) / 1000).toFixed(1)}s`);
       return safeJsonParse<Record<string, unknown>>(retryText);
     }
+
+    console.log(`[extract] 总耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     return parsed;
+  },
+
+  /**
+   * 流式提取简历数据 — 返回 SSE ReadableStream
+   * 前端可实时看到 AI 生成进度，不再干等 50s
+   */
+  extractResumeDataStream(conversationHistory: string): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    const truncated = smartTruncate(conversationHistory, 24000);
+
+    return new ReadableStream({
+      async start(controller) {
+        const t0 = Date.now();
+        try {
+          const { buildExtractPrompt } = await import("./prompts");
+          const prompt = buildExtractPrompt(truncated);
+          console.log(`[extract-stream] 模型=${EXTRACT_MODEL}  prompt=${prompt.length}chars`);
+
+          const stream = await extractClient.chat.completions.create({
+            model: EXTRACT_MODEL,
+            temperature: 0.3,
+            max_tokens: 8192,
+            timeout: 90_000,
+            stream: true,
+            messages: [{ role: "user", content: prompt }],
+          });
+
+          let full = "";
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content;
+            if (content) {
+              full += content;
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`),
+              );
+            }
+          }
+
+          const parsed = safeJsonParse<Record<string, unknown>>(full.trim());
+          const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+          console.log(`[extract-stream] 完成 ${elapsed}s  output=${full.length}chars`);
+
+          if (parsed) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "done", data: parsed })}\n\n`),
+            );
+          } else {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "error", message: "JSON 解析失败，请重试" })}\n\n`),
+            );
+          }
+        } catch (err) {
+          console.error(`[extract-stream] 失败:`, err instanceof Error ? err.message : err);
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: "error", message: err instanceof Error ? err.message : "提取失败" })}\n\n`),
+          );
+        } finally {
+          controller.close();
+        }
+      },
+    });
   },
 
   /**
@@ -624,6 +711,94 @@ export const ai = {
         },
         { role: "user", content },
       ],
+    });
+  },
+
+  /**
+   * 根据技能分类数据生成风格化技能区块 HTML
+   * 使用 resume-styles-kit 规范，仅输出技能部分
+   */
+  async generateSkillsHtml(
+    categorizedSkills: Record<string, string[]>,
+    skillStyle: "A" | "B" | "D" = "B",
+  ): Promise<string | null> {
+    const { buildSkillsHtmlPrompt } = await import("./prompts");
+
+    const res = await openai.chat.completions.create({
+      model: DEFAULT_MODEL,
+      temperature: 0.1,
+      max_tokens: 2048,
+      messages: [
+        { role: "user", content: buildSkillsHtmlPrompt(categorizedSkills, skillStyle) },
+      ],
+    });
+
+    const html = res.choices[0]?.message?.content?.trim() ?? "";
+    if (!html) return null;
+
+    return html
+      .replace(/^```html?\s*/i, "")
+      .replace(/```\s*$/, "")
+      .trim();
+  },
+
+  /** 流式生成技能区块 HTML */
+  generateSkillsHtmlStream(
+    categorizedSkills: Record<string, string[]>,
+    skillStyle: "A" | "B" | "D" = "B",
+  ): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+
+    return new ReadableStream({
+      async start(controller) {
+        const startTime = Date.now();
+        try {
+          const { buildSkillsHtmlPrompt } = await import("./prompts");
+          const prompt = buildSkillsHtmlPrompt(categorizedSkills, skillStyle);
+          console.log(`[skills-render] Starting style ${skillStyle} — prompt ${prompt.length} chars`);
+
+          const stream = await openai.chat.completions.create({
+            model: DEFAULT_MODEL,
+            temperature: 0.1,
+            max_tokens: 2048,
+            stream: true,
+            messages: [
+              { role: "user", content: prompt },
+            ],
+          });
+
+          let fullHtml = "";
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content;
+            if (content) {
+              fullHtml += content;
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`),
+              );
+            }
+          }
+
+          const clean = fullHtml
+            .replace(/^```html?\s*/i, "")
+            .replace(/```\s*$/, "")
+            .trim();
+
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.log(`[skills-render] Style ${skillStyle} done — ${clean.length} chars, ${elapsed}s`);
+
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: "done", html: clean })}\n\n`),
+          );
+        } catch (err) {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          console.error(`[skills-render] Style ${skillStyle} failed after ${elapsed}s:`, err instanceof Error ? err.message : err);
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: "error", message: err instanceof Error ? err.message : "生成失败" })}\n\n`),
+          );
+        } finally {
+          controller.close();
+        }
+      },
     });
   },
 };

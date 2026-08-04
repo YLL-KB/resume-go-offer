@@ -1,9 +1,13 @@
 /**
  * POST /api/chat/extract
  *
- * 从对话记录中提取结构化简历数据。
+ * 从对话记录中流式提取结构化简历数据（SSE）。
  * Body: { conversationId: string }
- * Response: { data: ResumeData }
+ *
+ * SSE 事件：
+ *   data: {"type":"chunk","content":"..."}   — AI 生成片段
+ *   data: {"type":"done","data":{...}}        — 提取完成，结构化数据
+ *   data: {"type":"error","message":"..."}     — 失败
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -47,15 +51,14 @@ export async function POST(request: NextRequest) {
     .map((m) => `[${m.role === "user" ? "用户" : "顾问"}]: ${m.content}`)
     .join("\n\n");
 
-  // 调用 AI 提取
-  const data = await ai.extractResumeData(conversationText);
+  // 流式提取
+  const stream = ai.extractResumeDataStream(conversationText);
 
-  if (!data) {
-    return NextResponse.json(
-      { error: "提取失败，请再聊几句后重试" },
-      { status: 422 },
-    );
-  }
-
-  return NextResponse.json({ data });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }

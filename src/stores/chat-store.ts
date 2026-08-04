@@ -29,7 +29,9 @@ interface ChatState {
 
   // 简历
   resumeData: ResumeData | null;
+  skillsHtmlMap: Record<string, string> | null;
   isExtracting: boolean;
+  extractStreamText: string;
   showPreview: boolean;
 
   // 对话列表
@@ -48,7 +50,10 @@ interface ChatState {
   setStreaming: (v: boolean) => void;
   setError: (err: string | null) => void;
   setResumeData: (data: Partial<ResumeData>) => void;
+  setSkillsHtmlMap: (map: Record<string, string> | null) => void;
   setExtracting: (v: boolean) => void;
+  setExtractStreamText: (text: string) => void;
+  appendExtractStreamText: (chunk: string) => void;
   setShowPreview: (v: boolean) => void;
   setConversations: (list: Array<{ id: string; title: string; updatedAt: string }> | ((prev: Array<{ id: string; title: string; updatedAt: string }>) => Array<{ id: string; title: string; updatedAt: string }>)) => void;
   renameConversation: (id: string, title: string) => Promise<void>;
@@ -63,7 +68,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isStreaming: false,
   error: null,
   resumeData: null,
+  skillsHtmlMap: null,
   isExtracting: false,
+  extractStreamText: "",
   showPreview: false,
   conversations: [],
   isLoadingHistory: false,
@@ -100,9 +107,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ...data,
         basic: { ...DEFAULT_RESUME_DATA.basic, ...(data.basic ?? {}) },
       } as ResumeData,
+      skillsHtmlMap: null, // 新数据 → 清掉旧技能 HTML
     }),
 
-  setExtracting: (v) => set({ isExtracting: v }),
+  setSkillsHtmlMap: (map) => set({ skillsHtmlMap: map }),
+
+  setExtracting: (v) => set({ isExtracting: v, ...(v ? {} : { extractStreamText: "" }) }),
+
+  setExtractStreamText: (text) => set({ extractStreamText: text }),
+
+  appendExtractStreamText: (chunk) => set((s) => ({ extractStreamText: s.extractStreamText + chunk })),
 
   setShowPreview: (v) => set({ showPreview: v }),
 
@@ -123,7 +137,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isStreaming: false,
       error: null,
       resumeData: null,
+      skillsHtmlMap: null,
       isExtracting: false,
+      extractStreamText: "",
       showPreview: false,
     });
   },

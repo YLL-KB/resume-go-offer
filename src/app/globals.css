@@ -139,7 +139,7 @@
       print-color-adjust: exact !important;
     }
     /* 背景色填充由 ResumePreviewPanel beforeprint 中的 JS 动态处理：
-       测量内容高度 → 计算页数 → padding-bottom 撑到整页倍数 */
+       测量内容高度 → print-root min-height 匹配内容 → html background 覆盖全部页面 */
   }
 }
 

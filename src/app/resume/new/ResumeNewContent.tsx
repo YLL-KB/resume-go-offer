@@ -18,7 +18,7 @@ import type { RichTextBlock } from "@/lib/pdf/text-extractor";
 import { extractTextBlocks } from "@/lib/pdf/text-extractor";
 import { useEditorStore } from "@/stores/editor-store";
 
-const EMPTY: ResumeData = { basic: { name:"",email:"",phone:"",location:"",website:"",title:"" }, summary:"", education:[], experience:[], projects:[], skills:[], highlights:[] };
+const EMPTY: ResumeData = { basic: { name:"",email:"",phone:"",location:"",website:"",title:"" }, summary:"", education:[], experience:[], projects:[], skills:[], highlights:[], categorizedSkills: {} };
 
 export function ResumeNewContent() {
   const router = useRouter();
