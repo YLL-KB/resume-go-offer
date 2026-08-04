@@ -50,6 +50,8 @@ export const projectSchema = z.object({
   description: z.string().optional().default(""),
   url: z.string().optional().default(""),
   techStack: z.string().optional().default(""),
+  startDate: z.string().optional().default(""),
+  endDate: z.string().optional().default(""),
   highlights: z.array(z.string()).optional().default([]),
 });
 

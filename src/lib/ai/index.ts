@@ -209,13 +209,13 @@ export const ai = {
    * @param conversationHistory - 对话记录文本
    * @returns ResumeData JSON 对象
    */
-  async extractResumeData(conversationHistory: string): Promise<Record<string, unknown> | null> {
+  async extractResumeData(conversationHistory: string, resumeData?: Record<string, unknown> | null): Promise<Record<string, unknown> | null> {
     const { buildExtractPrompt } = await import("./prompts");
     const t0 = Date.now();
 
     // 智能截断：优先保留用户消息，从 AI 的长篇追问中截断
     const truncated = smartTruncate(conversationHistory, 24000);
-    const prompt = buildExtractPrompt(truncated);
+    const prompt = buildExtractPrompt(truncated, resumeData);
 
     console.log(`[extract] 模型=${EXTRACT_MODEL}  prompt=${prompt.length}chars  历史=${conversationHistory.length}chars`);
 
@@ -261,7 +261,7 @@ export const ai = {
    * 流式提取简历数据 — 返回 SSE ReadableStream
    * 前端可实时看到 AI 生成进度，不再干等 50s
    */
-  extractResumeDataStream(conversationHistory: string): ReadableStream<Uint8Array> {
+  extractResumeDataStream(conversationHistory: string, resumeData?: Record<string, unknown> | null): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
     const truncated = smartTruncate(conversationHistory, 24000);
 
@@ -270,7 +270,7 @@ export const ai = {
         const t0 = Date.now();
         try {
           const { buildExtractPrompt } = await import("./prompts");
-          const prompt = buildExtractPrompt(truncated);
+          const prompt = buildExtractPrompt(truncated, resumeData);
           console.log(`[extract-stream] 模型=${EXTRACT_MODEL}  prompt=${prompt.length}chars`);
 
           const stream = await extractClient.chat.completions.create({

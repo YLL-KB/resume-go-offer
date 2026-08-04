@@ -270,7 +270,7 @@ export function ChatMessages() {
           fetch("/api/chat/extract", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ conversationId }),
+            body: JSON.stringify({ conversationId, resumeData: useChatStore.getState().resumeData }),
           })
             .then((res) => readExtractSSE(res, (chunk) => { appendExtractStreamText(chunk); }))
             .then((data) => { if (data) { setResumeData(data); setShowPreview(true); } })
@@ -314,7 +314,7 @@ export function ChatMessages() {
         fetch("/api/chat/extract", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ conversationId }),
+          body: JSON.stringify({ conversationId, resumeData: storeResumeData }),
         })
           .then((res) => readExtractSSE(res, (chunk) => { appendExtractStreamText(chunk); }))
           .then((aiData) => {

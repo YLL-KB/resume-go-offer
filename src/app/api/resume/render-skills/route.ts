@@ -1,20 +1,15 @@
 /**
  * POST /api/resume/render-skills
  *
- * 根据技能分类数据 + 风格，生成技能区块 HTML。
- * 纯模板渲染（<1ms），不再调用 AI。
- * Body: { categorizedSkills: Record<string, string[]>, skillStyle?: "A"|"B"|"D" }
+ * 根据技能分类数据生成技能区块 HTML（纯模板渲染，<1ms）。
+ * Body: { categorizedSkills: Record<string, string[]> }
  */
 
 import { NextRequest } from "next/server";
-import { renderSkillsHtml, type SkillStyle } from "@/lib/skills-html";
-
-function isSkillStyle(s: string): s is SkillStyle {
-  return ["A", "B", "D"].includes(s);
-}
+import { renderSkillsHtml } from "@/lib/skills-html";
 
 export async function POST(request: NextRequest) {
-  let body: { categorizedSkills?: Record<string, string[]>; skillStyle?: string };
+  let body: { categorizedSkills?: Record<string, string[]> };
   try {
     body = await request.json() as typeof body;
     if (!body.categorizedSkills || typeof body.categorizedSkills !== "object") {
@@ -30,11 +25,8 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const style: SkillStyle = isSkillStyle(body.skillStyle ?? "") ? (body.skillStyle as SkillStyle) : "B";
+  const html = renderSkillsHtml(body.categorizedSkills);
 
-  const html = renderSkillsHtml(body.categorizedSkills, style);
-
-  // 保持 SSE 格式兼容前端 readRenderSkillsSSE
   const encoder = new TextEncoder();
   const body2 = new ReadableStream({
     start(ctrl) {

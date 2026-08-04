@@ -198,7 +198,7 @@ export function ChatInput() {
       const res = await fetch("/api/chat/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId }),
+        body: JSON.stringify({ conversationId, resumeData }),
       });
 
       if (!res.ok) {

@@ -18,12 +18,14 @@ import { eq, asc } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   let conversationId: string;
+  let resumeData: Record<string, unknown> | undefined;
   try {
-    const body = await request.json() as { conversationId?: string };
+    const body = await request.json() as { conversationId?: string; resumeData?: Record<string, unknown> };
     if (!body.conversationId) {
       return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     }
     conversationId = body.conversationId;
+    resumeData = body.resumeData;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -52,7 +54,7 @@ export async function POST(request: NextRequest) {
     .join("\n\n");
 
   // 流式提取
-  const stream = ai.extractResumeDataStream(conversationText);
+  const stream = ai.extractResumeDataStream(conversationText, resumeData);
 
   return new Response(stream, {
     headers: {

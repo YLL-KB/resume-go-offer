@@ -171,10 +171,11 @@ export function TemplateResume({ data, skillsHtml }: TemplateResumeProps) {
             <h2>项目经历</h2>
             {projects.map((p, i) => (
               <div key={i} className="proj mb-3">
-                <h3 className="text-[11pt] font-bold text-[#7c3aed] mb-1">
+                <h3 className="text-[11pt] font-bold text-[#7c3aed] mb-0.5">
                   {p.name}
-                  {p.techStack && <span className="text-[9pt] font-normal text-gray-500 ml-2">{p.techStack}</span>}
+                  {(p.startDate || p.endDate) && <span className="text-[9pt] font-normal text-gray-400 ml-2">{p.startDate} – {p.endDate || "至今"}</span>}
                 </h3>
+                {p.techStack && <p className="text-[9pt] text-gray-500 mb-1">{p.techStack}</p>}
                 {p.description && (
                   <p className="text-[10pt] text-gray-600 mb-1" dangerouslySetInnerHTML={{ __html: highlightNumbers(p.description) }} />
                 )}

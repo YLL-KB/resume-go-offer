@@ -265,16 +265,18 @@ function ExperienceForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, u
 // ── 项目经验（支持多条）──
 
 function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unknown>) => void; onCancel: () => void }) {
-  const [entries, setEntries] = useState<Array<{ id: string; name: string; techStack: string; description: string; url: string }>>([]);
+  const [entries, setEntries] = useState<Array<{ id: string; name: string; techStack: string; description: string; url: string; startDate: string; endDate: string }>>([]);
   const [name, setName] = useState("");
   const [techStack, setTechStack] = useState("");
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const addEntry = () => {
     if (!name.trim()) return;
-    setEntries([...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim() }]);
-    setName(""); setTechStack(""); setDescription(""); setUrl("");
+    setEntries([...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]);
+    setName(""); setTechStack(""); setDescription(""); setUrl(""); setStartDate(""); setEndDate("");
   };
 
   const removeEntry = (id: string) => {
@@ -283,7 +285,7 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
 
   const handleSubmit = () => {
     const allEntries = name.trim()
-      ? [...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim() }]
+      ? [...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]
       : entries;
     onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
   };
@@ -296,6 +298,9 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
             <div key={entry.id} className="flex items-start justify-between rounded-lg border bg-background px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{entry.name}{entry.techStack ? ` · ${entry.techStack}` : ""}</div>
+                {(entry.startDate || entry.endDate) && (
+                  <div className="text-xs text-muted-foreground">{entry.startDate} ~ {entry.endDate}</div>
+                )}
                 {entry.description && <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{entry.description}</div>}
                 {entry.url && <div className="text-xs text-primary/70 mt-0.5 truncate">{entry.url}</div>}
               </div>
@@ -319,6 +324,14 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
           <div>
             <Label className="text-[11px]">技术栈</Label>
             <Input value={techStack} onChange={(e) => setTechStack(e.target.value)} placeholder="React, TypeScript, Node.js" className="mt-0.5 h-8 text-sm" />
+          </div>
+          <div>
+            <Label className="text-[11px]">开始时间</Label>
+            <Input value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="2023.06" className="mt-0.5 h-8 text-sm" />
+          </div>
+          <div>
+            <Label className="text-[11px]">结束时间</Label>
+            <Input value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="2024.03" className="mt-0.5 h-8 text-sm" />
           </div>
           <div className="col-span-2">
             <Label className="text-[11px]">项目链接</Label>
