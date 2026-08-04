@@ -125,7 +125,7 @@ function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages:
     <div className={`group flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <div
         className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm ${
-          isUser ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+          isUser ? "bg-primary text-primary-foreground" : "bg-[#f5f0e8] text-[#6b6859]"
         }`}
       >
         {isUser ? <User className="size-4" /> : <Bot className="size-4" />}
@@ -136,14 +136,14 @@ function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages:
           <div>
             <div
               className={`rounded-2xl px-4 py-3 text-sm ${
-                isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+                isUser ? "bg-primary text-primary-foreground" : "bg-[#f5f0e8] border border-[#e8e0d5] text-[#3d3929]"
               }`}
               onMouseUp={!isUser ? handleMouseUp : undefined}
               onTouchEnd={!isUser ? handleTouchEnd : undefined}
             >
               <div
                 ref={contentRef}
-                className={`md-content select-text ${isUser ? "[&_strong]:text-primary-foreground [&_code]:bg-white/20" : ""}`}
+                className={`md-content select-text ${isUser ? "[&_strong]:text-primary-foreground [&_code]:bg-white/20" : "[&_a]:text-[#4a7c59]"}`}
                 dangerouslySetInnerHTML={{ __html: marked.parse(text, { async: false }) as string }}
               />
             </div>
@@ -228,10 +228,10 @@ function TypingIndicator() {
       <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Bot className="size-4" />
       </div>
-      <div className="flex items-center gap-1 rounded-2xl bg-muted px-4 py-4">
-        <span className="size-2 animate-bounce rounded-full bg-muted-foreground/40" style={{ animationDelay: "0ms" }} />
-        <span className="size-2 animate-bounce rounded-full bg-muted-foreground/40" style={{ animationDelay: "150ms" }} />
-        <span className="size-2 animate-bounce rounded-full bg-muted-foreground/40" style={{ animationDelay: "300ms" }} />
+      <div className="flex items-center gap-1 rounded-2xl bg-[#f5f0e8] border border-[#e8e0d5] px-4 py-4">
+        <span className="size-2 animate-bounce rounded-full bg-[#d4c5a9]" style={{ animationDelay: "0ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-[#d4c5a9]" style={{ animationDelay: "150ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-[#d4c5a9]" style={{ animationDelay: "300ms" }} />
       </div>
     </div>
   );
@@ -346,8 +346,8 @@ export function ChatMessages() {
       <div className="mx-auto flex max-w-2xl flex-col gap-4">
         {messages.length === 0 && (
           <div className="py-12 text-center">
-            <Bot className="mx-auto mb-3 size-10 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">告诉我你的情况，我帮你做一份专业简历</p>
+            <Bot className="mx-auto mb-3 size-10 text-[#e8e0d5]" />
+            <p className="text-sm text-[#6b6859]">告诉我你的情况，我帮你做一份专业简历</p>
           </div>
         )}
 
@@ -358,10 +358,10 @@ export function ChatMessages() {
         {/* 提取简历流式输出 */}
         {extractStreamText && (
           <div className="flex gap-3">
-            <span className="mt-1 shrink-0 text-sm font-bold text-muted-foreground">🤖</span>
-            <div className="rounded-lg bg-muted/60 px-4 py-3 text-sm leading-relaxed">
-              <p className="mb-1 font-semibold text-xs text-muted-foreground">AI 正在提取简历...</p>
-              <pre className="whitespace-pre-wrap break-all font-mono text-xs text-muted-foreground max-h-60 overflow-y-auto">{extractStreamText}</pre>
+            <span className="mt-1 shrink-0 text-sm font-bold text-[#4a7c59]">🤖</span>
+            <div className="rounded-lg bg-[#f5f0e8] border border-[#e8e0d5] px-4 py-3 text-sm leading-relaxed">
+              <p className="mb-1 font-semibold text-xs text-[#6b6859]">AI 正在提取简历...</p>
+              <pre className="whitespace-pre-wrap break-all font-mono text-xs text-[#6b6859] max-h-60 overflow-y-auto">{extractStreamText}</pre>
             </div>
           </div>
         )}

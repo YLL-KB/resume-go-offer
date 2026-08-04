@@ -232,15 +232,14 @@ export function ChatInput() {
   const hasMessages = messages.filter(m => m.role === "user").length > 0;
 
   return (
-    <div className="print:hidden border-t bg-background px-4 py-4">
+    <div className="print:hidden border-t border-[#e8e0d5] bg-[#faf7f2]/60 backdrop-blur-xl px-4 py-4">
       <div className="mx-auto max-w-2xl">
         {/* 操作按钮行 */}
         {hasMessages && !isStreaming && (
           <div className="mb-3 flex justify-center">
             <Button
-              variant="outline"
               size="sm"
-              className="rounded-full"
+              className="rounded-full border-0 bg-[#4a7c59] hover:bg-[#3d6b4a] text-white shadow-sm transition-colors duration-200"
               onClick={handleExtract}
               disabled={isExtracting}
             >
@@ -292,7 +291,7 @@ export function ChatInput() {
           </Button>
         </div>
 
-        <p className="mt-2 text-center text-xs text-muted-foreground">
+        <p className="mt-2 text-center text-xs text-[#9b9879]">
           Enter 发送 · Shift+Enter 换行
         </p>
       </div>

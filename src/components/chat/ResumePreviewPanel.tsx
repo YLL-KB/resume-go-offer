@@ -197,21 +197,26 @@ export function ResumePreviewPanel() {
   };
 
   return (
-    <div className="flex h-full w-full flex-col border-l bg-gray-100">
-      <div className="flex items-center justify-between border-b bg-background px-3 py-2 gap-2">
-        <span className="text-xs font-medium text-muted-foreground shrink-0">简历预览</span>
+    <div className="flex h-full w-full flex-col border-l border-[#e8e0d5] bg-[#faf7f2]">
+      <div className="flex items-center justify-between border-b border-[#e8e0d5] bg-[#faf7f2]/80 backdrop-blur-xl px-3 py-2 gap-2">
+        <span className="text-xs font-medium text-[#6b6859] shrink-0">简历预览</span>
 
         {/* 技能风格切换 — 不触发重新生成 */}
         <div className="flex items-center gap-0.5">
           {(Object.entries(STYLE_LABELS) as [SkillStyle, string][]).map(([key, label]) => {
             const hasHtml = skillsHtmlMap?.[key];
             const isPending = generating && !hasHtml;
+            const isActive = skillStyle === key;
             return (
               <Button
                 key={key}
-                variant={skillStyle === key ? "default" : "ghost"}
+                variant="ghost"
                 size="sm"
-                className={`h-5 px-1.5 text-[10px] ${isPending ? "opacity-50" : ""}`}
+                className={`h-5 px-1.5 text-[10px] transition-colors ${
+                  isActive
+                    ? "bg-[#4a7c59]/10 text-[#4a7c59] hover:bg-[#4a7c59]/15"
+                    : "text-[#9b9879] hover:text-[#3d3929] hover:bg-[#f5f0e8]"
+                } ${isPending ? "opacity-50" : ""}`}
                 onClick={() => { if (hasHtml || !generating) setSkillStyle(key); }}
                 title={isPending ? `${label} 生成中...` : label}
               >
@@ -220,7 +225,7 @@ export function ResumePreviewPanel() {
             );
           })}
           <Button
-            variant="ghost" size="icon" className="size-5"
+            variant="ghost" size="icon" className="size-5 text-[#9b9879] hover:text-[#3d3929]"
             title="重新生成全部风格"
             onClick={() => setSkillsHtmlMap(null)}
             disabled={generating}
@@ -230,38 +235,50 @@ export function ResumePreviewPanel() {
         </div>
 
         <div className="flex items-center gap-1">
-          <Button variant={format === "pdf" ? "default" : "ghost"} size="sm" className="h-5 px-2 text-[10px]" onClick={() => setFormat("pdf")}><FileText className="size-3 mr-0.5" />PDF</Button>
-          <Button variant={format === "html" ? "default" : "ghost"} size="sm" className="h-5 px-2 text-[10px]" onClick={() => setFormat("html")}><FileCode className="size-3 mr-0.5" />HTML</Button>
-          <Button size="sm" className="h-6 px-2 text-xs" onClick={handleExport}><Download className="size-3 mr-0.5" />{format === "pdf" ? "打印" : "下载"}</Button>
-          <Button variant="ghost" size="icon" className="size-6" onClick={() => setShowPreview(false)}><X className="size-3.5" /></Button>
+          <Button
+            variant="ghost" size="sm"
+            className={`h-5 px-2 text-[10px] ${format === "pdf" ? "bg-[#4a7c59]/10 text-[#4a7c59]" : "text-[#9b9879] hover:text-[#3d3929]"}`}
+            onClick={() => setFormat("pdf")}
+          ><FileText className="size-3 mr-0.5" />PDF</Button>
+          <Button
+            variant="ghost" size="sm"
+            className={`h-5 px-2 text-[10px] ${format === "html" ? "bg-[#4a7c59]/10 text-[#4a7c59]" : "text-[#9b9879] hover:text-[#3d3929]"}`}
+            onClick={() => setFormat("html")}
+          ><FileCode className="size-3 mr-0.5" />HTML</Button>
+          <Button size="sm" className="h-6 px-2 text-xs bg-[#4a7c59] hover:bg-[#3d6b4a] text-white transition-colors duration-200" onClick={handleExport}><Download className="size-3 mr-0.5" />{format === "pdf" ? "打印" : "下载"}</Button>
+          <Button variant="ghost" size="icon" className="size-6 text-[#9b9879] hover:text-[#3d3929]" onClick={() => setShowPreview(false)}><X className="size-3.5" /></Button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-gray-100 p-4">
+      <div className="flex-1 overflow-auto bg-[#faf7f2] p-4">
         <div
           ref={printRef}
           className="print-resume mx-auto w-full max-w-[210mm]"
         >
           {generating && !skillsHtml ? (
-            <div className="flex flex-col items-center justify-center py-40 gap-3 bg-gray-100 min-h-[297mm]">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
+            <div className="flex flex-col items-center justify-center py-40 gap-3 bg-[#f5f0e8]/50 min-h-[297mm]">
+              <Loader2 className="size-6 animate-spin text-[#d4c5a9]" />
+              <span className="text-sm text-[#6b6859]">
                 AI 正在生成 {completedCount}/{totalCount} 种风格...
               </span>
-              <span className="text-xs text-muted-foreground/60">仅生成技能区块，预计 5-15 秒</span>
+              <span className="text-xs text-[#9b9879]">仅生成技能区块，预计 5-15 秒</span>
             </div>
           ) : renderError && !skillsHtml ? (
-            <div className="flex flex-col items-center justify-center py-40 gap-3 bg-gray-100 min-h-[297mm]">
+            <div className="flex flex-col items-center justify-center py-40 gap-3 bg-[#f5f0e8]/50 min-h-[297mm]">
               <AlertTriangle className="size-6 text-amber-500" />
-              <span className="text-sm text-muted-foreground">{renderError}</span>
-              <Button variant="outline" size="sm" onClick={() => { setSkillsHtmlMap(null); setRenderError(null); }}>
+              <span className="text-sm text-[#6b6859]">{renderError}</span>
+              <Button
+                size="sm"
+                className="border-[#e8e0d5] text-[#6b6859] hover:bg-[#f5f0e8] hover:text-[#3d3929]"
+                onClick={() => { setSkillsHtmlMap(null); setRenderError(null); }}
+              >
                 重试
               </Button>
             </div>
           ) : (
             <>
               {generating && (
-                <div className="sticky top-2 right-2 z-10 float-right flex items-center gap-1.5 rounded-full bg-background/90 border px-2.5 py-1 text-xs text-muted-foreground shadow-sm">
+                <div className="sticky top-2 right-2 z-10 float-right flex items-center gap-1.5 rounded-full bg-[#f5f0e8] border border-[#e8e0d5] px-2.5 py-1 text-xs text-[#6b6859] shadow-sm backdrop-blur-sm">
                   <Loader2 className="size-3 animate-spin" />
                   {totalCount - completedCount} 种风格生成中...
                 </div>
@@ -271,7 +288,7 @@ export function ResumePreviewPanel() {
           )}
         </div>
 
-        <p className="mt-4 text-center text-xs text-muted-foreground">
+        <p className="mt-4 text-center text-xs text-[#9b9879]">
           {format === "pdf" ? "打开打印预览 → 目标打印机选「另存为 PDF」" : "下载为独立 HTML 文件，可直接用浏览器打开"}
         </p>
       </div>

@@ -1,8 +1,10 @@
 /**
  * 技能区块 HTML 生成（纯模板，无需 AI）
  *
- * 替代 AI generateSkillsHtml，将 render-skills 从 10-30s 降到 <1ms。
- * 支持 resume-styles-kit 的 A/B/D 三种风格。
+ * 三种风格各有鲜明视觉语言：
+ *   A 双栏分类 — 紧凑文档风，信息密度高
+ *   B 侧栏Pill  — 现代标签风，pill 突出、行间呼吸
+ *   D 标签云    — 创意云朵风，大小错落、填充/描边混排
  */
 
 const CAT_COLORS: Record<string, { bg: string; text: string; accent: string }> = {
@@ -19,42 +21,45 @@ function catColor(cat: string) {
   return CAT_COLORS[cat] ?? DEFAULT_COLOR;
 }
 
-/** 过滤空分类 */
 function nonEmpty(cats: Record<string, string[]>) {
   return Object.entries(cats).filter(([, skills]) => skills.length > 0);
 }
 
-// ── A 双栏分类式 ──
+// ── A 双栏分类 — 紧凑文档风 ──
+// 两栏网格，小号字体，分类名用彩色竖线 + 加粗标题，技能用顿号连接
 
 function styleA(cats: Record<string, string[]>) {
   const items = nonEmpty(cats).map(([cat, skills]) => {
     const c = catColor(cat);
-    return `<div class="skill-item" style="font-size:10.5pt;line-height:1.5"><span style="color:${c.accent}">▍</span> <b>${cat}</b>：${skills.join("、")}</div>`;
+    return `<div class="skill-item" style="font-size:9.5pt;line-height:1.6;padding:0.15rem 0;border-bottom:1px dotted #e5e7eb"><span style="color:${c.accent};font-weight:700">▎${cat}</span><span style="color:#4b5563"> · ${skills.join("、")}</span></div>`;
   });
-  return `<div class="skills-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem 1.5rem">${items.join("")}</div>`;
+  return `<div class="skills-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0 1.8rem">${items.join("")}</div>`;
 }
 
-// ── B 侧栏 pill 式 ──
+// ── B 侧栏Pill — 现代标签风 ──
+// 左列固定宽 pill + 右列技能描述，行间距宽松，pill 带左边框强调色
 
 function styleB(cats: Record<string, string[]>) {
   const rows = nonEmpty(cats).map(([cat, skills]) => {
     const c = catColor(cat);
-    return `<div class="skill-row" style="display:flex;align-items:baseline;gap:0.5rem;margin-bottom:0.3rem"><span class="skill-pill" style="background:${c.bg};color:${c.text};border-radius:3px;padding:0.1rem 0.5rem;font-size:9pt;font-weight:600;white-space:nowrap">${cat}</span><span class="skill-desc" style="font-size:10pt;color:#555">${skills.join(" · ")}</span></div>`;
+    return `<div class="skill-row" style="display:flex;align-items:flex-start;gap:0.6rem;margin-bottom:0.55rem"><span class="skill-pill" style="flex-shrink:0;background:${c.bg};color:${c.text};border-left:3px solid ${c.accent};border-radius:2px 6px 6px 2px;padding:0.15rem 0.6rem;font-size:9pt;font-weight:700;letter-spacing:0.02em">${cat}</span><span class="skill-desc" style="font-size:10pt;line-height:1.65;color:#555;padding-top:0.05rem">${skills.join(" · ")}</span></div>`;
   });
   return `<div class="skills-section">${rows.join("")}</div>`;
 }
 
-// ── D 标签云式 ──
+// ── D 标签云 — 干净云朵风 ──
+// 全部技能打散为独立标签，统一圆角 pill，首技能加粗，按分类着色
 
 function styleD(cats: Record<string, string[]>) {
   const tags: string[] = [];
   for (const [cat, skills] of nonEmpty(cats)) {
     const c = catColor(cat);
     skills.forEach((skill, i) => {
-      tags.push(`<span class="tag" style="padding:0.15rem 0.6rem;border-radius:20px;font-size:9.5pt;font-weight:${i === 0 ? "600" : "500"};background:${c.bg};color:${c.text}">${skill}</span>`);
+      const isFirst = i === 0;
+      tags.push(`<span class="tag" style="padding:0.15rem 0.65rem;border-radius:14px;font-size:9.5pt;font-weight:${isFirst ? "700" : "500"};background:${c.bg};color:${c.text}">${skill}</span>`);
     });
   }
-  return `<div class="tag-cloud" style="display:flex;flex-wrap:wrap;gap:0.35rem">${tags.join("")}</div>`;
+  return `<div class="tag-cloud" style="display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center;line-height:1.6">${tags.join("")}</div>`;
 }
 
 // ── 导出 ──

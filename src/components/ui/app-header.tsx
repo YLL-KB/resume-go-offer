@@ -15,26 +15,37 @@ const links = [
   { href: "/chat", label: "AI 对话", icon: MessageSquare },
 ] as const;
 
-export function AppHeader() {
+export function AppHeader({ variant }: { variant?: "dark" | "light" }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, isSignedIn } = useAuth();
+  const isLight = variant === "light";
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header
+      className={
+        isLight
+          ? "sticky top-0 z-50 border-b border-[#e8e0d5] bg-[#faf7f2]/80 backdrop-blur-xl"
+          : "sticky top-0 z-50 border-b border-white/[0.06] bg-[#0a0a10]/80 backdrop-blur-xl"
+      }
+    >
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         {/* Logo */}
         <Link
           href="/"
-          className="flex items-center gap-2 font-semibold text-lg shrink-0"
+          className={`flex items-center gap-2 font-semibold text-lg shrink-0 ${isLight ? "text-[#3d3929]" : "text-white"}`}
         >
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <div className={`flex size-8 items-center justify-center rounded-lg text-white ${
+            isLight
+              ? "bg-gradient-to-br from-[#4a7c59] to-[#5b8c9e]"
+              : "bg-gradient-to-br from-cyan-400 to-blue-500"
+          }`}>
             <FileText className="size-4" />
           </div>
           Resume Go Offer
         </Link>
 
-        {/* ── Desktop nav: 胶囊 Tab ── */}
+        {/* ── Desktop nav ── */}
         <nav className="hidden items-center gap-1 sm:flex">
           {links.map((l) => {
             const isActive = pathname.startsWith(l.href);
@@ -44,9 +55,17 @@ export function AppHeader() {
                 href={l.href}
                 className={cn(
                   "relative flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-all duration-200",
-                  isActive
-                    ? "text-foreground bg-muted"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+                  isLight
+                    ? cn(
+                        isActive
+                          ? "text-[#4a7c59] bg-[#4a7c59]/10"
+                          : "text-[#6b6859] hover:text-[#3d3929] hover:bg-[#e8e0d5]/50",
+                      )
+                    : cn(
+                        isActive
+                          ? "text-cyan-300 bg-cyan-500/10"
+                          : "text-white/50 hover:text-white hover:bg-white/[0.06]",
+                      ),
                 )}
               >
                 <l.icon className="size-3.5" />
@@ -54,7 +73,7 @@ export function AppHeader() {
                 {isActive && (
                   <motion.div
                     layoutId="nav-pill"
-                    className="absolute inset-0 rounded-full bg-muted -z-10"
+                    className={`absolute inset-0 rounded-full -z-10 ${isLight ? "bg-[#4a7c59]/10" : "bg-cyan-500/10"}`}
                     transition={{ type: "spring", stiffness: 380, damping: 30 }}
                   />
                 )}
@@ -86,7 +105,7 @@ export function AppHeader() {
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild className="sm:hidden">
             <Button variant="ghost" size="icon" className="relative">
-              <Menu className="size-5" />
+              <Menu className={`size-5 ${isLight ? "text-[#3d3929]" : ""}`} />
               <span className="sr-only">打开菜单</span>
             </Button>
           </SheetTrigger>
