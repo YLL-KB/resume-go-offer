@@ -433,8 +433,8 @@ export function FormCard({ type, onSubmit, onCancel }: FormCardProps) {
   };
 
   return (
-    <div className="rounded-xl border border-[#e8e0d5] bg-[#f5f0e8] p-4">
-      <p className="mb-3 text-xs font-medium text-[#4a7c59]">{FORM_LABELS[type]}</p>
+    <div className="rounded-xl border border-gray-200/60 bg-white/70 backdrop-blur-xl p-4">
+      <p className="mb-3 text-xs font-medium text-emerald-600">{FORM_LABELS[type]}</p>
       {type === "basic" && <BasicForm onSubmit={handleSubmit} onCancel={onCancel} />}
       {type === "education" && <EducationForm onSubmit={handleSubmit} onCancel={onCancel} />}
       {type === "experience" && <ExperienceForm onSubmit={handleSubmit} onCancel={onCancel} />}

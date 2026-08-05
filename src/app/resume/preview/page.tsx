@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { TemplateResume } from "@/components/resume/TemplateResume";
 import { DEFAULT_RESUME_DATA, type ResumeData } from "@/lib/validators/resume.schema";
 import { Loader2 } from "lucide-react";
 
-export default function ResumePreviewPage() {
-  const [data, setData] = useState<ResumeData | null>(null);
-
-  useEffect(() => {
+const getInitialData = (): ResumeData | null => {
+  if (typeof window === "undefined") return null;
+  try {
     const raw = localStorage.getItem("resume_preview_data");
-    if (raw) {
-      try { setData({ ...DEFAULT_RESUME_DATA, ...JSON.parse(raw) }); } catch { /* ignore */ }
-    }
-  }, []);
+    if (raw) return { ...DEFAULT_RESUME_DATA, ...JSON.parse(raw) };
+  } catch { /* ignore */ }
+  return null;
+};
+
+export default function ResumePreviewPage() {
+  const [data] = useState<ResumeData | null>(getInitialData);
 
   if (!data) {
     return (

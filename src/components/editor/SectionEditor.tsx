@@ -276,6 +276,8 @@ function ProjectsEditor({ data, onChange }: SectionEditorProps) {
           description: "",
           url: "",
           techStack: "",
+          startDate: "",
+          endDate: "",
           highlights: [],
         },
       ],

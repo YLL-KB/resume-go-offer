@@ -9,18 +9,18 @@ export function ChatHeader({ onToggleSidebar }: { onToggleSidebar?: () => void }
   const hasStarted = messages.length > 0;
 
   return (
-    <header className="flex items-center justify-between border-b border-[#e8e0d5] bg-[#faf7f2]/80 backdrop-blur-xl px-4 py-3">
+    <header className="flex items-center justify-between border-b border-gray-200/60 bg-white/70 backdrop-blur-xl px-4 py-3">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="md:hidden text-[#6b6859] hover:text-[#3d3929]" onClick={onToggleSidebar}>
+        <Button variant="ghost" size="icon" className="md:hidden text-slate-500 hover:text-slate-900" onClick={onToggleSidebar}>
           <Menu className="size-4" />
         </Button>
-        <Sparkles className="size-4 text-[#4a7c59]" />
-        <h1 className="text-base font-semibold text-[#3d3929]">简历顾问</h1>
+        <Sparkles className="size-4 text-emerald-500" />
+        <h1 className="text-base font-semibold text-slate-900">简历顾问</h1>
         {hasStarted && (
           <Button
             variant="ghost"
             size="sm"
-            className="text-[#6b6859] hover:text-[#3d3929] hover:bg-[#e8e0d5]/50"
+            className="text-slate-500 hover:text-slate-900 hover:bg-slate-100/60"
             onClick={startNewChat}
           >
             <Plus className="size-4" />新对话

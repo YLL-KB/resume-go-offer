@@ -34,9 +34,9 @@ function ConversationItem({
   };
 
   return (
-    <div className={`group flex items-center rounded-lg text-left text-sm transition-colors hover:bg-[#f5f0e8] ${isActive ? "bg-[#e8e0d5]/60 font-medium" : ""}`}>
-      <Button variant="ghost" className="flex-1 justify-start gap-2 overflow-hidden px-3 py-2 h-auto min-w-0 text-[#6b6859] hover:text-[#3d3929]" onClick={() => { if (!editing) onSelect(); }}>
-        <MessageSquare className="size-3.5 shrink-0 text-[#d4c5a9]" />
+    <div className={`group flex items-center rounded-lg text-left text-sm transition-colors hover:bg-slate-100/60 ${isActive ? "bg-emerald-50 font-medium" : ""}`}>
+      <Button variant="ghost" className="flex-1 justify-start gap-2 overflow-hidden px-3 py-2 h-auto min-w-0 text-slate-500 hover:text-slate-900" onClick={() => { if (!editing) onSelect(); }}>
+        <MessageSquare className="size-3.5 shrink-0 text-slate-300" />
         <div className="min-w-0 flex-1">
           {editing ? (
             <Input
@@ -48,9 +48,9 @@ function ConversationItem({
               className="h-6 text-sm"
             />
           ) : (
-            <span className="truncate block text-[#3d3929]">{title || "新对话"}</span>
+            <span className="truncate block text-slate-900">{title || "新对话"}</span>
           )}
-          <p className="text-[10px] text-[#9b9879]">{new Date(updatedAt).toLocaleDateString("zh-CN")}</p>
+          <p className="text-[10px] text-slate-400">{new Date(updatedAt).toLocaleDateString("zh-CN")}</p>
         </div>
       </Button>
 
@@ -144,9 +144,13 @@ export default function ChatPage() {
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 生成简历预览后自动收起移动端侧边栏
+  // 简历预览打开时自动收起移动端侧边栏
+  const prevShowPreview = useRef(showPreview);
   useEffect(() => {
-    if (showPreview) setShowMobileSidebar(false);
+    if (showPreview && !prevShowPreview.current) {
+      setShowMobileSidebar(false);
+    }
+    prevShowPreview.current = showPreview;
   }, [showPreview]);
 
   const handleDelete = async () => {
@@ -164,8 +168,8 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#faf7f2] print:hidden">
-      <AppHeader variant="light" />
+    <div className="flex h-screen flex-col overflow-hidden print:hidden" style={{ background: "linear-gradient(135deg, #f8fafc, #f1f5f9, #f0fdf4)" }}>
+      <AppHeader />
 
       <ChatHeader onToggleSidebar={() => setShowMobileSidebar(true)} />
 
@@ -177,19 +181,19 @@ export default function ChatPage() {
 
         {/* 历史对话侧边栏 */}
         {/* 移动端：fixed overlay；桌面端：生成预览后自动收起，留更多空间给简历 */}
-        <div className={`print:hidden w-60 shrink-0 border-r border-[#e8e0d5] bg-[#faf7f2]/60 backdrop-blur-xl flex flex-col
+        <div className={`print:hidden w-60 shrink-0 border-r border-gray-200/60 bg-white/60 backdrop-blur-xl flex flex-col
           ${showMobileSidebar ? "fixed inset-y-0 left-0 z-40 w-72" : "hidden"}
           ${showPreview ? "md:hidden" : "md:relative md:flex md:z-auto md:w-60"}`}
         >
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3 md:hidden">
-            <span className="text-sm font-medium text-[#3d3929]">历史对话</span>
+          <div className="flex items-center justify-between border-b border-gray-200/60 px-4 py-3 md:hidden">
+            <span className="text-sm font-medium text-slate-900">历史对话</span>
             <Button variant="ghost" size="icon" className="size-7" onClick={() => setShowMobileSidebar(false)}>
               <X className="size-4" />
             </Button>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
             {conversations.length === 0 && (
-              <p className="px-3 py-8 text-center text-xs text-[#9b9879]">暂无对话记录</p>
+              <p className="px-3 py-8 text-center text-xs text-slate-400">暂无对话记录</p>
             )}
             {conversations.map((c) => (
               <ConversationItem
@@ -210,7 +214,7 @@ export default function ChatPage() {
         >
           {isLoadingHistory ? (
             <div className="flex flex-1 items-center justify-center">
-              <Loader2 className="size-6 animate-spin text-[#d4c5a9]" />
+              <Loader2 className="size-6 animate-spin text-slate-300" />
             </div>
           ) : (
             <ChatMessages />
@@ -221,7 +225,7 @@ export default function ChatPage() {
         {/* 可拖拽分界线 — 仅桌面端 */}
         {showPreview && (
           <div
-            className="hidden md:block group relative w-1.5 shrink-0 cursor-col-resize bg-[#e8e0d5] hover:bg-[#4a7c59]/30 transition-colors"
+            className="hidden md:block group relative w-1.5 shrink-0 cursor-col-resize bg-gray-200 hover:bg-emerald-300/50 transition-colors"
             onMouseDown={handleMouseDown}
           >
             <div className="absolute inset-y-0 -left-1 -right-1" />

@@ -150,44 +150,45 @@ export function ResumePreviewPanel() {
   };
 
   return (
-    <div className="flex h-full w-full flex-col border-l border-[#e8e0d5] bg-[#faf7f2]">
-      <div className="flex items-center justify-between border-b border-[#e8e0d5] bg-[#faf7f2]/80 backdrop-blur-xl px-3 py-2 gap-2">
-        <span className="text-xs font-medium text-[#6b6859] shrink-0">简历预览</span>
+    <div className="flex h-full w-full flex-col border-l border-gray-200/60 bg-white">
+      <div className="flex items-center justify-between border-b border-gray-200/60 bg-white/80 backdrop-blur-xl px-3 py-2 gap-2">
+        <span className="text-xs font-medium text-slate-500 shrink-0">简历预览</span>
 
         <div className="flex items-center gap-1">
           <Button
             variant="ghost" size="sm"
-            className={`h-5 px-2 text-[10px] ${format === "pdf" ? "bg-[#4a7c59]/10 text-[#4a7c59]" : "text-[#9b9879] hover:text-[#3d3929]"}`}
+            className={`h-5 px-2 text-[10px] ${format === "pdf" ? "bg-emerald-50 text-emerald-700" : "text-slate-400 hover:text-slate-900"}`}
             onClick={() => setFormat("pdf")}
           ><FileText className="size-3 mr-0.5" />PDF</Button>
           <Button
             variant="ghost" size="sm"
-            className={`h-5 px-2 text-[10px] ${format === "html" ? "bg-[#4a7c59]/10 text-[#4a7c59]" : "text-[#9b9879] hover:text-[#3d3929]"}`}
+            className={`h-5 px-2 text-[10px] ${format === "html" ? "bg-emerald-50 text-emerald-700" : "text-slate-400 hover:text-slate-900"}`}
             onClick={() => setFormat("html")}
           ><FileCode className="size-3 mr-0.5" />HTML</Button>
-          <Button size="sm" className="h-6 px-2 text-xs bg-[#4a7c59] hover:bg-[#3d6b4a] text-white transition-colors duration-200" onClick={handleExport}><Download className="size-3 mr-0.5" />{format === "pdf" ? "打印" : "下载"}</Button>
-          <Button variant="ghost" size="icon" className="size-6 text-[#9b9879] hover:text-[#3d3929]" onClick={() => setShowPreview(false)}><X className="size-3.5" /></Button>
+          <Button size="sm" className="h-6 px-2 text-xs bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white transition-all duration-200" onClick={handleExport}><Download className="size-3 mr-0.5" />{format === "pdf" ? "打印" : "下载"}</Button>
+          <Button variant="ghost" size="icon" className="size-6 text-slate-400 hover:text-slate-900" onClick={() => setShowPreview(false)}><X className="size-3.5" /></Button>
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-[#faf7f2] p-4">
+      <div className="flex-1 overflow-auto bg-slate-50 p-4">
         <div
           ref={printRef}
           className="print-resume mx-auto w-full max-w-[210mm]"
         >
           {generating && !skillsHtml ? (
-            <div className="flex flex-col items-center justify-center py-40 gap-3 bg-[#f5f0e8]/50 min-h-[297mm]">
-              <Loader2 className="size-6 animate-spin text-[#d4c5a9]" />
-              <span className="text-sm text-[#6b6859]">AI 正在生成技能区块...</span>
-              <span className="text-xs text-[#9b9879]">预计 5-15 秒</span>
+            <div className="flex flex-col items-center justify-center py-40 gap-3 bg-white/50 min-h-[297mm]">
+              <Loader2 className="size-6 animate-spin text-slate-300" />
+              <span className="text-sm text-slate-500">AI 正在生成技能区块...</span>
+              <span className="text-xs text-slate-400">预计 5-15 秒</span>
             </div>
           ) : renderError && !skillsHtml ? (
-            <div className="flex flex-col items-center justify-center py-40 gap-3 bg-[#f5f0e8]/50 min-h-[297mm]">
+            <div className="flex flex-col items-center justify-center py-40 gap-3 bg-white/50 min-h-[297mm]">
               <AlertTriangle className="size-6 text-amber-500" />
-              <span className="text-sm text-[#6b6859]">{renderError}</span>
+              <span className="text-sm text-slate-500">{renderError}</span>
               <Button
                 size="sm"
-                className="border-[#e8e0d5] text-[#6b6859] hover:bg-[#f5f0e8] hover:text-[#3d3929]"
+                variant="outline"
+                className="border-gray-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 onClick={() => { setSkillsHtmlMap(null); setRenderError(null); }}
               >
                 重试
@@ -198,7 +199,7 @@ export function ResumePreviewPanel() {
           )}
         </div>
 
-        <p className="mt-4 text-center text-xs text-[#9b9879]">
+        <p className="mt-4 text-center text-xs text-slate-400">
           {format === "pdf" ? "打开打印预览 → 目标打印机选「另存为 PDF」" : "下载为独立 HTML 文件，可直接用浏览器打开"}
         </p>
       </div>

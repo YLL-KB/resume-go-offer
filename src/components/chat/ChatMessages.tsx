@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useChatStore, type ChatMessage as ChatMessageType } from "@/stores/chat-store";
 import { FormCard, type FormType } from "./FormCard";
 import { marked } from "marked";
@@ -22,7 +22,7 @@ function parseForms(content: string): { text: string; forms: FormType[] } {
 
 // ── 单条消息气泡 ──
 
-function ChatBubble({ msg, formMessages, shownFormTypes }: { msg: ChatMessageType; formMessages: Map<string, { type: FormType; submitted?: boolean }>; shownFormTypes: React.RefObject<Set<string>> }) {
+function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageType; formMessages: Map<string, { type: FormType; submitted?: boolean }>; firstFormMsgIds: Map<string, string> }) {
   const isUser = msg.role === "user";
   const { text, forms } = parseForms(msg.content);
   const [copied, setCopied] = useState(false);
@@ -182,11 +182,10 @@ function ChatBubble({ msg, formMessages, shownFormTypes }: { msg: ChatMessageTyp
         )}
 
         {forms.map((type, i) => {
-          if (shownFormTypes.current?.has(type)) return null;
+          if (firstFormMsgIds.get(type) !== msg.id) return null;
           const key = `${msg.id}-${type}-${i}`;
           const state = formMessages.get(key);
           if (state?.submitted) return null;
-          shownFormTypes.current?.add(type);
           return (
             <FormCard
               key={key}
@@ -247,8 +246,29 @@ export function ChatMessages() {
   const [formState] = useState<Map<string, { type: FormType; submitted?: boolean }>>(new Map());
   // LangGraph: tool-push-form 事件触发的表单
   const [toolForms, setToolForms] = useState<Array<{ key: string; type: FormType }>>([]);
-  // 全局去重：已展示的表单类型不再重复渲染
-  const shownFormTypes = useRef<Set<string>>(new Set());
+  // 全局去重：每个表单类型只在第一条包含它的消息中渲染
+  const { firstFormMsgIds, shownFormTypes } = useMemo(() => {
+    const first = new Map<string, string>();
+    for (const msg of messages) {
+      if (msg.role === "system") continue;
+      const { forms } = parseForms(msg.content);
+      for (const type of forms) {
+        if (!first.has(type)) first.set(type, msg.id);
+      }
+    }
+    return { firstFormMsgIds: first, shownFormTypes: new Set(first.keys()) };
+  }, [messages]);
+
+  // 工具表单去重：跳过已提交或已在消息中出现的类型
+  const visibleToolForms = useMemo(() => {
+    const seen = new Set(shownFormTypes);
+    return toolForms.filter((tf) => {
+      if (formState.get(tf.key)?.submitted) return false;
+      if (seen.has(tf.type)) return false;
+      seen.add(tf.type);
+      return true;
+    });
+  }, [toolForms, shownFormTypes, formState]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -301,7 +321,7 @@ export function ChatMessages() {
       window.removeEventListener("form-done", handleDone);
       window.removeEventListener("tool-push-form", handleToolPushForm);
     };
-  }, [conversationId, setExtracting, setResumeData, setShowPreview, formState]);
+  }, [conversationId, setExtracting, setResumeData, setShowPreview, formState, appendExtractStreamText, setExtractStreamText]);
 
   const lastMsg = messages[messages.length - 1];
   const hasFormDone = lastMsg?.role === "assistant" && /\[FORM:done\]/.test(lastMsg.content);
@@ -343,7 +363,7 @@ export function ChatMessages() {
           .finally(() => setExtracting(false)),
       );
     }
-  }, [hasFormDone, conversationId, lastMsg?.id, setExtracting, setResumeData, setShowPreview, storeResumeData]);
+  }, [hasFormDone, conversationId, lastMsg?.id, setExtracting, setResumeData, setShowPreview, storeResumeData, appendExtractStreamText, setExtractStreamText]);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6">
@@ -356,7 +376,7 @@ export function ChatMessages() {
         )}
 
         {messages.filter((m) => m.role !== "system").map((msg) => (
-          <ChatBubble key={msg.id} msg={msg} formMessages={formState} shownFormTypes={shownFormTypes} />
+          <ChatBubble key={msg.id} msg={msg} formMessages={formState} firstFormMsgIds={firstFormMsgIds} />
         ))}
 
         {/* 简历提取中 */}
@@ -373,23 +393,20 @@ export function ChatMessages() {
         )}
 
         {/* LangGraph: tool-push-form 触发的表单卡片 */}
-        {toolForms.filter((tf) => !formState.get(tf.key)?.submitted && !shownFormTypes.current?.has(tf.type)).map((tf) => {
-          shownFormTypes.current?.add(tf.type);
-          return (
-            <FormCard
-              key={tf.key}
-              type={tf.type}
-              onSubmit={(_t, data) => {
-                formState.set(tf.key, { type: tf.type, submitted: true });
-                window.dispatchEvent(new CustomEvent("form-data", { detail: { type: tf.type, data } }));
-              }}
-              onCancel={() => {
-                formState.set(tf.key, { type: tf.type, submitted: true });
-                window.dispatchEvent(new CustomEvent("form-skip", { detail: { type: tf.type } }));
-              }}
-            />
-          );
-        })}
+        {visibleToolForms.map((tf) => (
+          <FormCard
+            key={tf.key}
+            type={tf.type}
+            onSubmit={(_t, data) => {
+              formState.set(tf.key, { type: tf.type, submitted: true });
+              window.dispatchEvent(new CustomEvent("form-data", { detail: { type: tf.type, data } }));
+            }}
+            onCancel={() => {
+              formState.set(tf.key, { type: tf.type, submitted: true });
+              window.dispatchEvent(new CustomEvent("form-skip", { detail: { type: tf.type } }));
+            }}
+          />
+        ))}
 
         {isStreaming && messages[messages.length - 1]?.content === "" && <TypingIndicator />}
 

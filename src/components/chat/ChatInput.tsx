@@ -114,7 +114,7 @@ export function ChatInput() {
       setStreaming(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError]);
+  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview]);
 
   // ── 监听表单事件 ──
   useEffect(() => {
@@ -165,7 +165,7 @@ export function ChatInput() {
       window.removeEventListener("form-data", handleFormData);
       window.removeEventListener("form-skip", handleFormSkip);
     };
-  }, [sendRaw]);
+  }, [sendRaw, setResumeData]);
 
   // 引用后自动 focus
   useEffect(() => {
@@ -218,7 +218,7 @@ export function ChatInput() {
     } finally {
       setExtracting(false);
     }
-  }, [conversationId, isExtracting, setExtracting, setResumeData, setShowPreview, setError, appendExtractStreamText]);
+  }, [conversationId, isExtracting, setExtracting, setResumeData, setShowPreview, setError, appendExtractStreamText, resumeData, setExtractStreamText]);
 
   // 键盘事件
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -232,14 +232,14 @@ export function ChatInput() {
   const hasMessages = messages.filter(m => m.role === "user").length > 0;
 
   return (
-    <div className="print:hidden border-t border-[#e8e0d5] bg-[#faf7f2]/60 backdrop-blur-xl px-4 py-4">
+    <div className="print:hidden border-t border-gray-200/60 bg-white/60 backdrop-blur-xl px-4 py-4">
       <div className="mx-auto max-w-2xl">
         {/* 操作按钮行 */}
         {hasMessages && !isStreaming && (
           <div className="mb-3 flex justify-center">
             <Button
               size="sm"
-              className="rounded-full border-0 bg-[#4a7c59] hover:bg-[#3d6b4a] text-white shadow-sm transition-colors duration-200"
+              className="rounded-full border-0 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-sm transition-all duration-200"
               onClick={handleExtract}
               disabled={isExtracting}
             >
@@ -291,7 +291,7 @@ export function ChatInput() {
           </Button>
         </div>
 
-        <p className="mt-2 text-center text-xs text-[#9b9879]">
+        <p className="mt-2 text-center text-xs text-slate-400">
           Enter 发送 · Shift+Enter 换行
         </p>
       </div>
