@@ -58,6 +58,7 @@ interface ChatState {
   setConversations: (list: Array<{ id: string; title: string; updatedAt: string }> | ((prev: Array<{ id: string; title: string; updatedAt: string }>) => Array<{ id: string; title: string; updatedAt: string }>)) => void;
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
+  deleteMessage: (id: string) => Promise<void>;
   startNewChat: () => void;
   loadConversation: (conversationId: string) => Promise<void>;
 }
@@ -101,14 +102,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setError: (err) => set({ error: err }),
 
   setResumeData: (data) =>
-    set({
+    set((s) => ({
       resumeData: {
         ...DEFAULT_RESUME_DATA,
+        ...s.resumeData,
         ...data,
-        basic: { ...DEFAULT_RESUME_DATA.basic, ...(data.basic ?? {}) },
+        basic: { ...DEFAULT_RESUME_DATA.basic, ...(s.resumeData?.basic ?? {}), ...(data.basic ?? {}) },
       } as ResumeData,
       skillsHtmlMap: null, // 新数据 → 清掉旧技能 HTML
-    }),
+    })),
 
   setSkillsHtmlMap: (map) => set({ skillsHtmlMap: map }),
 
@@ -184,6 +186,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
     if (get().conversationId === null && typeof window !== "undefined") {
       localStorage.removeItem("chat_conversation_id");
+    }
+  },
+
+  deleteMessage: async (id) => {
+    const prev = get().messages;
+    const idx = prev.findIndex((m) => m.id === id);
+    if (idx === -1) return;
+
+    const msg = prev[idx];
+    const idsToDelete: string[] = [id];
+
+    // 找到配对的另一条消息一起删
+    if (msg.role === "user") {
+      // 用户消息 → 同时删 AI 的回复（后面第一条非 system 消息）
+      const next = prev.slice(idx + 1).find((m) => m.role !== "system");
+      if (next && next.role === "assistant") idsToDelete.push(next.id);
+    } else if (msg.role === "assistant") {
+      // AI 消息 → 同时删用户的问题（前面最后一条非 system 消息）
+      const prevMsgs = prev.slice(0, idx).reverse();
+      const prevMsg = prevMsgs.find((m) => m.role !== "system");
+      if (prevMsg && prevMsg.role === "user") idsToDelete.push(prevMsg.id);
+    }
+
+    set((s) => ({ messages: s.messages.filter((m) => !idsToDelete.includes(m.id)) }));
+
+    try {
+      await Promise.all(idsToDelete.map((did) => fetch(`/api/chat/messages/${did}`, { method: "DELETE" })));
+    } catch {
+      set({ messages: prev });
     }
   },
 }));

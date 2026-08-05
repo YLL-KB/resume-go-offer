@@ -69,28 +69,13 @@ export function ResumePreviewPanel() {
       const style = document.createElement("style");
       style.setAttribute("data-print-bg", "1");
       style.textContent = [
-        `@page { margin: 0; size: A4; }`,
+        `@page { margin: 0.6cm 0 0 0; size: A4; }`,
         `html, body { margin: 0 !important; padding: 0 !important; }`,
-        `html { background: #f3f4f6 !important; }`,
-        `body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
+        // fixed 伪元素在打印时每页都会渲染，天然铺满整页
+        `body::after { content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #f3f4f6; z-index: -1; }`,
+        `html, body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }`,
       ].join("\n");
-      document.head.appendChild(style);
-
-      const measureClone = src.cloneNode(true) as HTMLElement;
-      measureClone.style.cssText = "position:absolute;visibility:hidden;width:210mm;top:0;left:0;min-height:0;";
-      document.body.appendChild(measureClone);
-      measureClone.querySelectorAll("*").forEach((el) => {
-        (el as HTMLElement).style.minHeight = "0";
-      });
-      const contentHeightPx = measureClone.scrollHeight;
-      document.body.removeChild(measureClone);
-
-      const mmPerPx = 25.4 / 96;
-      const contentHeightMm = contentHeightPx * mmPerPx;
-
-      const pageHeight = 297;
-      const fullPageHeight = Math.ceil(contentHeightMm / pageHeight) * pageHeight;
-      const padBottom = fullPageHeight - contentHeightMm;
+      document.body.appendChild(style);
 
       let root = document.getElementById("print-root");
       if (!root) {
@@ -101,23 +86,22 @@ export function ResumePreviewPanel() {
       root.innerHTML = "";
       root.style.cssText = [
         `width:210mm;margin:0 auto;`,
-        `background:#f3f4f6;`,
+        `background:#ffffff;`,
+        `position:relative;z-index:1;`,
         `-webkit-print-color-adjust:exact;`,
         `print-color-adjust:exact;`,
       ].join("");
 
       const clone = src.cloneNode(true) as HTMLElement;
+      // 去掉组件自带 @page 规则，避免覆盖我们的（margin 不一致会导致页面高度计算偏差）
+      clone.querySelectorAll("style").forEach((s) => {
+        s.textContent = (s.textContent ?? "").replace(/@page\s*\{[^}]*\}/g, "");
+      });
       clone.querySelectorAll("*").forEach((el) => {
         (el as HTMLElement).style.minHeight = "0";
       });
       clone.style.minHeight = "0";
       root.appendChild(clone);
-
-      if (padBottom > 1) {
-        const filler = document.createElement("div");
-        filler.style.cssText = `height:${padBottom}mm;`;
-        root.appendChild(filler);
-      }
     };
     const afterPrint = () => {
       document.getElementById("print-root")?.remove();

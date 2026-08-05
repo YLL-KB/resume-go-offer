@@ -269,7 +269,7 @@ export default function ChatPage() {
 
       {resumeData && (
         <div className="hidden">
-          <div className="print-resume w-[210mm] min-h-[297mm] bg-white">
+          <div className="print-resume w-[210mm] bg-white">
             <TemplateResume data={resumeData} />
           </div>
         </div>

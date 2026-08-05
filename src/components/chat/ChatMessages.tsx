@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useChatStore, type ChatMessage as ChatMessageType } from "@/stores/chat-store";
 import { FormCard, type FormType } from "./FormCard";
+import { mergeArrayItems, type AnyRecord } from "@/lib/utils/merge-data";
 import { marked } from "marked";
-import { User, Bot, Copy, Check, Quote, TextSelect } from "lucide-react";
+import { User, Bot, Copy, Check, Quote, TextSelect, Trash2 } from "lucide-react";
 
 // ── 解析消息中的表单标记 ──
 
@@ -29,6 +30,18 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageTy
   const bubbleRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const setQuoteText = useChatStore((s) => s.setQuoteText);
+  const deleteMessage = useChatStore((s) => s.deleteMessage);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleDelete = () => {
+    if (confirmDelete) {
+      deleteMessage(msg.id);
+      setConfirmDelete(false);
+    } else {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 3000);
+    }
+  };
 
   // ── 选中引用 ──
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number } | null>(null);
@@ -175,6 +188,31 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageTy
                 >
                   <TextSelect className="size-3" />
                   选择文本
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-xs transition-colors ${
+                    confirmDelete ? "text-red-500 bg-red-50 hover:bg-red-100" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                  title={confirmDelete ? "确认删除这组对话" : "删除这组对话"}
+                >
+                  <Trash2 className="size-3" />
+                  {confirmDelete ? "确认" : "删除"}
+                </button>
+              </div>
+            )}
+            {/* 用户消息操作栏 */}
+            {isUser && (
+              <div className="flex items-center gap-1 mt-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity justify-end">
+                <button
+                  onClick={handleDelete}
+                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-xs transition-colors ${
+                    confirmDelete ? "text-red-500 bg-red-50 hover:bg-red-100" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                  title={confirmDelete ? "确认删除这组对话" : "删除这组对话"}
+                >
+                  <Trash2 className="size-3" />
+                  {confirmDelete ? "确认" : "删除"}
                 </button>
               </div>
             )}
@@ -343,15 +381,25 @@ export function ChatMessages() {
           .then((res) => readExtractSSE(res, (chunk) => { appendExtractStreamText(chunk); }))
           .then((aiData) => {
             if (aiData) {
-              // 合并：AI 提取的数据优先（AI 有完整对话上下文 + 优化建议），表单数据补充填充
+              // 合并：已有数据优先（用户确认过的信息不覆盖），AI 补充缺失字段
               const formData = storeResumeData ?? ({} as Record<string, unknown>);
+              const fBasic = (formData.basic as Record<string, unknown> ?? {});
+              const aBasic = (aiData.basic as Record<string, unknown> ?? {});
               const merged = {
                 ...formData,
                 ...aiData,
-                basic: { ...(formData.basic as Record<string, unknown> ?? {}), ...(aiData.basic as Record<string, unknown> ?? {}) },
-                education: ((aiData.education as unknown[] ?? []).length > 0 ? aiData.education : formData.education),
-                experience: ((aiData.experience as unknown[] ?? []).length > 0 ? aiData.experience : formData.experience),
-                projects: ((aiData.projects as unknown[] ?? []).length > 0 ? aiData.projects : formData.projects),
+                // basic：用户已确认的信息不覆盖，AI 补充空缺字段
+                basic: {
+                  ...aBasic,
+                  ...fBasic,
+                  // 核心身份字段：已有非空值就保留，否则用 AI 的
+                  name: (typeof fBasic.name === "string" && fBasic.name) ? fBasic.name : aBasic.name,
+                  email: (typeof fBasic.email === "string" && fBasic.email) ? fBasic.email : aBasic.email,
+                  phone: (typeof fBasic.phone === "string" && fBasic.phone) ? fBasic.phone : aBasic.phone,
+                },
+                education: mergeArrayItems((aiData.education as AnyRecord[] ?? []), (formData.education as AnyRecord[] ?? []), "school", ["startDate", "endDate"]),
+                experience: mergeArrayItems((aiData.experience as AnyRecord[] ?? []), (formData.experience as AnyRecord[] ?? []), "company", ["startDate", "endDate"]),
+                projects: mergeArrayItems((aiData.projects as AnyRecord[] ?? []), (formData.projects as AnyRecord[] ?? []), "name", ["startDate", "endDate"]),
                 skills: ((aiData.skills as unknown[] ?? []).length > 0 ? aiData.skills : formData.skills),
                 summary: (aiData.summary as string) || formData.summary,
               };
