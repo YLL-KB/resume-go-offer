@@ -1,13 +1,8 @@
 /**
  * POST /api/chat/extract
  *
- * 从对话记录中流式提取结构化简历数据（SSE）。
- * Body: { conversationId: string }
- *
- * SSE 事件：
- *   data: {"type":"chunk","content":"..."}   — AI 生成片段
- *   data: {"type":"done","data":{...}}        — 提取完成，结构化数据
- *   data: {"type":"error","message":"..."}     — 失败
+ * 从对话记录中提取结构化简历数据（SSE）。
+ * 与 LangGraph extractResume 工具使用同一套提取逻辑。
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -25,7 +20,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     }
     conversationId = body.conversationId;
-    resumeData = body.resumeData;
+    resumeData = body.resumeData ?? undefined;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -36,7 +31,6 @@ export async function POST(request: NextRequest) {
 
   const db = getDb() as ReturnType<typeof getDb>;
 
-  // 读取对话全部消息
   const history = await db
     .select()
     .from(messages)
@@ -47,16 +41,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
 
-  // 拼接对话记录文本
   const conversationText = history
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => `[${m.role === "user" ? "用户" : "顾问"}]: ${m.content}`)
     .join("\n\n");
 
-  // 流式提取
-  const stream = ai.extractResumeDataStream(conversationText, resumeData);
+  // SSE 包装：内部使用与 LangGraph 相同的非流式提取
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream({
+    async start(controller) {
+      const send = (data: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+      };
 
-  return new Response(stream, {
+      try {
+        send({ type: "connecting" });
+
+        const result = await ai.extractResumeData(conversationText, resumeData);
+
+        if (result) {
+          send({ type: "done", data: result });
+        } else {
+          send({ type: "error", message: "JSON 解析失败，请重试" });
+        }
+      } catch (err) {
+        console.error("[extract] 失败:", err instanceof Error ? err.message : err);
+        send({ type: "error", message: err instanceof Error ? err.message : "提取失败" });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(readable, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",

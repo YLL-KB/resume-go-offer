@@ -7,7 +7,7 @@
 // ── Extract ──
 
 export interface ExtractSSEEvent {
-  type: "chunk" | "done" | "error";
+  type: "connecting" | "chunk" | "done" | "error";
   content?: string;
   data?: Record<string, unknown>;
   message?: string;

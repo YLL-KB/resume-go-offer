@@ -42,7 +42,8 @@
 	 */
 	"vars": {
 		"AUTHING_APP_ID": "6a4f3e289a0ee980079eaa1a",
-		"NEXT_PUBLIC_APP_URL": "http://www.resumeoffer.cn"
+		"NEXT_PUBLIC_APP_URL": "http://www.resumeoffer.cn",
+			"LANGGRAPH_ENABLED": "true"
 	},
 	"d1_databases": [
 		{

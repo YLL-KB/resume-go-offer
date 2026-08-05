@@ -22,7 +22,7 @@ function parseForms(content: string): { text: string; forms: FormType[] } {
 
 // ── 单条消息气泡 ──
 
-function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages: Map<string, { type: FormType; submitted?: boolean }> }) {
+function ChatBubble({ msg, formMessages, shownFormTypes }: { msg: ChatMessageType; formMessages: Map<string, { type: FormType; submitted?: boolean }>; shownFormTypes: React.RefObject<Set<string>> }) {
   const isUser = msg.role === "user";
   const { text, forms } = parseForms(msg.content);
   const [copied, setCopied] = useState(false);
@@ -125,7 +125,7 @@ function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages:
     <div className={`group flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <div
         className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm ${
-          isUser ? "bg-primary text-primary-foreground" : "bg-[#f5f0e8] text-[#6b6859]"
+          isUser ? "bg-primary text-primary-foreground" : "bg-emerald-100 text-emerald-700"
         }`}
       >
         {isUser ? <User className="size-4" /> : <Bot className="size-4" />}
@@ -136,14 +136,14 @@ function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages:
           <div>
             <div
               className={`rounded-2xl px-4 py-3 text-sm ${
-                isUser ? "bg-primary text-primary-foreground" : "bg-[#f5f0e8] border border-[#e8e0d5] text-[#3d3929]"
+                isUser ? "bg-primary text-primary-foreground" : "bg-white/70 border border-gray-200/60 text-slate-800"
               }`}
               onMouseUp={!isUser ? handleMouseUp : undefined}
               onTouchEnd={!isUser ? handleTouchEnd : undefined}
             >
               <div
                 ref={contentRef}
-                className={`md-content select-text ${isUser ? "[&_strong]:text-primary-foreground [&_code]:bg-white/20" : "[&_a]:text-[#4a7c59]"}`}
+                className={`md-content select-text ${isUser ? "[&_strong]:text-primary-foreground [&_code]:bg-white/20" : "[&_a]:text-emerald-400"}`}
                 dangerouslySetInnerHTML={{ __html: marked.parse(text, { async: false }) as string }}
               />
             </div>
@@ -182,9 +182,11 @@ function ChatBubble({ msg, formMessages }: { msg: ChatMessageType; formMessages:
         )}
 
         {forms.map((type, i) => {
+          if (shownFormTypes.current?.has(type)) return null;
           const key = `${msg.id}-${type}-${i}`;
           const state = formMessages.get(key);
           if (state?.submitted) return null;
+          shownFormTypes.current?.add(type);
           return (
             <FormCard
               key={key}
@@ -228,10 +230,10 @@ function TypingIndicator() {
       <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <Bot className="size-4" />
       </div>
-      <div className="flex items-center gap-1 rounded-2xl bg-[#f5f0e8] border border-[#e8e0d5] px-4 py-4">
-        <span className="size-2 animate-bounce rounded-full bg-[#d4c5a9]" style={{ animationDelay: "0ms" }} />
-        <span className="size-2 animate-bounce rounded-full bg-[#d4c5a9]" style={{ animationDelay: "150ms" }} />
-        <span className="size-2 animate-bounce rounded-full bg-[#d4c5a9]" style={{ animationDelay: "300ms" }} />
+      <div className="flex items-center gap-1 rounded-2xl bg-white/70 border border-gray-200/60 px-4 py-4">
+        <span className="size-2 animate-bounce rounded-full bg-slate-300" style={{ animationDelay: "0ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-slate-300" style={{ animationDelay: "150ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-slate-300" style={{ animationDelay: "300ms" }} />
       </div>
     </div>
   );
@@ -240,11 +242,13 @@ function TypingIndicator() {
 // ── 消息列表 ──
 
 export function ChatMessages() {
-  const { messages, isStreaming, setShowPreview, setResumeData, setExtracting, conversationId, extractStreamText, setExtractStreamText, appendExtractStreamText } = useChatStore();
+  const { messages, isStreaming, isExtracting, setShowPreview, setResumeData, setExtracting, conversationId, extractStreamText, setExtractStreamText, appendExtractStreamText } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [formState] = useState<Map<string, { type: FormType; submitted?: boolean }>>(new Map());
   // LangGraph: tool-push-form 事件触发的表单
   const [toolForms, setToolForms] = useState<Array<{ key: string; type: FormType }>>([]);
+  // 全局去重：已展示的表单类型不再重复渲染
+  const shownFormTypes = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -346,41 +350,46 @@ export function ChatMessages() {
       <div className="mx-auto flex max-w-2xl flex-col gap-4">
         {messages.length === 0 && (
           <div className="py-12 text-center">
-            <Bot className="mx-auto mb-3 size-10 text-[#e8e0d5]" />
-            <p className="text-sm text-[#6b6859]">告诉我你的情况，我帮你做一份专业简历</p>
+            <Bot className="mx-auto mb-3 size-10 text-slate-200" />
+            <p className="text-sm text-slate-500">告诉我你的情况，我帮你做一份专业简历</p>
           </div>
         )}
 
         {messages.filter((m) => m.role !== "system").map((msg) => (
-          <ChatBubble key={msg.id} msg={msg} formMessages={formState} />
+          <ChatBubble key={msg.id} msg={msg} formMessages={formState} shownFormTypes={shownFormTypes} />
         ))}
 
-        {/* 提取简历流式输出 */}
-        {extractStreamText && (
+        {/* 简历提取中 */}
+        {isExtracting && (
           <div className="flex gap-3">
-            <span className="mt-1 shrink-0 text-sm font-bold text-[#4a7c59]">🤖</span>
-            <div className="rounded-lg bg-[#f5f0e8] border border-[#e8e0d5] px-4 py-3 text-sm leading-relaxed">
-              <p className="mb-1 font-semibold text-xs text-[#6b6859]">AI 正在提取简历...</p>
-              <pre className="whitespace-pre-wrap break-all font-mono text-xs text-[#6b6859] max-h-60 overflow-y-auto">{extractStreamText}</pre>
+            <span className="mt-1 shrink-0 text-sm font-bold text-emerald-600">🤖</span>
+            <div className="rounded-lg bg-white/70 border border-gray-200/60 px-4 py-3 text-sm leading-relaxed">
+              <p className="mb-1 font-semibold text-xs text-slate-500">AI 正在提取简历...</p>
+              {extractStreamText && (
+                <pre className="whitespace-pre-wrap break-all font-mono text-xs text-slate-500 max-h-60 overflow-y-auto">{extractStreamText}</pre>
+              )}
             </div>
           </div>
         )}
 
         {/* LangGraph: tool-push-form 触发的表单卡片 */}
-        {toolForms.filter((tf) => !formState.get(tf.key)?.submitted).map((tf) => (
-          <FormCard
-            key={tf.key}
-            type={tf.type}
-            onSubmit={(_t, data) => {
-              formState.set(tf.key, { type: tf.type, submitted: true });
-              window.dispatchEvent(new CustomEvent("form-data", { detail: { type: tf.type, data } }));
-            }}
-            onCancel={() => {
-              formState.set(tf.key, { type: tf.type, submitted: true });
-              window.dispatchEvent(new CustomEvent("form-skip", { detail: { type: tf.type } }));
-            }}
-          />
-        ))}
+        {toolForms.filter((tf) => !formState.get(tf.key)?.submitted && !shownFormTypes.current?.has(tf.type)).map((tf) => {
+          shownFormTypes.current?.add(tf.type);
+          return (
+            <FormCard
+              key={tf.key}
+              type={tf.type}
+              onSubmit={(_t, data) => {
+                formState.set(tf.key, { type: tf.type, submitted: true });
+                window.dispatchEvent(new CustomEvent("form-data", { detail: { type: tf.type, data } }));
+              }}
+              onCancel={() => {
+                formState.set(tf.key, { type: tf.type, submitted: true });
+                window.dispatchEvent(new CustomEvent("form-skip", { detail: { type: tf.type } }));
+              }}
+            />
+          );
+        })}
 
         {isStreaming && messages[messages.length - 1]?.content === "" && <TypingIndicator />}
 
