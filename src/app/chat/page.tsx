@@ -270,7 +270,7 @@ export default function ChatPage() {
       {resumeData && (
         <div className="hidden">
           <div className="print-resume w-[210mm] bg-white">
-            <TemplateResume data={resumeData} />
+            <TemplateResume data={resumeData} theme={useChatStore.getState().resumeTheme} />
           </div>
         </div>
       )}

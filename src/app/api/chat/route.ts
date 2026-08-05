@@ -19,11 +19,13 @@ import { streamAgent } from "@/lib/ai/graph";
 // 环境变量控制：启用 LangGraph Agent 模式
 const USE_LANGGRAPH = process.env.LANGGRAPH_ENABLED === "true";
 
-// 匿名用户 ID（未登录时使用）
+const ANON_COOKIE = "anon_id";
+
+// 匿名用户 ID（未登录时使用，基于持久化 Cookie）
 function getAnonymousId(request: NextRequest): string {
-  const ip = request.headers.get("x-forwarded-for") ?? "unknown";
-  const ua = request.headers.get("user-agent") ?? "";
-  return "anon-" + Buffer.from(ip + ua).toString("base64").slice(0, 32);
+  const cookieId = request.cookies.get(ANON_COOKIE)?.value;
+  if (cookieId) return cookieId;
+  return `anon-${crypto.randomUUID()}`;
 }
 
 export async function POST(request: NextRequest) {
@@ -222,13 +224,17 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
+    const headers: Record<string, string> = {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    };
+    // 匿名用户：种持久化 Cookie，换 IP 不会丢对话
+    if (!authUser?.id && userId.startsWith("anon-")) {
+      headers["Set-Cookie"] = `${ANON_COOKIE}=${userId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=31536000`;
+    }
+
+    return new Response(readable, { headers });
   } catch (err) {
     console.error("Chat API error:", err);
     return new Response(

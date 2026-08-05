@@ -5,11 +5,12 @@ import { useChatStore } from "@/stores/chat-store";
 import { TemplateResume } from "@/components/resume/TemplateResume";
 import { Button } from "@/components/ui/button";
 import { Download, X, FileText, FileCode, Loader2, AlertTriangle } from "lucide-react";
+import { type ResumeTheme, THEMES } from "@/components/resume/TemplateResume";
 
 type ExportFormat = "pdf" | "html";
 
 export function ResumePreviewPanel() {
-  const { resumeData, skillsHtmlMap, showPreview, setShowPreview, setSkillsHtmlMap } = useChatStore();
+  const { resumeData, skillsHtmlMap, showPreview, setShowPreview, setSkillsHtmlMap, resumeTheme, setResumeTheme } = useChatStore();
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [generating, setGenerating] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -139,6 +140,19 @@ export function ResumePreviewPanel() {
         <span className="text-xs font-medium text-slate-500 shrink-0">简历预览</span>
 
         <div className="flex items-center gap-1">
+          {/* 主题切换 */}
+          <div className="flex items-center gap-0.5 mr-1">
+            {(Object.keys(THEMES) as ResumeTheme[]).map((key) => (
+              <button
+                key={key}
+                title={THEMES[key].name}
+                className={`size-5 rounded-full border-2 transition-all ${resumeTheme === key ? "border-slate-400 scale-110" : "border-transparent hover:scale-105"}`}
+                style={{ background: THEMES[key].primary }}
+                onClick={() => setResumeTheme(key)}
+              />
+            ))}
+          </div>
+          <div className="w-px h-4 bg-gray-200 mr-1" />
           <Button
             variant="ghost" size="sm"
             className={`h-5 px-2 text-[10px] ${format === "pdf" ? "bg-emerald-50 text-emerald-700" : "text-slate-400 hover:text-slate-900"}`}
@@ -179,7 +193,7 @@ export function ResumePreviewPanel() {
               </Button>
             </div>
           ) : (
-            <TemplateResume data={resumeData} skillsHtml={skillsHtml} />
+            <TemplateResume data={resumeData} skillsHtml={skillsHtml} theme={resumeTheme} />
           )}
         </div>
 

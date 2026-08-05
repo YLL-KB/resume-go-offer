@@ -12,10 +12,23 @@ import { conversations, messages } from "@/lib/db/schema";
 import { getUser } from "@/lib/auth";
 import { eq, desc, asc } from "drizzle-orm";
 
+const ANON_COOKIE = "anon_id";
+
 function getAnonymousId(request: NextRequest): string {
-  const ip = request.headers.get("x-forwarded-for") ?? "unknown";
-  const ua = request.headers.get("user-agent") ?? "";
-  return "anon-" + Buffer.from(ip + ua).toString("base64").slice(0, 32);
+  // 优先从 Cookie 读持久化 ID，避免换 IP 后丢失对话
+  const cookieId = request.cookies.get(ANON_COOKIE)?.value;
+  if (cookieId) return cookieId;
+  return `anon-${crypto.randomUUID()}`;
+}
+
+function setAnonymousCookie(response: NextResponse, anonId: string) {
+  response.cookies.set(ANON_COOKIE, anonId, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365, // 1 年
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -34,7 +47,11 @@ export async function GET(request: NextRequest) {
       .where(eq(messages.conversationId, conversationId))
       .orderBy(asc(messages.createdAt));
 
-    return NextResponse.json({ messages: msgs });
+    const response = NextResponse.json({ messages: msgs });
+    if (!authUser?.id && userId.startsWith("anon-")) {
+      setAnonymousCookie(response, userId);
+    }
+    return response;
   }
 
   // 返回对话列表
@@ -45,5 +62,9 @@ export async function GET(request: NextRequest) {
     .orderBy(desc(conversations.updatedAt))
     .limit(50);
 
-  return NextResponse.json({ conversations: list });
+  const response = NextResponse.json({ conversations: list });
+  if (!authUser?.id && userId.startsWith("anon-")) {
+    setAnonymousCookie(response, userId);
+  }
+  return response;
 }

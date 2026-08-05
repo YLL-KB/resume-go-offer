@@ -33,6 +33,8 @@ interface ChatState {
   isExtracting: boolean;
   extractStreamText: string;
   showPreview: boolean;
+  resumeTheme: import("@/components/resume/TemplateResume").ResumeTheme;
+  setResumeTheme: (theme: import("@/components/resume/TemplateResume").ResumeTheme) => void;
 
   // 对话列表
   conversations: Array<{ id: string; title: string; updatedAt: string }>;
@@ -73,6 +75,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isExtracting: false,
   extractStreamText: "",
   showPreview: false,
+  resumeTheme: "ocean",
+  setResumeTheme: (theme) => set({ resumeTheme: theme }),
   conversations: [],
   isLoadingHistory: false,
   quoteText: null,
