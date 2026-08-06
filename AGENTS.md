@@ -88,6 +88,15 @@ export const dynamic = "force-dynamic";
 
 ### 5. AI 对话（核心）
 
+**路由架构：**
+```
+src/app/chat/
+├── layout.tsx            # 侧边栏 + 对话列表（全局持久）
+├── page.tsx              # 新对话页（conversationId=null）
+├── [id]/page.tsx         # 已有对话页（路由隔离，切换即卸载）
+├── loading.tsx           # 路由切换 loading 态
+```
+
 **架构：**
 ```
 ChatInput（用户输入）
@@ -100,11 +109,18 @@ ChatInput（用户输入）
 ```
 
 **关键文件：**
-- `src/lib/ai/index.ts` — AI Agent 封装（LangGraph StateGraph + 工具注册）
+- `src/lib/ai/index.ts` — AI Agent 入口（createAgent 工厂函数）
+- `src/lib/ai/graph.ts` — LangGraph StateGraph 定义 + 节点编排
 - `src/lib/ai/prompts.ts` — 系统提示词 + 提取提示词 + 开场白
+- `src/lib/ai/tools.ts` — 工具注册（pushForm / extractResume / suggestOptimization）
+- `src/lib/ai/knowledge.ts` — RAG 知识库检索
+- `src/lib/ai/vectorstore.ts` — 自研向量存储（Embedding + 相似度搜索）
+- `src/lib/ai/embeddings.ts` — Embedding 生成
+- `src/lib/ai/attachment-parser.ts` — 附件解析（PDF/图片 → 文字提取）
 - `src/stores/chat-store.ts` — 对话状态管理（Zustand）：消息流、流式输出、引用、表单、简历数据
+- `src/components/chat/ChatContent.tsx` — 聊天主体组件（接受 conversationId prop，路由隔离核心）
 - `src/components/chat/ChatMessages.tsx` — 消息列表 + 单条气泡（Markdown 渲染、表单卡片、引用弹窗）
-- `src/components/chat/ChatInput.tsx` — 输入框（SSE 流接收、引用拼接、表单事件监听）
+- `src/components/chat/ChatInput.tsx` — 输入框（SSE 流接收、引用拼接、表单事件监听、附件上传）
 - `src/components/chat/FormCard.tsx` — 6 种结构化表单（basic / education / experience / project / skills / summary）
 - `src/components/chat/ResumePreviewPanel.tsx` — 简历预览面板（模板切换、打印导出、背景色注入）
 
@@ -129,6 +145,12 @@ data: {"tool_call":{"name":"pushForm","args":{"type":"basic"}}}
 data: {"resumeData":{...}}
 data: [DONE]
 ```
+
+**路由隔离设计：**
+- `/chat` → 新对话，ChatContent 挂载，local state 干净
+- `/chat/[id]` → 已有对话，路由切换时组件卸载重挂载，所有 local state（resumeData、showPreview、isExtracting 等）天然清零
+- 只有 conversations 列表和主题等全局字段留在 Zustand store
+- 新对话发送第一条消息后 → `router.replace("/chat/<new-id>")` 同步 URL
 
 ### 6. 模版系统
 
@@ -266,7 +288,10 @@ src/
 │   ├── page.tsx                        # 首页（营销落地页）
 │   ├── layout.tsx                      # 根布局
 │   ├── chat/
-│   │   └── page.tsx                    # AI 对话页（核心入口，分栏拖拽布局）
+│   │   ├── layout.tsx                  # 对话侧边栏 layout（conversation 列表持久）
+│   │   ├── page.tsx                    # 新对话页
+│   │   ├── [id]/page.tsx               # 已有对话页（路由隔离，切换即卸载）
+│   │   └── loading.tsx                 # 路由切换 loading
 │   ├── resume/
 │   │   ├── new/
 │   │   │   ├── page.tsx                # 新建简历页
@@ -279,7 +304,9 @@ src/
 │       │   ├── route.ts                # POST SSE Streaming（LangGraph Agent）
 │       │   ├── history/route.ts        # GET 对话列表
 │       │   ├── history/[id]/route.ts   # DELETE 删除对话
-│       │   └── extract/route.ts        # POST 提取简历数据
+│       │   ├── extract/route.ts        # POST 提取简历数据
+│       │   ├── messages/[id]/route.ts  # GET 历史消息
+│       │   └── parse-attachment/route.ts # POST 解析上传附件
 │       ├── templates/
 │       │   ├── route.ts                # GET 列表
 │       │   ├── upload/route.ts         # POST 上传
@@ -299,16 +326,17 @@ src/
 │       │   └── upload-resume/route.ts
 │       ├── resume/
 │       │   ├── route.ts                # POST 创建 + GET 列表
-│       │   └── [id]/route.ts           # GET/PUT/DELETE 单个简历
-│       ├── pdf/                        # PDF 工具（合并/拆分/旋转）
-│       └── analysis/[id]/route.ts      # 分析文件服务
+│       │   ├── [id]/route.ts           # GET/PUT/DELETE 单个简历
+│       │   └── render-skills/route.ts  # POST 技能渲染
+│       └── pdf/                        # PDF 工具（合并/拆分/旋转/OCR）
 ├── components/
 │   ├── ui/                             # shadcn/ui 组件库
-│   │   └── app-header.tsx              # 全局导航头（仅含 AI 对话入口）
+│   │   └── app-header.tsx              # 全局导航头
 │   ├── chat/
+│   │   ├── ChatContent.tsx             # 聊天主体（路由隔离核心，接受 conversationId）
 │   │   ├── ChatHeader.tsx              # 对话页顶栏 + 移动端菜单按钮
 │   │   ├── ChatMessages.tsx            # 消息列表 + ChatBubble + 引用弹窗 + 表单卡片
-│   │   ├── ChatInput.tsx               # 输入框 + SSE 流处理 + 表单事件桥接
+│   │   ├── ChatInput.tsx               # 输入框 + SSE 流处理 + 表单事件桥接 + 附件上传
 │   │   ├── FormCard.tsx                # 6 种结构化表单组件
 │   │   ├── ResumePreviewPanel.tsx      # 简历预览面板（模板切换 + 打印导出）
 │   │   └── EditResumeForm.tsx          # 简历编辑弹窗
@@ -351,8 +379,14 @@ src/
 │   └── editor-store.ts                 # 编辑器全局状态（Zustand）
 ├── lib/
 │   ├── ai/
-│   │   ├── index.ts                    # AI Agent 封装（LangGraph + OpenAI SDK）
-│   │   └── prompts.ts                  # 系统提示词 + 提取提示词 + 开场白
+│   │   ├── index.ts                    # AI Agent 入口（createAgent 工厂）
+│   │   ├── graph.ts                    # LangGraph StateGraph 定义 + 节点编排
+│   │   ├── tools.ts                    # 工具注册（pushForm/extractResume/suggestOptimization）
+│   │   ├── prompts.ts                  # 系统提示词 + 提取提示词 + 开场白
+│   │   ├── knowledge.ts                # RAG 知识库检索
+│   │   ├── vectorstore.ts              # 自研向量存储（Embedding + 相似度搜索）
+│   │   ├── embeddings.ts               # Embedding 生成
+│   │   └── attachment-parser.ts        # 附件解析（PDF/图片 → 文字提取）
 │   ├── auth/                           # Authing OIDC 认证
 │   ├── db/
 │   │   ├── schema.ts                   # Drizzle ORM Schema
@@ -394,7 +428,7 @@ A: `pnpm dlx shadcn@latest add <component-name>`，然后用 `@/components/ui` �
 A: 修改 `.env.local` 中的 `OPENAI_BASE_URL` 和 `AI_MODEL`。
 
 **Q: 如何添加新的对话工具（tool）？**
-A: 在 `src/lib/ai/index.ts` 中注册新的 LangGraph tool，然后在前端 `ChatMessages.tsx` 中添加对应的事件监听和处理逻辑。
+A: 在 `src/lib/ai/tools.ts` 中注册新的 LangGraph tool，然后在前端 `ChatMessages.tsx` 中添加对应的事件监听和处理逻辑。
 
 **Q: 简历打印第二页背景是白的？**
 A: `ResumePreviewPanel.tsx` 的 `beforeprint` 处理器会注入 `position: fixed` 背景层 + `globals.css` 的 `@media print` 规则中 `body::before` 也会铺满每页。如果还是不生效，检查打印对话框是否勾选「背景图形」。

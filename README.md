@@ -128,7 +128,10 @@ src/
 │   ├── page.tsx                        # 首页
 │   ├── layout.tsx                      # 根布局
 │   ├── chat/
-│   │   └── page.tsx                    # AI 对话页（核心）
+│   │   ├── layout.tsx                  # 对话侧边栏 layout
+│   │   ├── page.tsx                    # 新对话页
+│   │   ├── [id]/page.tsx               # 已有对话页（路由隔离）
+│   │   └── loading.tsx
 │   ├── resume/
 │   │   ├── new/                        # 新建简历（编辑器）
 │   │   ├── edit/                       # 编辑已有简历
@@ -138,20 +141,23 @@ src/
 │       ├── chat/                       # 对话 API（SSE Streaming）
 │       │   ├── route.ts                # 主对话
 │       │   ├── history/                # 对话历史 CRUD
-│       │   └── extract/route.ts        # 简历提取
+│       │   ├── messages/               # 历史消息
+│       │   ├── extract/route.ts        # 简历提取
+│       │   └── parse-attachment/       # 附件解析
 │       ├── templates/                  # 模版 CRUD + PDF 填充
 │       │   └── [id]/
 │       │       ├── fill/route.ts       # PDF 填充输出（核心）
 │       │       └── extract-markdown/   # MinerU 提取
 │       ├── ai/                         # AI 分析/润色
 │       ├── resume/                     # 简历 CRUD
-│       └── pdf/                        # PDF 工具（合并/拆分/旋转）
+│       └── pdf/                        # PDF 工具（合并/拆分/旋转/OCR）
 ├── components/
 │   ├── ui/                             # shadcn/ui 组件
 │   ├── chat/
+│   │   ├── ChatContent.tsx             # 聊天主体（路由隔离核心）
 │   │   ├── ChatHeader.tsx              # 对话页顶栏
 │   │   ├── ChatMessages.tsx            # 消息列表 + 气泡
-│   │   ├── ChatInput.tsx               # 输入框 + 发送
+│   │   ├── ChatInput.tsx               # 输入框 + 发送 + 附件
 │   │   ├── FormCard.tsx                # 结构化表单卡片
 │   │   ├── ResumePreviewPanel.tsx      # 简历预览面板（侧边）
 │   │   └── EditResumeForm.tsx          # 简历编辑表单
@@ -164,8 +170,14 @@ src/
 │   └── editor-store.ts                 # 编辑器全局状态（Zustand）
 ├── lib/
 │   ├── ai/
-│   │   ├── index.ts                    # AI Agent 封装（LangGraph）
-│   │   └── prompts.ts                  # 系统提示词 + 提取提示词
+│   │   ├── index.ts                    # AI Agent 入口
+│   │   ├── graph.ts                    # LangGraph StateGraph
+│   │   ├── tools.ts                    # 工具注册
+│   │   ├── prompts.ts                  # 系统提示词 + 提取提示词
+│   │   ├── knowledge.ts                # RAG 知识库
+│   │   ├── vectorstore.ts              # 自研向量存储
+│   │   ├── embeddings.ts               # Embedding 生成
+│   │   └── attachment-parser.ts        # 附件解析
 │   ├── pdf/                            # pdfjs / MinerU / 图片提取
 │   ├── auth/                           # Authing OIDC
 │   ├── db/                             # Drizzle ORM + D1/SQLite
@@ -179,7 +191,8 @@ src/
 | 路径 | 说明 |
 |------|------|
 | `/` | 首页 |
-| `/chat` | AI 对话式简历（核心入口） |
+| `/chat` | 新对话（发送后自动跳转至 `/chat/[id]`） |
+| `/chat/[id]` | 已有对话（核心入口，路由隔离） |
 | `/resume/new?template=xxx` | 新建简历编辑器 |
 | `/resume/builder` | 手动填表（遗留功能） |
 | `/resume/preview` | 独立简历预览页 |
