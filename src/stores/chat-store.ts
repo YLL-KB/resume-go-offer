@@ -44,6 +44,16 @@ interface ChatState {
   quoteText: string | null;
   setQuoteText: (text: string | null) => void;
 
+  // 重新生成
+  regeneratePrompt: string | null;
+  triggerRegenerate: (prompt: string) => void;
+  clearRegenerate: () => void;
+
+  // 快捷发送（Onboarding 等场景）
+  quickSend: string | null;
+  triggerQuickSend: (prompt: string) => void;
+  clearQuickSend: () => void;
+
   // 操作
   setConversationId: (id: string) => void;
   addMessage: (msg: ChatMessage) => void;
@@ -52,6 +62,8 @@ interface ChatState {
   setStreaming: (v: boolean) => void;
   setError: (err: string | null) => void;
   setResumeData: (data: Partial<ResumeData>) => void;
+  loadResumeDraft: () => void;
+  clearResumeDraft: () => void;
   setSkillsHtmlMap: (map: Record<string, string> | null) => void;
   setExtracting: (v: boolean) => void;
   setExtractStreamText: (text: string) => void;
@@ -63,6 +75,7 @@ interface ChatState {
   deleteMessage: (id: string) => Promise<void>;
   startNewChat: () => void;
   loadConversation: (conversationId: string) => Promise<void>;
+  stop: () => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -80,6 +93,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   isLoadingHistory: false,
   quoteText: null,
+  regeneratePrompt: null,
+  quickSend: null,
 
   setConversationId: (id) => {
     set({ conversationId: id });
@@ -106,15 +121,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setError: (err) => set({ error: err }),
 
   setResumeData: (data) =>
-    set((s) => ({
-      resumeData: {
+    set((s) => {
+      const merged = {
         ...DEFAULT_RESUME_DATA,
         ...s.resumeData,
         ...data,
         basic: { ...DEFAULT_RESUME_DATA.basic, ...(s.resumeData?.basic ?? {}), ...(data.basic ?? {}) },
-      } as ResumeData,
-      skillsHtmlMap: null, // 新数据 → 清掉旧技能 HTML
-    })),
+      } as ResumeData;
+      // 自动保存草稿到 localStorage
+      if (typeof window !== "undefined") {
+        try { localStorage.setItem("resume_draft", JSON.stringify(merged)); } catch { /* quota exceeded */ }
+      }
+      return { resumeData: merged, skillsHtmlMap: null };
+    }),
+
+  loadResumeDraft: () => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem("resume_draft");
+      if (raw) {
+        const data = JSON.parse(raw) as ResumeData;
+        set({ resumeData: data });
+      }
+    } catch { /* corrupted */ }
+  },
+
+  clearResumeDraft: () => {
+    if (typeof window !== "undefined") {
+      try { localStorage.removeItem("resume_draft"); } catch { /* ignore */ }
+    }
+  },
 
   setSkillsHtmlMap: (map) => set({ skillsHtmlMap: map }),
 
@@ -127,6 +163,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setShowPreview: (v) => set({ showPreview: v }),
 
   setQuoteText: (text) => set({ quoteText: text }),
+
+  triggerRegenerate: (prompt) => set({ regeneratePrompt: prompt }),
+  clearRegenerate: () => set({ regeneratePrompt: null }),
+
+  triggerQuickSend: (prompt) => set({ quickSend: prompt }),
+  clearQuickSend: () => set({ quickSend: null }),
 
   setConversations: (list) => set((s) => ({ conversations: typeof list === "function" ? list(s.conversations) : list })),
 
@@ -150,8 +192,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
+  stop: () => set({ isStreaming: false }),
+
   loadConversation: async (conversationId) => {
-    set({ isLoadingHistory: true });
+    set({
+      isLoadingHistory: true,
+      isStreaming: false,
+      isExtracting: false,
+      extractStreamText: "",
+      resumeData: null,
+      skillsHtmlMap: null,
+      showPreview: false,
+      error: null,
+      quoteText: null,
+      regeneratePrompt: null,
+      quickSend: null,
+    });
     try {
       const res = await fetch(`/api/chat/history?conversationId=${conversationId}`);
       const data = await res.json() as { messages: ChatMessage[] };

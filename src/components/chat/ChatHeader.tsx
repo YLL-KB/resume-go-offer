@@ -1,10 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useChatStore } from "@/stores/chat-store";
 import { Button } from "@/components/ui/button";
 import { Plus, Menu, Sparkles } from "lucide-react";
 
 export function ChatHeader({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
+  const router = useRouter();
   const { startNewChat, messages } = useChatStore();
   const hasStarted = messages.length > 0;
 
@@ -21,7 +23,7 @@ export function ChatHeader({ onToggleSidebar }: { onToggleSidebar?: () => void }
             variant="ghost"
             size="sm"
             className="text-slate-500 hover:text-slate-900 hover:bg-slate-100/60"
-            onClick={startNewChat}
+            onClick={() => { startNewChat(); router.push("/chat"); }}
           >
             <Plus className="size-4" />新对话
           </Button>

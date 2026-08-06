@@ -2,6 +2,7 @@
 
 import { Trash2, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import type { Module } from "@/lib/pdf/module-detector";
 
 interface ModuleListProps {
@@ -41,11 +42,11 @@ export function ModuleList({
                 isDeleted && "opacity-40",
               )}
             >
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={() => onSelectModule(m.id)}
                 className={cn(
-                  "flex-1 text-left px-3 py-2 transition-colors",
+                  "flex-1 justify-start text-left px-3 py-2 transition-colors h-auto",
                   "hover:bg-muted/50",
                 )}
               >
@@ -66,17 +67,18 @@ export function ModuleList({
                   <span>第 {m.page} 页</span>
                   <span>{m.blocks.length} 个文字块</span>
                 </div>
-              </button>
+              </Button>
 
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleDelete(m.id);
                 }}
                 title={isDeleted ? "恢复模块" : "删除模块内容"}
                 className={cn(
-                  "shrink-0 p-1.5 mr-1 rounded transition-colors",
+                  "shrink-0 size-7 mr-1 rounded transition-colors",
                   "opacity-0 group-hover:opacity-100",
                   isDeleted
                     ? "opacity-100 text-green-500 hover:bg-green-50"
@@ -88,7 +90,7 @@ export function ModuleList({
                 ) : (
                   <Trash2 className="size-3.5" />
                 )}
-              </button>
+              </Button>
             </div>
           );
         })}

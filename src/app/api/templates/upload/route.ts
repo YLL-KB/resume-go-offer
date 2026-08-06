@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { getAuthUserId } from "@/lib/auth/utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +51,12 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(pdfPath, buffer);
 
+    // 鉴权：仅登录用户可以上传
+    const { userId, isAnonymous } = await getAuthUserId(request);
+    if (isAnonymous) {
+      return NextResponse.json({ error: "请先登录后再上传模版" }, { status: 401 });
+    }
+
     // 保存元数据
     const customName = formData.get("name")?.toString().trim();
     const layoutField = formData.get("layout")?.toString().trim() || "classic";
@@ -60,6 +67,7 @@ export async function POST(request: NextRequest) {
       size: file.size,
       layout: layoutField,
       uploadedAt: new Date().toISOString(),
+      uploadedBy: userId,
     };
     await fs.writeFile(
       path.join(uploadDir, `${id}.meta.json`),

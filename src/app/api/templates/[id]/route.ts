@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { getAuthUserId } from "@/lib/auth/utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,20 +64,29 @@ export async function GET(
 
 // ── DELETE ──
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: rawId } = await params;
   const id = rawId.endsWith(".pdf") ? rawId.slice(0, -4) : rawId;
   const { pdf: pdfPath, meta: metaPath } = filePaths(id);
 
-  // ============================================================
-  // ⚠️ 管理员权限校验 — 后续接入用户系统后启用
-  // ============================================================
-  // const { user, isAdmin } = await getAuthContext(request);
-  // if (!user || !isAdmin) {
-  //   return NextResponse.json({ error: "无权限，仅管理员可删除" }, { status: 403 });
-  // }
+  // ── 权限校验 ──
+  const { userId, isAnonymous } = await getAuthUserId(request);
+  if (isAnonymous) {
+    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+  }
+
+  // 检查上传者（若 meta 中无 uploadedBy 则兼容旧数据，仅拒绝明确不匹配的）
+  try {
+    const raw = await fs.readFile(metaPath, "utf-8");
+    const meta = JSON.parse(raw);
+    if (meta.uploadedBy && meta.uploadedBy !== userId) {
+      return NextResponse.json({ error: "无权删除此模版" }, { status: 403 });
+    }
+  } catch {
+    // meta 不存在 → 后面会返回 404
+  }
 
   // 只允许删除用户上传的模版（内置模版不可删除）
   const builtInIds = ["classic", "modern", "minimal"];

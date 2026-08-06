@@ -374,12 +374,14 @@ function SkillsEditor({ data, onChange }: SectionEditorProps) {
             className="gap-1 pr-1 cursor-default"
           >
             {s}
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => remove(i)}
-              className="ml-0.5 hover:text-destructive transition-colors"
+              className="ml-0.5 size-5 hover:text-destructive transition-colors"
             >
               <Trash2 className="size-3" />
-            </button>
+            </Button>
           </Badge>
         ))}
         {skills.length === 0 && (
@@ -422,16 +424,18 @@ function ExpandableItem({
   return (
     <div className="border rounded-lg">
       <div className="flex items-center gap-2 px-3 py-2">
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => setOpen(!open)}
-          className="hover:bg-muted rounded p-0.5 transition-colors"
+          className="size-6 hover:bg-muted rounded transition-colors"
         >
           {open ? (
             <ChevronDown className="size-3.5" />
           ) : (
             <ChevronRight className="size-3.5" />
           )}
-        </button>
+        </Button>
         <div className="flex-1 min-w-0">
           <span className="text-sm font-medium truncate block">
             {title || "未命名"}
@@ -443,12 +447,14 @@ function ExpandableItem({
           )}
         </div>
         {onRemove && (
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={onRemove}
-            className="p-1 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
+            className="size-7 hover:bg-destructive/10 rounded text-muted-foreground hover:text-destructive transition-colors"
           >
             <Trash2 className="size-3.5" />
-          </button>
+          </Button>
         )}
       </div>
       {open && (

@@ -22,6 +22,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 
 const FONT_SIZES = ["12px", "14px", "16px", "18px", "20px", "24px"];
 
@@ -57,17 +59,18 @@ function Tb({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon"
       onClick={onClick}
       title={title}
       className={cn(
-        "p-1 rounded hover:bg-muted transition-colors",
+        "size-6 rounded hover:bg-muted transition-colors",
         active && "bg-muted text-foreground",
       )}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -128,8 +131,7 @@ export function RichTextEditor({
   }, [value, editor]);
 
   const handleFontSizeChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const val = e.target.value;
+    (val: string) => {
       editor
         ?.chain()
         .focus()
@@ -140,8 +142,7 @@ export function RichTextEditor({
   );
 
   const handleFontFamilyChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const val = e.target.value;
+    (val: string) => {
       editor
         ?.chain()
         .focus()
@@ -206,26 +207,28 @@ export function RichTextEditor({
 
         {/* 文字颜色 */}
         <div className="relative">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setShowColorPicker(!showColorPicker)}
             title="文字颜色"
-            className="p-1 rounded hover:bg-muted transition-colors flex items-center gap-1"
+            className="size-6 rounded hover:bg-muted transition-colors"
           >
             <Palette className="size-3.5" />
             <span
               className="size-2.5 rounded-full border border-border"
               style={{ backgroundColor: currentColor }}
             />
-          </button>
+          </Button>
 
           {showColorPicker && (
             <div className="absolute top-full left-0 mt-1 z-50 bg-background border rounded-lg shadow-lg p-2 w-44">
               <div className="grid grid-cols-8 gap-1 mb-2">
                 {PRESET_COLORS.map((c) => (
-                  <button
+                  <Button
                     key={c}
-                    type="button"
+                    variant="ghost"
+                    size="icon"
                     onClick={() => setColor(c)}
                     className="size-4 rounded-sm border border-border hover:scale-110 transition-transform"
                     style={{ backgroundColor: c }}
@@ -243,25 +246,26 @@ export function RichTextEditor({
                 <span className="text-[10px] text-muted-foreground">
                   {customColor}
                 </span>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setColor(customColor)}
-                  className="ml-auto p-0.5 rounded hover:bg-muted"
+                  className="ml-auto size-5 rounded hover:bg-muted"
                   title="应用自定义颜色"
                 >
                   <Plus className="size-3" />
-                </button>
+                </Button>
               </div>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={() => {
                   editor?.chain().focus().unsetColor().run();
                   setShowColorPicker(false);
                 }}
-                className="w-full mt-1.5 text-[10px] text-muted-foreground hover:text-foreground border-t pt-1"
+                className="w-full mt-1.5 text-[10px] text-muted-foreground hover:text-foreground border-t pt-1 h-auto"
               >
                 清除颜色
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -302,38 +306,41 @@ export function RichTextEditor({
           <Indent className="size-3.5" />
         </Tb>
 
-        <select
-          title="字号"
-          className="h-6 text-[11px] bg-transparent border border-border rounded px-1 cursor-pointer"
+        <Select
           value={editor.getAttributes("textStyle").fontSize ?? ""}
-          onChange={handleFontSizeChange}
+          onValueChange={handleFontSizeChange}
         >
-          <option value="">字号</option>
-          {FONT_SIZES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="h-6 text-[11px] bg-transparent border-border rounded px-1 w-auto gap-1" title="字号">
+            <SelectValue placeholder="字号" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">默认</SelectItem>
+            {FONT_SIZES.map((s) => (
+              <SelectItem key={s} value={s}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <select
-          title="字体"
-          className="h-6 text-[11px] bg-transparent border border-border rounded px-1 cursor-pointer max-w-[80px]"
+        <Select
           value={editor.getAttributes("textStyle").fontFamily ?? ""}
-          onChange={handleFontFamilyChange}
+          onValueChange={handleFontFamilyChange}
         >
-          {FONT_FAMILIES.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="h-6 text-[11px] bg-transparent border-border rounded px-1 w-auto max-w-[80px] gap-1" title="字体">
+            <SelectValue placeholder="字体" />
+          </SelectTrigger>
+          <SelectContent>
+            {FONT_FAMILIES.map((f) => (
+              <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {onAiOptimize && (
           <>
             <div className="w-px h-4 bg-border mx-1" />
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon"
               disabled={aiLoading}
               onClick={async () => {
                 setAiLoading(true);
@@ -344,10 +351,10 @@ export function RichTextEditor({
                 }
               }}
               title="AI 优化"
-              className="p-1 rounded hover:bg-primary/10 transition-colors text-primary"
+              className="size-6 rounded hover:bg-primary/10 transition-colors text-primary"
             >
               {aiLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-            </button>
+            </Button>
           </>
         )}
       </div>

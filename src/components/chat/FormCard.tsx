@@ -9,6 +9,12 @@ import { Label } from "@/components/ui/label";
 import { X, Plus, Send } from "lucide-react";
 import { randomUUID } from "@/lib/utils/uuid";
 
+function stripId<T extends { id?: string }>(entry: T): Omit<T, "id"> {
+  const { id: _, ...rest } = entry;
+  void _;
+  return rest;
+}
+
 // ── 表单类型 ──
 
 export type FormType = "basic" | "education" | "experience" | "project" | "skills" | "summary";
@@ -104,7 +110,7 @@ function EducationForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, un
     const allEntries = school.trim()
       ? [...entries, { id: randomUUID(), school: school.trim(), degree: degree.trim(), major: major.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]
       : entries;
-    onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
+    onSubmit({ entries: allEntries.map(stripId) });
   };
 
   return (
@@ -112,7 +118,7 @@ function EducationForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, un
       {/* 已添加的条目 */}
       {entries.length > 0 && (
         <div className="space-y-1.5">
-          {entries.map((entry, i) => (
+          {entries.map((entry) => (
             <div key={entry.id} className="flex items-center justify-between rounded-lg border bg-background px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <span className="font-medium">{entry.school}</span>
@@ -197,14 +203,14 @@ function ExperienceForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, u
     const allEntries = company.trim()
       ? [...entries, { id: randomUUID(), company: company.trim(), title: title.trim(), startDate: startDate.trim(), endDate: endDate.trim(), description: description.trim() }]
       : entries;
-    onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
+    onSubmit({ entries: allEntries.map(stripId) });
   };
 
   return (
     <div className="space-y-3">
       {entries.length > 0 && (
         <div className="space-y-1.5">
-          {entries.map((entry, i) => (
+          {entries.map((entry) => (
             <div key={entry.id} className="flex items-start justify-between rounded-lg border bg-background px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{entry.company}{entry.title ? ` · ${entry.title}` : ""}</div>
@@ -287,7 +293,7 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
     const allEntries = name.trim()
       ? [...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]
       : entries;
-    onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
+    onSubmit({ entries: allEntries.map(stripId) });
   };
 
   return (

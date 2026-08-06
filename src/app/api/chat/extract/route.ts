@@ -48,28 +48,45 @@ export async function POST(request: NextRequest) {
 
   // SSE 包装：内部使用与 LangGraph 相同的非流式提取
   const encoder = new TextEncoder();
+  let aborted = false;
+
   const readable = new ReadableStream({
     async start(controller) {
       const send = (data: Record<string, unknown>) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        if (aborted) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        } catch {
+          aborted = true;
+        }
       };
 
       try {
         send({ type: "connecting" });
 
-        const result = await ai.extractResumeData(conversationText, resumeData);
+        // 使用流式提取，前端实时看到 AI 生成进度
+        const stream = ai.extractResumeDataStream(conversationText, resumeData);
+        const reader = stream.getReader();
 
-        if (result) {
-          send({ type: "done", data: result });
-        } else {
-          send({ type: "error", message: "JSON 解析失败，请重试" });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (aborted) continue; // 客户端断开后跳过 enqueue，但继续读完 LLM 流
+          try {
+            controller.enqueue(value);
+          } catch {
+            aborted = true;
+          }
         }
       } catch (err) {
         console.error("[extract] 失败:", err instanceof Error ? err.message : err);
         send({ type: "error", message: err instanceof Error ? err.message : "提取失败" });
       } finally {
-        controller.close();
+        try { controller.close(); } catch { /* already closed */ }
       }
+    },
+    cancel() {
+      aborted = true;
     },
   });
 

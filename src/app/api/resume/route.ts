@@ -7,28 +7,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { resumes } from "@/lib/db/schema";
 import { resumeDataSchema } from "@/lib/validators/resume.schema";
-import { getSessionFromCookie, getUserInfo, isAuthingConfigured } from "@/lib/auth/oidc";
+import { getAuthUserId } from "@/lib/auth/utils";
 import { eq } from "drizzle-orm";
-
-async function getUserId(request: NextRequest): Promise<string> {
-  if (isAuthingConfigured()) {
-    const session = getSessionFromCookie(request);
-    if (session) {
-      try {
-        const user = await getUserInfo(session.accessToken);
-        return user.sub;
-      } catch {
-        // fall through to demo user
-      }
-    }
-  }
-  // 本地开发 / 未登录 → 使用 demo 用户
-  return "demo-user";
-}
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = await getUserId(request);
+    const { userId } = await getAuthUserId(request);
     const db = getDb();
     const rows = await db
       .select()
@@ -54,7 +38,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = await getUserId(request);
+    const { userId } = await getAuthUserId(request);
     const body = await request.json() as {
       title?: string;
       templateId?: string;

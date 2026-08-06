@@ -5,7 +5,7 @@
  * 方便注入对话上下文让 AI 顾问引用。
  */
 
-import { openai, extractClient, safeJsonParse, EXTRACT_MODEL } from "./index";
+import { extractClient, safeJsonParse, EXTRACT_MODEL } from "./index";
 import { JOB_PARSING_PROMPT, RESUME_FILE_PARSING_PROMPT } from "./prompts";
 
 // ── Zhipu Vision API 配置 ──

@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { FileText, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 
@@ -172,10 +173,10 @@ export default function ResumeEditor({
 
             {/* 大段文本 */}
             {section.type === "textarea" && (
-              <textarea
+              <Textarea
                 value={section.content ?? ""}
                 onChange={(e) => updateTextarea(si, e.target.value)}
-                className="w-full rounded-lg border bg-muted/30 p-3 text-sm leading-relaxed outline-none transition-colors focus:border-primary/50 focus:bg-background"
+                className="w-full rounded-lg border bg-muted/30 p-3 text-sm leading-relaxed outline-none transition-colors focus:border-primary/50 focus:bg-background min-h-0"
                 rows={Math.max(4, (section.content ?? "").split("\n").length)}
               />
             )}
@@ -188,13 +189,15 @@ export default function ResumeEditor({
                     key={ii}
                     className="relative rounded-lg border bg-muted/20 p-4"
                   >
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={() => removeListItem(si, ii)}
-                      className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      className="absolute right-2 top-2 size-7 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       title="删除此项"
                     >
                       <Trash2 className="size-3.5" />
-                    </button>
+                    </Button>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {item.fields.map((field, fi) => {
                         const isLong =
@@ -215,7 +218,7 @@ export default function ResumeEditor({
                               {field.label}
                             </label>
                             {isLong ? (
-                              <textarea
+                              <Textarea
                                 value={field.value}
                                 onChange={(e) =>
                                   updateListItemField(
@@ -225,7 +228,7 @@ export default function ResumeEditor({
                                     e.target.value,
                                   )
                                 }
-                                className="w-full rounded-lg border bg-muted/30 p-2.5 text-sm leading-relaxed outline-none transition-colors focus:border-primary/50 focus:bg-background"
+                                className="w-full rounded-lg border bg-muted/30 p-2.5 text-sm leading-relaxed outline-none transition-colors focus:border-primary/50 focus:bg-background min-h-0"
                                 rows={3}
                               />
                             ) : (

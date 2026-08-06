@@ -143,8 +143,10 @@ export function ResumePreviewPanel() {
           {/* 主题切换 */}
           <div className="flex items-center gap-0.5 mr-1">
             {(Object.keys(THEMES) as ResumeTheme[]).map((key) => (
-              <button
+              <Button
                 key={key}
+                variant="ghost"
+                size="icon"
                 title={THEMES[key].name}
                 className={`size-5 rounded-full border-2 transition-all ${resumeTheme === key ? "border-slate-400 scale-110" : "border-transparent hover:scale-105"}`}
                 style={{ background: THEMES[key].primary }}

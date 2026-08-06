@@ -9,38 +9,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
-import { getUser } from "@/lib/auth";
-import { eq, desc, asc } from "drizzle-orm";
-
-const ANON_COOKIE = "anon_id";
-
-function getAnonymousId(request: NextRequest): string {
-  // 优先从 Cookie 读持久化 ID，避免换 IP 后丢失对话
-  const cookieId = request.cookies.get(ANON_COOKIE)?.value;
-  if (cookieId) return cookieId;
-  return `anon-${crypto.randomUUID()}`;
-}
-
-function setAnonymousCookie(response: NextResponse, anonId: string) {
-  response.cookies.set(ANON_COOKIE, anonId, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 365, // 1 年
-  });
-}
+import { getAuthUserId, setAnonymousCookie } from "@/lib/auth/utils";
+import { eq, desc, asc, and } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   const db = getDb() as ReturnType<typeof getDb>;
-  const authUser = await getUser(request);
-  const userId = authUser?.id ?? getAnonymousId(request);
+  const { userId, isAnonymous } = await getAuthUserId(request);
 
   const { searchParams } = new URL(request.url);
   const conversationId = searchParams.get("conversationId");
 
-  // 返回指定对话的消息
+  // 返回指定对话的消息（需校验 ownership）
   if (conversationId) {
+    // 先校验对话属于当前用户
+    const conv = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+      .limit(1);
+
+    if (conv.length === 0) {
+      return NextResponse.json({ messages: [] });
+    }
+
     const msgs = await db
       .select()
       .from(messages)
@@ -48,7 +39,7 @@ export async function GET(request: NextRequest) {
       .orderBy(asc(messages.createdAt));
 
     const response = NextResponse.json({ messages: msgs });
-    if (!authUser?.id && userId.startsWith("anon-")) {
+    if (isAnonymous) {
       setAnonymousCookie(response, userId);
     }
     return response;
@@ -63,7 +54,7 @@ export async function GET(request: NextRequest) {
     .limit(50);
 
   const response = NextResponse.json({ conversations: list });
-  if (!authUser?.id && userId.startsWith("anon-")) {
+  if (isAnonymous) {
     setAnonymousCookie(response, userId);
   }
   return response;

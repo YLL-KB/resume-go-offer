@@ -2,6 +2,7 @@
 
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface StepIndicatorProps {
   steps: readonly string[];
@@ -18,12 +19,12 @@ export function StepIndicator({ steps, current, onStepClick }: StepIndicatorProp
 
         return (
           <div key={label} className="flex items-center gap-1">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               onClick={() => onStepClick(i)}
               disabled={i > current}
               className={cn(
-                "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors h-auto",
                 done && "bg-primary/10 text-primary hover:bg-primary/20",
                 active && "bg-primary text-primary-foreground",
                 !done && !active && "text-muted-foreground",
@@ -37,7 +38,7 @@ export function StepIndicator({ steps, current, onStepClick }: StepIndicatorProp
                 </span>
               )}
               <span className="hidden sm:inline">{label}</span>
-            </button>
+            </Button>
             {i < steps.length - 1 && (
               <div className={cn("h-px w-4", i < current ? "bg-primary/30" : "bg-border")} />
             )}

@@ -1,4 +1,4 @@
-import { Extension } from "@tiptap/core";
+import { Extension } from "@tiptap/react";
 
 /**
  * 为 paragraph 节点添加 textIndent 属性，值为 "2em" 或 null。
@@ -14,11 +14,11 @@ export const TextIndent = Extension.create({
         attributes: {
           textIndent: {
             default: null,
-            parseHTML: (el) => {
+            parseHTML: (el: HTMLElement) => {
               if (el.style.textIndent === "2em") return "2em";
               return null;
             },
-            renderHTML: (attrs) => {
+            renderHTML: (attrs: Record<string, unknown>) => {
               if (attrs.textIndent !== "2em") return {};
               return { style: "text-indent: 2em" };
             },

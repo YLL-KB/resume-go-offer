@@ -1,20 +1,26 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
 import { useChatStore, type ResumeData } from "@/stores/chat-store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Send, Square, Loader2, X, Quote, Image as ImageIcon, Link, Paperclip, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { randomUUID } from "@/lib/utils/uuid";
 import { mergeArrayItems, type AnyRecord } from "@/lib/utils/merge-data";
 
+const MAX_BUFFER_BYTES = 1024 * 1024; // 1MB SSE buffer limit
+
 export function ChatInput() {
+  const router = useRouter();
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const {
     conversationId,
     isStreaming,
@@ -34,6 +40,12 @@ export function ChatInput() {
     setShowPreview,
     setConversations,
     setQuoteText,
+    regeneratePrompt,
+    clearRegenerate,
+    quickSend,
+    clearQuickSend,
+    triggerQuickSend,
+    stop,
   } = useChatStore();
 
   // ── 附件状态 ──
@@ -127,6 +139,9 @@ export function ChatInput() {
     if (!text || isStreaming) return;
     setError(null);
 
+    // 取消上一个未完成的请求
+    abortRef.current?.abort();
+
     const userMsg = {
       id: randomUUID(),
       role: "user" as const,
@@ -145,11 +160,15 @@ export function ChatInput() {
 
     setStreaming(true);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId: conversationId ?? undefined, message: text }),
+        signal: controller.signal,
       });
       if (!response.ok) throw new Error("AI 回复失败");
       const reader = response.body?.getReader();
@@ -161,6 +180,11 @@ export function ChatInput() {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
+        // 防止 buffer 异常增长
+        if (buffer.length > MAX_BUFFER_BYTES) {
+          buffer = buffer.slice(-MAX_BUFFER_BYTES / 2);
+          console.warn("[ChatInput] SSE buffer truncated to prevent overflow");
+        }
         const lines = buffer.split("\n");
         buffer = "";
         for (const line of lines) {
@@ -169,34 +193,41 @@ export function ChatInput() {
             if (data === "[DONE]") continue;
             try {
               const parsed = JSON.parse(data);
-              if (typeof parsed.content === "string") appendToLastMessage(parsed.content);
-              if (parsed.conversationId && !conversationId) setConversationId(parsed.conversationId);
-              if (parsed.title && conversationId) {
-                setConversations((prev) => prev.map((c) => c.id === conversationId ? { ...c, title: parsed.title as string } : c));
-              }
-              if (parsed.error) setError(parsed.error);
-              // LangGraph: tool call 事件 → 触发前端行为
-              if (parsed.tool_call?.name === "pushForm") {
-                window.dispatchEvent(new CustomEvent("tool-push-form", {
-                  detail: { type: parsed.tool_call.args.type as string },
-                }));
-              }
-              // LangGraph: 简历提取结果
-              if (parsed.resumeData) {
-                setResumeData(parsed.resumeData as Partial<ResumeData>);
-                setShowPreview(true);
+              // 防止切换到其他对话后旧 SSE 流污染 store
+              const sameConv = useChatStore.getState().conversationId === conversationId;
+              if (sameConv && typeof parsed.content === "string" && useChatStore.getState().isStreaming) appendToLastMessage(parsed.content);
+              if (sameConv) {
+                if (parsed.conversationId && !conversationId) {
+                  setConversationId(parsed.conversationId);
+                  router.replace(`/chat/${parsed.conversationId}`);
+                }
+                if (parsed.title) {
+                  setConversations((prev) => prev.map((c) => c.id === conversationId ? { ...c, title: parsed.title as string } : c));
+                }
+                if (parsed.error) setError(parsed.error);
+                if (parsed.tool_call?.name === "pushForm") {
+                  window.dispatchEvent(new CustomEvent("tool-push-form", {
+                    detail: { type: parsed.tool_call.args.type as string },
+                  }));
+                }
+                if (parsed.resumeData) {
+                  setResumeData(parsed.resumeData as Partial<ResumeData>);
+                  setShowPreview(true);
+                }
               }
             } catch { buffer += line + "\n"; }
           } else if (line.trim()) { buffer += line + "\n"; }
         }
       }
     } catch (err) {
+      if ((err as Error).name === "AbortError") return;
       setError(err instanceof Error ? err.message : "网络错误");
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setStreaming(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview]);
+  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview, router]);
 
   // ── 监听表单事件 ──
   useEffect(() => {
@@ -256,9 +287,40 @@ export function ChatInput() {
     }
   }, [quoteText]);
 
+  // 组件卸载时取消未完成的请求
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  // 重新生成：watch regeneratePrompt 触发 sendRaw
+  useEffect(() => {
+    if (regeneratePrompt) {
+      sendRaw(regeneratePrompt);
+      clearRegenerate();
+    }
+  }, [regeneratePrompt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 快捷发送：watch quickSend 触发 sendRaw（Onboarding 等场景）
+  useEffect(() => {
+    if (quickSend) {
+      sendRaw(quickSend);
+      clearQuickSend();
+    }
+  }, [quickSend]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 停止生成
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    stop();
+  }, [stop]);
+
   // ── 用户手动发消息 ──
   const sendMessage = useCallback(async () => {
-    const text = input.trim();
+    // 从 DOM 直接读值，避免 iOS 上 React state 闭包滞后
+    const text = (textareaRef.current?.value ?? "").trim();
     if (!text && !attachment.formatted) return;
     setInput("");
     // 拼装消息：附件内容 + 引用内容 + 用户输入
@@ -276,7 +338,7 @@ export function ChatInput() {
     setQuoteText(null);
     clearAttachment();
     await sendRaw(fullText);
-  }, [input, sendRaw, quoteText, setQuoteText, attachment, clearAttachment]);
+  }, [sendRaw, quoteText, setQuoteText, attachment, clearAttachment]);
 
   // 提取简历（SSE 流式）
   const handleExtract = useCallback(async () => {
@@ -370,7 +432,7 @@ export function ChatInput() {
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }}
       />
 
-      <div className="print:hidden border-t border-gray-200/60 bg-white/60 backdrop-blur-xl px-4 py-4">
+      <div className="print:hidden border-t border-gray-200/60 bg-white/60 backdrop-blur-xl px-4 py-4 overflow-x-hidden">
       <div className="mx-auto max-w-2xl">
         {/* 操作按钮行 */}
         {hasMessages && !isStreaming && (
@@ -400,12 +462,14 @@ export function ChatInput() {
           <div className="mb-2 flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-xs sm:text-sm">
             <Quote className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="flex-1 truncate text-muted-foreground">{quoteText}</span>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => setQuoteText(null)}
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              className="shrink-0 size-6 text-muted-foreground hover:text-foreground"
             >
               <X className="size-3.5" />
-            </button>
+            </Button>
           </div>
         )}
 
@@ -425,12 +489,14 @@ export function ChatInput() {
               {attachment.status === "done" && `${attachment.type === "image" ? "图片" : attachment.type === "link" ? "链接" : "文件"}已识别`}
               {attachment.status === "error" && `失败：${attachment.error ?? attachment.name}`}
             </span>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={clearAttachment}
-              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              className="shrink-0 size-6 text-muted-foreground hover:text-foreground"
             >
               <Trash2 className="size-3.5" />
-            </button>
+            </Button>
           </div>
         )}
 
@@ -467,11 +533,11 @@ export function ChatInput() {
 
             {showUrlInput && (
               <div className="flex flex-1 items-center gap-1">
-                <input
+                <Input
                   ref={urlInputRef}
                   type="url"
                   placeholder="粘贴招聘链接..."
-                  className="flex-1 h-8 rounded-md border bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="flex-1 h-8 text-xs"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleUrlSubmit();
                     if (e.key === "Escape") { setShowUrlInput(false); if (urlInputRef.current) urlInputRef.current.value = ""; }
@@ -499,13 +565,18 @@ export function ChatInput() {
             rows={1}
             className="flex-1 resize-none border-0 bg-transparent text-sm shadow-none focus-visible:ring-0 placeholder:text-muted-foreground"
           />
-          <Button
-            size="icon"
-            onClick={sendMessage}
-            disabled={(!input.trim() && attachment.status !== "done") || isStreaming}
-          >
-            {isStreaming ? <Square className="size-4" /> : <Send className="size-4" />}
-          </Button>
+          {isStreaming ? (
+            <Button size="icon" onMouseDown={handleStop} variant="destructive">
+              <Square className="size-4" />
+            </Button>
+          ) : (
+            <Button
+              size="icon"
+              onMouseDown={() => sendMessage()}
+            >
+              <Send className="size-4" />
+            </Button>
+          )}
         </div>
 
         <p className="mt-2 text-center text-xs text-slate-400">

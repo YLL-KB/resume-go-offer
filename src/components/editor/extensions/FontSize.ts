@@ -1,4 +1,4 @@
-import { Extension } from "@tiptap/core";
+import { Extension } from "@tiptap/react";
 
 /**
  * 基于 TextStyle 扩展，添加 fontSize 属性支持。
@@ -20,8 +20,8 @@ export const FontSize = Extension.create({
         attributes: {
           fontSize: {
             default: null,
-            parseHTML: (el) => el.style.fontSize?.replace(/["']/g, "") || null,
-            renderHTML: (attrs) => {
+            parseHTML: (el: HTMLElement) => el.style.fontSize?.replace(/["']/g, "") || null,
+            renderHTML: (attrs: Record<string, unknown>) => {
               if (!attrs.fontSize) return {};
               return { style: `font-size: ${attrs.fontSize}` };
             },

@@ -67,9 +67,9 @@ function Section({ title, children, defaultOpen }: { title: string; children: Re
   const [open, setOpen] = useState(defaultOpen??false);
   return (
     <div className="border rounded-lg">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-muted/50 rounded-t-lg">
+      <Button variant="ghost" onClick={() => setOpen(!open)} className="w-full justify-start gap-2 px-3 py-2 text-sm font-medium hover:bg-muted/50 rounded-t-lg h-auto">
         {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}{title}
-      </button>
+      </Button>
       {open && <div className="px-3 pb-3 space-y-2">{children}</div>}
     </div>
   );

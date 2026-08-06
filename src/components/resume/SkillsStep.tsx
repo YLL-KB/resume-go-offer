@@ -60,13 +60,14 @@ export function SkillsStep({ form }: Props) {
             return (
               <Badge key={field.id} variant="secondary" className="gap-1 pr-1">
                 {skill}
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => remove(i)}
-                  className="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
+                  className="ml-0.5 size-5 rounded-full hover:bg-muted-foreground/20"
                 >
                   <X className="size-3" />
-                </button>
+                </Button>
               </Badge>
             );
           })}

@@ -5,7 +5,9 @@ import { useChatStore, type ChatMessage as ChatMessageType } from "@/stores/chat
 import { FormCard, type FormType } from "./FormCard";
 import { mergeArrayItems, type AnyRecord } from "@/lib/utils/merge-data";
 import { marked } from "marked";
-import { User, Bot, Copy, Check, Quote, TextSelect, Trash2 } from "lucide-react";
+import { User, Bot, Copy, Check, Quote, TextSelect, Trash2, RefreshCw, MoreHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 // ── 解析消息中的表单标记 ──
 
@@ -31,7 +33,21 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageTy
   const contentRef = useRef<HTMLDivElement>(null);
   const setQuoteText = useChatStore((s) => s.setQuoteText);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
+  const triggerRegenerate = useChatStore((s) => s.triggerRegenerate);
+  const messages = useChatStore((s) => s.messages);
+  const isStreaming = useChatStore((s) => s.isStreaming);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const handleRegenerate = () => {
+    // 找到前一条 user 消息
+    const idx = messages.findIndex((m) => m.id === msg.id);
+    const prevUser = messages.slice(0, idx).findLast((m) => m.role === "user");
+    if (!prevUser) return;
+    // 先删当前 assistant 消息，再触发重新生成
+    deleteMessage(msg.id);
+    // 等 delete 完成后触发
+    setTimeout(() => triggerRegenerate(prevUser.content), 50);
+  };
 
   const handleDelete = () => {
     if (confirmDelete) {
@@ -145,7 +161,7 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageTy
       </div>
 
       <div ref={bubbleRef} className={`max-w-[85%] md:max-w-[80%] space-y-3 ${isUser ? "items-end" : "min-w-0"}`}>
-        {text && (
+        {text ? (
           <div>
             <div
               className={`rounded-2xl px-4 py-3 text-sm ${
@@ -161,63 +177,88 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageTy
               />
             </div>
 
-            {/* 底部操作栏 — 移动端始终显示，桌面端 hover 显示 */}
+            {/* 底部操作栏 */}
             {!isUser && (
-              <div className="flex items-center gap-1 mt-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={handleCopy}
-                  className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                  title="复制"
-                >
-                  {copied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
-                  {copied ? "已复制" : "复制"}
-                </button>
-                <button
-                  onClick={handleQuoteFull}
-                  className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                  title="引用追问"
-                >
-                  <Quote className="size-3" />
-                  引用
-                </button>
-                {/* 移动端专属：选择文本 */}
-                <button
-                  onClick={handleSelectText}
-                  className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors md:hidden"
-                  title="选择文本"
-                >
-                  <TextSelect className="size-3" />
-                  选择文本
-                </button>
-                <button
-                  onClick={handleDelete}
-                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-xs transition-colors ${
-                    confirmDelete ? "text-red-500 bg-red-50 hover:bg-red-100" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                  title={confirmDelete ? "确认删除这组对话" : "删除这组对话"}
-                >
-                  <Trash2 className="size-3" />
-                  {confirmDelete ? "确认" : "删除"}
-                </button>
+              <div className="flex items-center gap-1 mt-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity relative">
+                {/* Desktop: 全部展开 */}
+                <div className="hidden md:flex items-center gap-1">
+                  <Button variant="ghost" size="sm" onClick={handleCopy} className="h-auto py-0.5 text-xs text-muted-foreground hover:text-foreground" title="复制">
+                    {copied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+                    {copied ? "已复制" : "复制"}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={handleQuoteFull} className="h-auto py-0.5 text-xs text-muted-foreground hover:text-foreground" title="引用追问">
+                    <Quote className="size-3" />引用
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={handleDelete}
+                    className={`h-auto py-0.5 text-xs ${confirmDelete ? "text-red-500 bg-red-50 hover:bg-red-100" : "text-muted-foreground hover:text-foreground"}`}
+                    title={confirmDelete ? "确认删除这组对话" : "删除这组对话"}
+                  >
+                    <Trash2 className="size-3" />{confirmDelete ? "确认" : "删除"}
+                  </Button>
+                  {!isStreaming && (
+                    <Button variant="ghost" size="sm" onClick={handleRegenerate} className="h-auto py-0.5 text-xs text-muted-foreground hover:text-foreground" title="重新生成">
+                      <RefreshCw className="size-3" />重新生成
+                    </Button>
+                  )}
+                </div>
+
+                {/* Mobile: DropdownMenu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild className="md:hidden">
+                    <Button variant="ghost" size="sm" className="h-auto py-0.5 text-xs text-muted-foreground hover:text-foreground">
+                      <MoreHorizontal className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent side="top" align="start" className="w-32">
+                    <DropdownMenuItem onClick={handleCopy} className="text-xs">
+                      {copied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+                      {copied ? "已复制" : "复制"}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleQuoteFull} className="text-xs">
+                      <Quote className="size-3" />引用追问
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleSelectText} className="text-xs">
+                      <TextSelect className="size-3" />选择文本
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => deleteMessage(msg.id)} className="text-xs text-red-500">
+                      <Trash2 className="size-3" />删除
+                    </DropdownMenuItem>
+                    {!isStreaming && (
+                      <DropdownMenuItem onClick={handleRegenerate} className="text-xs">
+                        <RefreshCw className="size-3" />重新生成
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             )}
             {/* 用户消息操作栏 */}
             {isUser && (
               <div className="flex items-center gap-1 mt-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity justify-end">
-                <button
+                <Button
+                  variant="ghost" size="sm"
                   onClick={handleDelete}
-                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-xs transition-colors ${
-                    confirmDelete ? "text-red-500 bg-red-50 hover:bg-red-100" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
+                  className={`h-auto py-0.5 text-xs ${confirmDelete ? "text-red-500 bg-red-50 hover:bg-red-100" : "text-muted-foreground hover:text-foreground"}`}
                   title={confirmDelete ? "确认删除这组对话" : "删除这组对话"}
                 >
-                  <Trash2 className="size-3" />
-                  {confirmDelete ? "确认" : "删除"}
-                </button>
+                  <Trash2 className="size-3" />{confirmDelete ? "确认" : "删除"}
+                </Button>
               </div>
             )}
           </div>
-        )}
+        ) : !isUser ? (
+          /* 流式加载中：AI 思考动画 */
+          <div className="rounded-2xl bg-white/70 border border-gray-200/60 px-4 py-3 text-sm">
+            <div className="flex items-center gap-1.5">
+              <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "0ms" }} />
+              <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "150ms" }} />
+              <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "300ms" }} />
+              <span className="ml-1 text-xs text-slate-400">AI 思考中...</span>
+            </div>
+          </div>
+        ) : null}
 
         {forms.map((type, i) => {
           if (firstFormMsgIds.get(type) !== msg.id) return null;
@@ -245,14 +286,16 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageTy
           style={{ left: selectionPopup.x, top: selectionPopup.y, transform: "translateX(-50%)" }}
           onMouseDown={(e) => e.preventDefault()}
         >
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleQuote}
             onMouseDown={(e) => e.preventDefault()}
-            className="flex items-center gap-1 rounded-lg border bg-background px-2.5 py-1.5 text-xs font-medium shadow-md hover:bg-muted transition-colors"
+            className="h-auto py-1.5 text-xs font-medium shadow-md"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
             引用追问
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -414,7 +457,7 @@ export function ChatMessages() {
   }, [hasFormDone, conversationId, lastMsg?.id, setExtracting, setResumeData, setShowPreview, storeResumeData, appendExtractStreamText, setExtractStreamText]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6">
       <div className="mx-auto flex max-w-2xl flex-col gap-4">
         {messages.length === 0 && (
           <div className="py-12 text-center">

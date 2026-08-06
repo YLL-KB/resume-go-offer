@@ -4,12 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useRequest } from "ahooks";
-import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowLeft, FileText, Loader2, Save, Download, Check, Trash2, Undo2, Plus, X, Sparkles, AlertCircle, Lightbulb, Target, Wand2 } from "lucide-react";
+import { ArrowLeft, FileText, Loader2, Save, Download, Check, Trash2, Undo2, Sparkles, AlertCircle, Lightbulb, Target } from "lucide-react";
 const ClickablePdfView = dynamic(() => import("@/components/preview/ClickablePdfView").then(m => m.ClickablePdfView), { ssr: false });
 import { Button } from "@/components/ui/button";
-import { RichTextEditor } from "@/components/editor/RichTextEditor";
+import { Textarea } from "@/components/ui/textarea";
 import { getTemplates } from "@/lib/api/templates";
 import { createResume, updateResume } from "@/lib/api/resume";
 import type { TemplateItem } from "@/lib/api/templates";
@@ -42,9 +41,6 @@ export function ResumeNewContent() {
 
   // Custom pages
   const customPages = useEditorStore(s => s.customPages);
-  const addCustomPage = useEditorStore(s => s.addCustomPage);
-  const removeCustomPage = useEditorStore(s => s.removeCustomPage);
-  const updateCustomPage = useEditorStore(s => s.updateCustomPage);
   // AI analysis
   const aiAnalysis = useEditorStore(s => s.aiAnalysis);
   const setAiAnalysis = useEditorStore(s => s.setAiAnalysis);
@@ -74,8 +70,6 @@ export function ResumeNewContent() {
     })();
     return () => { cancelled = true; };
   }, [pdfUrl, source, templateId, setParsing]);
-
-  const autoFilled = useRef(false);
 
   // Save
   const handleSave = useCallback(async () => {
@@ -131,23 +125,12 @@ export function ResumeNewContent() {
       toast.success("PDF 已生成");
     } catch { toast.error("导出失败"); }
     finally { setExporting(false); }
-  }, [blocks, edits, deletedBlocks, templateId, source, tpl, customPages]);
+  }, [blocks, edits, deletedBlocks, templateId, source, customPages]);
 
   const handleDownload = useCallback(() => {
     if (!previewPages?.length) return;
     window.open(previewPages[0], "_blank");
   }, [previewPages]);
-
-  const handleAddPage = useCallback(() => {
-    addCustomPage();
-    const newId = `custom-${customPages.length}`;
-    setActivePage(newId);
-  }, [addCustomPage, customPages.length]);
-
-  const handleRemovePage = useCallback((pageId: string) => {
-    removeCustomPage(pageId);
-    if (activePage === pageId) setActivePage("template");
-  }, [removeCustomPage, activePage]);
 
   return (
     <div className="h-dvh flex flex-col bg-background">
@@ -181,9 +164,10 @@ export function ResumeNewContent() {
         <section className="flex flex-col min-h-0">
           {/* Page tabs */}
           <div className="shrink-0 flex items-center border-b bg-muted/20 overflow-x-auto">
-            <button
+            <Button
+              variant="ghost"
               onClick={() => setActivePage("template")}
-              className={`shrink-0 flex items-center gap-1 px-3 py-1.5 text-xs border-b-2 transition-colors ${
+              className={`shrink-0 gap-1 px-3 py-1.5 text-xs border-b-2 transition-colors h-auto rounded-none ${
                 activePage === "template"
                   ? "border-primary text-primary font-medium"
                   : "border-transparent text-muted-foreground hover:text-foreground"
@@ -191,11 +175,12 @@ export function ResumeNewContent() {
             >
               <FileText className="size-3" />
               第1页 (模版)
-            </button>
+            </Button>
             {source === "analysis" && aiAnalysis && (
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => setActivePage("ai-analysis")}
-                className={`shrink-0 flex items-center gap-1 px-3 py-1.5 text-xs border-b-2 transition-colors ${
+                className={`shrink-0 gap-1 px-3 py-1.5 text-xs border-b-2 transition-colors h-auto rounded-none ${
                   activePage === "ai-analysis"
                     ? "border-primary text-primary font-medium"
                     : "border-transparent text-muted-foreground hover:text-foreground"
@@ -204,7 +189,7 @@ export function ResumeNewContent() {
                 <Sparkles className="size-3" />
                 AI 分析
                 <span className="ml-1 px-1 rounded-full bg-primary/10 text-[10px]">{aiAnalysis.score}</span>
-              </button>
+              </Button>
             )}
           </div>
 
@@ -222,18 +207,20 @@ export function ResumeNewContent() {
                         #{b.globalIndex} · p{b.page} · {b.fontSize}px
                         {isDeleted && <span className="ml-1 text-destructive line-through">已删除</span>}
                       </span>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => toggleDelete(b.globalIndex)}
                         title={isDeleted ? "恢复" : "删除此块"}
-                        className={`p-0.5 rounded transition-colors ${isDeleted ? "text-green-500 hover:bg-green-50" : "text-muted-foreground hover:text-destructive hover:bg-destructive/10"}`}
+                        className={`size-6 rounded transition-colors ${isDeleted ? "text-green-500 hover:bg-green-50" : "text-muted-foreground hover:text-destructive hover:bg-destructive/10"}`}
                       >
                         {isDeleted ? <Undo2 className="size-3.5" /> : <Trash2 className="size-3.5" />}
-                      </button>
+                      </Button>
                     </div>
-                    <textarea
+                    <Textarea
                       value={edits[b.globalIndex] ?? b.text}
                       onChange={e => setEdits(prev => ({ ...prev, [b.globalIndex]: e.target.value }))}
-                      className="w-full text-xs resize-none border-0 bg-transparent focus:outline-none"
+                      className="w-full text-xs resize-none border-0 bg-transparent focus:outline-none min-h-0"
                       rows={Math.max(1, Math.ceil(b.text.length / 40))}
                       disabled={isDeleted}
                     />
@@ -245,9 +232,9 @@ export function ResumeNewContent() {
             <>
               <div className="shrink-0 px-4 py-2 border-b text-xs font-semibold text-muted-foreground flex items-center gap-2">
                 <Sparkles className="size-3" /> AI 分析结果
-                <button onClick={() => setAiAnalysis(null)} className="ml-auto text-[10px] text-muted-foreground hover:text-destructive">
+                <Button variant="ghost" size="sm" onClick={() => setAiAnalysis(null)} className="ml-auto text-[10px] text-muted-foreground hover:text-destructive h-auto py-0">
                   关闭
-                </button>
+                </Button>
               </div>
               <div className="flex-1 overflow-auto p-3 space-y-4">
                 {/* 评分 + 概述 */}
@@ -284,13 +271,15 @@ export function ResumeNewContent() {
                           <div className="flex items-start gap-2">
                             <span className="shrink-0 size-4 rounded-full bg-amber-200 text-[10px] flex items-center justify-center font-medium">{i + 1}</span>
                             <span className="flex-1">{w}</span>
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={async () => {
                                 const res = await fetch("/api/ai/improve-resume", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: aiAnalysis.resumeText ?? "", type: "weakness", target: w }) });
                                 if (res.ok) { const { improved } = await res.json() as { improved: string }; navigator.clipboard.writeText(improved); toast.success("建议已复制"); } else toast.error("获取失败");
                               }}
-                              className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-200 hover:bg-amber-300 transition-colors"
-                            >优化</button>
+                              className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-200 hover:bg-amber-300 transition-colors h-auto"
+                            >优化</Button>
                           </div>
                         </li>
                       ))}
@@ -308,13 +297,15 @@ export function ResumeNewContent() {
                           <div className="flex items-start gap-2">
                             <span className="shrink-0 size-4 rounded-full bg-blue-200 text-[10px] flex items-center justify-center font-medium">{i + 1}</span>
                             <span className="flex-1">{s}</span>
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={async () => {
                                 const res = await fetch("/api/ai/improve-resume", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: aiAnalysis.resumeText ?? "", type: "suggestion", target: s }) });
                                 if (res.ok) { const { improved } = await res.json() as { improved: string }; navigator.clipboard.writeText(improved); toast.success("建议已复制"); } else toast.error("获取失败");
                               }}
-                              className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-blue-200 hover:bg-blue-300 transition-colors"
-                            >优化</button>
+                              className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-blue-200 hover:bg-blue-300 transition-colors h-auto"
+                            >优化</Button>
                           </div>
                         </li>
                       ))}

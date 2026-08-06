@@ -12,21 +12,13 @@ import { ai, openai } from "@/lib/ai";
 import { SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
-import { getUser } from "@/lib/auth";
-import { eq, asc } from "drizzle-orm";
+import { getAuthUserId, ANON_COOKIE } from "@/lib/auth/utils";
+import { checkRateLimit, getRateLimitKey } from "@/lib/rate-limit";
+import { eq, asc, and } from "drizzle-orm";
 import { streamAgent } from "@/lib/ai/graph";
 
 // 环境变量控制：启用 LangGraph Agent 模式
 const USE_LANGGRAPH = process.env.LANGGRAPH_ENABLED === "true";
-
-const ANON_COOKIE = "anon_id";
-
-// 匿名用户 ID（未登录时使用，基于持久化 Cookie）
-function getAnonymousId(request: NextRequest): string {
-  const cookieId = request.cookies.get(ANON_COOKIE)?.value;
-  if (cookieId) return cookieId;
-  return `anon-${crypto.randomUUID()}`;
-}
 
 export async function POST(request: NextRequest) {
   // ── 解析请求 ──
@@ -53,8 +45,23 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     // ── 确定用户 ID ──
-    const authUser = await getUser(request);
-    const userId = authUser?.id ?? getAnonymousId(request);
+    const { userId, isAnonymous } = await getAuthUserId(request);
+
+    // ── 速率限制 ──
+    const rlKey = getRateLimitKey(request);
+    const rl = checkRateLimit(rlKey, isAnonymous ? 10 : 30);
+    if (!rl.allowed) {
+      return new Response(
+        JSON.stringify({ error: "请求过于频繁，请稍后再试" }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": String(rl.retryAfter ?? 60),
+          },
+        },
+      );
+    }
 
     // ── 获取或创建对话 ──
     let convId = conversationId;
@@ -62,7 +69,7 @@ export async function POST(request: NextRequest) {
       const existing = await db
         .select()
         .from(conversations)
-        .where(eq(conversations.id, convId))
+        .where(and(eq(conversations.id, convId), eq(conversations.userId, userId)))
         .limit(1);
       if (existing.length === 0) {
         convId = undefined;
@@ -116,10 +123,17 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     let fullReply = "";
 
+    let aborted = false;
+
     const readable = new ReadableStream({
       async start(controller) {
         const send = (data: Record<string, unknown>) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          if (aborted) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            aborted = true; // 客户端断开，停止推送但继续生成以保存到 DB
+          }
         };
 
         try {
@@ -217,10 +231,15 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (err) {
-          console.error("Stream error:", err);
-          send({ error: "AI 回复出错，请重试" });
+          if (!aborted) {
+            console.error("Stream error:", err);
+            send({ error: "AI 回复出错，请重试" });
+          }
           controller.close();
         }
+      },
+      cancel() {
+        aborted = true;
       },
     });
 
@@ -230,7 +249,7 @@ export async function POST(request: NextRequest) {
       Connection: "keep-alive",
     };
     // 匿名用户：种持久化 Cookie，换 IP 不会丢对话
-    if (!authUser?.id && userId.startsWith("anon-")) {
+    if (isAnonymous) {
       headers["Set-Cookie"] = `${ANON_COOKIE}=${userId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=31536000`;
     }
 

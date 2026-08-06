@@ -11,14 +11,27 @@
 
 import OpenAI from "openai";
 
+function checkApiKey(key: string | undefined, name: string): string {
+  if (!key || key === "sk-placeholder") {
+    const msg = `[AI] ⚠️ ${name} 未配置 — AI 功能将不可用。请在 .env.local 中设置 ${name}。`;
+    if (process.env.NODE_ENV === "production") throw new Error(msg);
+    console.warn(msg);
+    return key ?? "sk-placeholder";
+  }
+  return key;
+}
+
 export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY ?? "sk-placeholder",
+  apiKey: checkApiKey(process.env.OPENAI_API_KEY, "OPENAI_API_KEY"),
   baseURL: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
 });
 
 /** 提取专用客户端：可用不同提供商（如 DeepSeek）追求速度 */
 export const extractClient = new OpenAI({
-  apiKey: process.env.AI_EXTRACT_API_KEY ?? process.env.OPENAI_API_KEY ?? "sk-placeholder",
+  apiKey: checkApiKey(
+    process.env.AI_EXTRACT_API_KEY ?? process.env.OPENAI_API_KEY,
+    process.env.AI_EXTRACT_API_KEY ? "AI_EXTRACT_API_KEY" : "OPENAI_API_KEY",
+  ),
   baseURL: process.env.AI_EXTRACT_BASE_URL ?? process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
 });
 
@@ -223,12 +236,11 @@ export const ai = {
       model: EXTRACT_MODEL,
       temperature: 0.3,
       max_tokens: 8192,
-      timeout: 90_000,
       response_format: { type: "json_object" },
       messages: [
         { role: "user", content: prompt },
       ],
-    });
+    }, { signal: AbortSignal.timeout(90_000) });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
     const t1 = Date.now();
@@ -241,12 +253,11 @@ export const ai = {
         model: EXTRACT_MODEL,
         temperature: 0.1,
         max_tokens: 8192,
-        timeout: 90_000,
         response_format: { type: "json_object" },
         messages: [
           { role: "user", content: prompt + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON，不要遗漏任何经历。" },
         ],
-      });
+      }, { signal: AbortSignal.timeout(90_000) });
       const retryText = retry.choices[0]?.message?.content?.trim() ?? "";
       const t2 = Date.now();
       console.log(`[extract] 重试完成 ${((t2 - t0) / 1000).toFixed(1)}s`);
@@ -277,10 +288,9 @@ export const ai = {
             model: EXTRACT_MODEL,
             temperature: 0.3,
             max_tokens: 8192,
-            timeout: 90_000,
-            stream: true,
+            stream: true as const,
             messages: [{ role: "user", content: prompt }],
-          });
+          }, { signal: AbortSignal.timeout(120_000) });
 
           let full = "";
           for await (const chunk of stream) {

@@ -25,7 +25,7 @@ import {
 
 // ── 动画预设 ──
 const fadeUp = {
-  initial: { opacity: 0, y: 32 },
+  initial: { opacity: 1, y: 24 },
   whileInView: { opacity: 1, y: 0 },
   viewport: { once: true, margin: "-60px" },
   transition: { duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] as const },
@@ -242,6 +242,17 @@ function AnimatedNumber({ target, suffix = "" }: { target: number; suffix?: stri
   return <span ref={ref}>{count.toLocaleString()}{suffix}</span>;
 }
 
+// ── 模版列表 ──
+const templates = [
+  { id: "classic", name: "经典", desc: "简洁大方", gradient: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)" },
+  { id: "modern", name: "现代", desc: "专业排版", gradient: "linear-gradient(135deg, #f0f9ff 0%, #dbeafe 100%)" },
+  { id: "minimal", name: "极简", desc: "干净利落", gradient: "linear-gradient(135deg, #ffffff 0%, #f5f5f4 100%)" },
+  { id: "ocean", name: "海洋", desc: "沉稳蓝色", gradient: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)" },
+  { id: "forest", name: "森林", desc: "自然清新", gradient: "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)" },
+  { id: "slate", name: "岩板", desc: "低调高级", gradient: "linear-gradient(135deg, #f8fafc 0%, #cbd5e1 100%)" },
+  { id: "warm", name: "暖调", desc: "温暖亲和", gradient: "linear-gradient(135deg, #fff7ed 0%, #fed7aa 100%)" },
+];
+
 // ── 流程步骤 ──
 const steps = [
   {
@@ -305,20 +316,18 @@ function SectionDesc({ children }: { children: ReactNode }) {
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen overflow-x-hidden" style={{ background: "linear-gradient(135deg, #f8fafc, #f1f5f9, #f0fdf4)" }}>
+    <div className="min-h-screen" style={{ background: "linear-gradient(135deg, #f8fafc, #f1f5f9, #f0fdf4)" }}>
       <GlassBackground />
 
-      <header className="relative z-10">
-        <div
-          className="absolute bottom-0 left-0 right-0 h-px"
-          style={{
-            background: "linear-gradient(90deg, transparent, rgba(16,185,129,0.3), rgba(20,184,166,0.3), transparent)",
-          }}
-        />
-        <AppHeader />
-      </header>
+      <AppHeader />
+      <div
+        className="h-px w-full"
+        style={{
+          background: "linear-gradient(90deg, transparent, rgba(16,185,129,0.3), rgba(20,184,166,0.3), transparent)",
+        }}
+      />
 
-      <main className="relative z-10">
+      <main>
         {/* ═══ Hero ═══ */}
         <section className="relative px-4 pt-16 pb-12 sm:pt-24 sm:pb-20">
           <div className="mx-auto max-w-6xl">
@@ -434,6 +443,50 @@ export default function HomePage() {
                     style={{ borderColor: "rgba(0,0,0,0.08)", borderStyle: "dashed" }}
                   />
                 )}
+              </motion.div>
+            ))}
+          </div>
+        </section>
+
+        {/* ═══ 模版展示 ═══ */}
+        <section className="mx-auto max-w-6xl px-4 py-16 sm:py-20">
+          <SectionTitle>多款专业模版</SectionTitle>
+          <SectionDesc>从经典到现代，总有一款适合你。</SectionDesc>
+
+          <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {templates.map((t, i) => (
+              <motion.div key={t.id} {...stagger(i * 0.08)}>
+                <Link href={`/chat`} className="group block">
+                  <div
+                    className="relative aspect-[3/4] rounded-xl overflow-hidden border border-gray-200 transition-shadow hover:shadow-lg"
+                    style={{ background: t.gradient }}
+                  >
+                    {/* 模拟简历布局 */}
+                    <div className="absolute inset-0 flex flex-col p-4">
+                      <div className="mb-3 h-3 w-2/3 rounded-full bg-white/40" />
+                      <div className="mb-2 h-2 w-1/3 rounded-full bg-white/25" />
+                      <div className="mb-3 h-2 w-1/2 rounded-full bg-white/25" />
+                      <div className="mb-2 h-1.5 w-full rounded-full bg-white/15" />
+                      <div className="mb-1.5 h-1.5 w-full rounded-full bg-white/15" />
+                      <div className="mb-1.5 h-1.5 w-5/6 rounded-full bg-white/15" />
+                      <div className="mb-3 h-1.5 w-4/6 rounded-full bg-white/15" />
+                      <div className="mb-2 h-2 w-1/3 rounded-full bg-white/25" />
+                      <div className="mb-1.5 h-1.5 w-full rounded-full bg-white/15" />
+                      <div className="mb-1.5 h-1.5 w-full rounded-full bg-white/15" />
+                      <div className="h-1.5 w-3/4 rounded-full bg-white/15" />
+                    </div>
+                    {/* Hover overlay */}
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/5 transition-colors">
+                      <span className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm">
+                        立即体验
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-center">
+                    <p className="text-sm font-medium text-slate-700">{t.name}</p>
+                    <p className="text-xs text-slate-400">{t.desc}</p>
+                  </div>
+                </Link>
               </motion.div>
             ))}
           </div>
