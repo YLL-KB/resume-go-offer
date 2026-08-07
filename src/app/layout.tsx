@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import { ClientLayout } from "@/components/ClientLayout";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,17 +32,17 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="zh-CN">
+		<html lang="zh-CN" suppressHydrationWarning>
 			<head>
 				<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-					<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+				<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 				<meta name="theme-color" content="#10b981" />
 				<script src="/register-sw.js" defer />
 			</head>
 			<body
 				className={`${geistSans.variable} ${geistMono.variable} antialiased`}
 			>
-				{children}
+				<ClientLayout>{children}</ClientLayout>
 				<Toaster richColors position="top-center" />
 			</body>
 		</html>

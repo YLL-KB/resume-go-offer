@@ -121,14 +121,24 @@
   * {
     @apply border-border outline-ring/50;
 	}
+  /* overflow-x: clip 比 hidden 更严格：不创建滚动容器，iOS 键盘弹出时不会触发横向滚动 */
+  html, body {
+    overflow-x: clip;
+    overflow-y: auto;
+    max-width: 100dvw;
+  }
   body {
-    @apply bg-background text-foreground overflow-x-hidden;
-    max-width: 100%;
-    overscroll-behavior: none;
+    @apply bg-background text-foreground;
   }
   html {
-    @apply font-sans overflow-x-hidden;
-    max-width: 100%;
+    @apply font-sans;
+  }
+
+  /* 仅触摸设备：阻止橡皮筋效果 */
+  @media (pointer: coarse) {
+    html, body {
+      overscroll-behavior: none;
+    }
   }
 }
 

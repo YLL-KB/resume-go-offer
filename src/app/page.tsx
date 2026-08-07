@@ -564,7 +564,7 @@ export default function HomePage() {
       </main>
 
       <footer className="relative z-10 border-t border-gray-200 py-8 text-center text-sm text-slate-400">
-        <p>Resume Go Offer &copy; {new Date().getFullYear()}</p>
+        <p>Resume Go Offer &copy; {new Date().getFullYear()} <span className="mx-2">|</span> 冀ICP备2026026502号</p>
       </footer>
     </div>
   );

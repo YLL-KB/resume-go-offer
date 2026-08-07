@@ -103,6 +103,9 @@ function OnboardingPrompts({ onSelect }: { onSelect: (prompt: string) => void })
 export function ChatContent({ conversationId }: { conversationId: string | null }) {
   const { resumeData, messages, isStreaming, isExtracting, loadConversation, setConversations, startNewChat, isLoadingHistory, showPreview, triggerQuickSend } = useChatStore();
 
+  // 桥接 SSR 到 useEffect 之间的间隙
+  const [ready, setReady] = useState(!conversationId);
+
   // ── 移动端检测 ──
   const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => {
@@ -154,7 +157,7 @@ export function ChatContent({ conversationId }: { conversationId: string | null 
   // ── 加载对话 ──
   useEffect(() => {
     if (conversationId) {
-      loadConversation(conversationId);
+      loadConversation(conversationId).finally(() => setReady(true));
     } else {
       startNewChat();
     }
@@ -174,6 +177,8 @@ export function ChatContent({ conversationId }: { conversationId: string | null 
     prevShowPreview.current = showPreview;
   }, [showPreview]);
 
+  const loading = !ready || isLoadingHistory;
+
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden" style={{ background: "linear-gradient(135deg, #f8fafc, #f1f5f9, #f0fdf4)" }}>
       <ChatHeader />
@@ -184,14 +189,14 @@ export function ChatContent({ conversationId }: { conversationId: string | null 
           className={`flex flex-col min-w-0 flex-1 ${showPreview ? "md:flex-initial" : ""}`}
           style={showPreview && isDesktop ? { width: `${splitRatio}%` } : undefined}
         >
-          {isLoadingHistory ? (
+          {loading ? (
             <div className="flex flex-1 items-center justify-center">
               <Loader2 className="size-6 animate-spin text-slate-300" />
             </div>
           ) : (
             <>
               <ChatMessages />
-              {messages.length <= 1 && !isStreaming && !isExtracting && (
+              {!conversationId && messages.length <= 1 && !isStreaming && !isExtracting && (
                 <OnboardingPrompts onSelect={(p) => triggerQuickSend(p)} />
               )}
             </>

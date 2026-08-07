@@ -40,18 +40,18 @@ const router = useRouter();
 
 ### 2. UI 组件
 
-页面内所有交互 UI 必须使用 `@/components/ui/` 中的 shadcn/ui 组件，禁止使用原生 HTML 交互标签。
+页面内所有交互 UI 优先使用 `@/components/ui/` 中的 shadcn/ui 组件。
 
 **可用组件：**
 `Button` `Card` `CardContent` `Dialog` `DialogContent` `DialogHeader` `DialogTitle` `DialogDescription` `DialogFooter` `Badge` `Skeleton` `Separator` `Sheet` `Input` `Label` `ScrollArea` `Textarea` `Tabs` `Select`
 
 | 标签 | 规则 |
 |------|------|
-| `div` | 仅做布局容器 |
-| `p` `span` `h1`~`h6` | 仅做纯文本排版 |
+| `div` `p` `span` `h1`~`h6` | 布局容器 / 纯文本排版 |
+| `nav` `header` `main` `footer` `section` `article` | ✅ 可用，语义标签提升可访问性 |
 | `button` `input` `select` `textarea` | ❌ 禁止，用 UI 组件替代 |
 | `iframe` | 仅 PDF 预览可用，外层必须用 `Dialog` 包裹 |
-| `nav` `header` `main` `footer` `section` | ❌ 禁止，用 `div` + className |
+| `<html>` `<head>` `<body>` | 文档根结构，layout.tsx 必须保留
 
 ```tsx
 // ✓ 正确
@@ -68,7 +68,7 @@ import { Badge } from "@/components/ui/badge";
 ### 3. 组件规模与新增规则
 
 - **每个组件文件不超过 600 行。** 超过则拆分：抽 hooks → `hooks/`、拆子组件 → 同目录、提工具函数 → `lib/`。
-- **新增组件必须使用 shadcn/ui + Tailwind CSS。** 禁止原生 `<button>` `<input>` `<select>` `<textarea>` `<nav>` `<header>` `<footer>` `<section>` 等交互/语义标签，禁止 inline `style={{}}`（动态计算除外），禁止自定义 CSS（`@media print` 等用 Tailwind `print:` 变体，`@page` 等用 `@layer base`）。
+- **新增组件必须使用 shadcn/ui + Tailwind CSS。** 禁止原生 `<button>` `<input>` `<select>` `<textarea>` 交互标签，语义标签 `<nav>` `<header>` `<footer>` `<section>` `<article>` 允许使用。禁止 inline `style={{}}`（动态计算除外），禁止自定义 CSS（`@media print` 等用 Tailwind `print:` 变体，`@page` 等用 `@layer base`）。
 - **所有代码必须通过 ESLint 检查。** 提交前确保 `pnpm lint` 零错误零警告。禁止提交带有 `@typescript-eslint/no-unused-vars`、`react-hooks/exhaustive-deps` 等警告的代码。
 - **以上规则适用于 `src/` 下所有组件文件，无例外。**
 

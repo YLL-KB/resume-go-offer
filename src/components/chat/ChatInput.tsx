@@ -163,6 +163,9 @@ export function ChatInput() {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // 用可变变量追踪当前流所属的对话 ID，避免新对话时闭包 conversationId 始终为 null
+    let effectiveConvId = conversationId;
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -194,15 +197,17 @@ export function ChatInput() {
             try {
               const parsed = JSON.parse(data);
               // 防止切换到其他对话后旧 SSE 流污染 store
-              const sameConv = useChatStore.getState().conversationId === conversationId;
+              const sameConv = useChatStore.getState().conversationId === effectiveConvId;
+              // 服务端返回了 conversationId → 更新追踪变量，后续事件才能通过 sameConv 校验
+              if (parsed.conversationId) effectiveConvId = parsed.conversationId;
               if (sameConv && typeof parsed.content === "string" && useChatStore.getState().isStreaming) appendToLastMessage(parsed.content);
               if (sameConv) {
                 if (parsed.conversationId && !conversationId) {
                   setConversationId(parsed.conversationId);
-                  router.replace(`/chat/${parsed.conversationId}`);
+                  router.replace(`${location.pathname.startsWith("/m/") ? "/m" : ""}/chat/${parsed.conversationId}`);
                 }
                 if (parsed.title) {
-                  setConversations((prev) => prev.map((c) => c.id === conversationId ? { ...c, title: parsed.title as string } : c));
+                  setConversations((prev) => prev.map((c) => c.id === effectiveConvId ? { ...c, title: parsed.title as string } : c));
                 }
                 if (parsed.error) setError(parsed.error);
                 if (parsed.tool_call?.name === "pushForm") {
