@@ -173,7 +173,14 @@ export function ChatInput() {
         body: JSON.stringify({ conversationId: conversationId ?? undefined, message: text }),
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error("AI 回复失败");
+      if (!response.ok) {
+        let errMsg = "AI 回复失败";
+        try {
+          const errData = await response.json() as { error?: string; message?: string };
+          if (errData.message) errMsg = errData.message;
+        } catch { /* use default */ }
+        throw new Error(errMsg);
+      }
       const reader = response.body?.getReader();
       if (!reader) throw new Error("No response body");
 

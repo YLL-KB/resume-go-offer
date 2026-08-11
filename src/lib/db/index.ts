@@ -25,10 +25,19 @@ const MIGRATIONS = [
  * 获取 D1 数据库实例（Drizzle ORM 包装）。
  * Cloudflare 环境使用 D1，本地 dev 回退到 SQLite。
  */
+let d1InitDone = false;
+
 export function getDb(): DrizzleD1Database<typeof schema> | ReturnType<typeof drizzleSqlite> {
   try {
     const { env } = getCloudflareContext();
     if (env?.DB) {
+      // 首次初始化时跑一遍 migration（D1 在 dev 模式可能绑定的是本地 SQLite）
+      if (!d1InitDone) {
+        d1InitDone = true;
+        for (const sql of MIGRATIONS) {
+          (env.DB as unknown as { exec(sql: string): Promise<unknown> }).exec(sql).catch(() => {});
+        }
+      }
       return drizzle(env.DB, { schema });
     }
   } catch {

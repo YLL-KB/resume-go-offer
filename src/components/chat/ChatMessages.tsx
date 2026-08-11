@@ -7,7 +7,9 @@ import { mergeArrayItems, type AnyRecord } from "@/lib/utils/merge-data";
 import { marked } from "marked";
 import { User, Bot, Copy, Check, Quote, TextSelect, Trash2, RefreshCw, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/hooks/use-auth";
 
 // ── 解析消息中的表单标记 ──
 
@@ -25,7 +27,7 @@ function parseForms(content: string): { text: string; forms: FormType[] } {
 
 // ── 单条消息气泡 ──
 
-function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageType; formMessages: Map<string, { type: FormType; submitted?: boolean }>; firstFormMsgIds: Map<string, string> }) {
+function ChatBubble({ msg, formMessages, firstFormMsgIds, userAvatarUrl }: { msg: ChatMessageType; formMessages: Map<string, { type: FormType; submitted?: boolean }>; firstFormMsgIds: Map<string, string>; userAvatarUrl?: string | null }) {
   const isUser = msg.role === "user";
   const { text, forms } = parseForms(msg.content);
   const [copied, setCopied] = useState(false);
@@ -154,10 +156,23 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds }: { msg: ChatMessageTy
     <div className={`group flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <div
         className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm ${
-          isUser ? "bg-primary text-primary-foreground" : "bg-emerald-100 text-emerald-700"
+          isUser ? "bg-primary text-primary-foreground overflow-hidden" : "bg-emerald-100 text-emerald-700"
         }`}
       >
-        {isUser ? <User className="size-4" /> : <Bot className="size-4" />}
+        {isUser ? (
+          userAvatarUrl ? (
+            <Avatar className="size-8">
+              <AvatarImage src={userAvatarUrl} alt="avatar" />
+              <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                <User className="size-4" />
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <User className="size-4" />
+          )
+        ) : (
+          <Bot className="size-4" />
+        )}
       </div>
 
       <div ref={bubbleRef} className={`max-w-[85%] md:max-w-[80%] space-y-3 ${isUser ? "items-end" : "min-w-0"}`}>
@@ -322,6 +337,8 @@ function TypingIndicator() {
 // ── 消息列表 ──
 
 export function ChatMessages() {
+  const { user } = useAuth();
+  const userAvatarUrl = user?.avatarUrl;
   const { messages, isStreaming, isExtracting, setShowPreview, setResumeData, setExtracting, conversationId, extractStreamText, setExtractStreamText, appendExtractStreamText } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [formState] = useState<Map<string, { type: FormType; submitted?: boolean }>>(new Map());
@@ -467,7 +484,7 @@ export function ChatMessages() {
         )}
 
         {messages.filter((m) => m.role !== "system").map((msg) => (
-          <ChatBubble key={msg.id} msg={msg} formMessages={formState} firstFormMsgIds={firstFormMsgIds} />
+          <ChatBubble key={msg.id} msg={msg} formMessages={formState} firstFormMsgIds={firstFormMsgIds} userAvatarUrl={userAvatarUrl} />
         ))}
 
         {/* 简历提取中 */}

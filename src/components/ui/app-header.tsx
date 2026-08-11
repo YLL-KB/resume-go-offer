@@ -1,9 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { FileText, Menu, LogIn, User, MessageSquare, ClipboardList, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { FileText, LogIn, User, MessageSquare, ClipboardList, LogOut, Loader2, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
@@ -16,7 +24,14 @@ const links = [
 
 export function AppHeader() {
   const pathname = usePathname();
-  const { user, isSignedIn } = useAuth();
+  const router = useRouter();
+  const { user, isSignedIn, isLoading } = useAuth();
+
+  const handleLogout = () => {
+    window.location.href = "/api/auth/logout";
+  };
+
+  const userInitial = user?.name?.charAt(0) ?? "U";
 
   return (
     <>
@@ -57,13 +72,34 @@ export function AppHeader() {
 
         {/* Desktop auth */}
         <div className="hidden items-center gap-2 sm:flex shrink-0">
-          {isSignedIn ? (
-            <Button variant="ghost" size="sm" asChild className="text-slate-500 hover:text-slate-900 hover:bg-slate-100/60">
-              <Link href="/chat" className="gap-1.5">
-                <User className="size-4" />
-                {user?.name ?? "我的"}
-              </Link>
-            </Button>
+          {isLoading ? (
+            <Loader2 className="size-4 animate-spin text-slate-300" />
+          ) : isSignedIn ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100/60 rounded-full pl-2 pr-3 h-auto py-1">
+                  <Avatar className="size-7">
+                    <AvatarImage src={user?.avatarUrl ?? undefined} alt={user?.name ?? ""} />
+                    <AvatarFallback className="text-xs bg-emerald-100 text-emerald-700">
+                      {userInitial}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm">{user?.name ?? "我的"}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={() => router.push("/resume/list")} className="gap-2 cursor-pointer">
+                  <FileText className="size-4" />我的简历
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => router.push("/applications")} className="gap-2 cursor-pointer">
+                  <ClipboardList className="size-4" />投递追踪
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="gap-2 cursor-pointer text-red-500">
+                  <LogOut className="size-4" />退出登录
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : (
             <Button size="sm" asChild className="shadow-sm bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 border-0">
               <Link href="/login">
@@ -73,20 +109,17 @@ export function AppHeader() {
             </Button>
           )}
         </div>
-
       </div>
     </header>
 
-    {/* ── CSS-only 移动端汉堡菜单（零 JS 依赖）── */}
+    {/* ── 移动端汉堡菜单 ── */}
     <input type="checkbox" id="mobile-menu-toggle" className="peer hidden" />
-    {/* 汉堡按钮 — label 触发 checkbox */}
     <label
       htmlFor="mobile-menu-toggle"
       className="fixed top-3 right-3 z-[60] sm:hidden inline-flex items-center justify-center rounded-md h-10 w-10 bg-white/90 shadow backdrop-blur text-slate-500 cursor-pointer"
     >
       <Menu className="size-5 pointer-events-none" />
     </label>
-    {/* 菜单面板 */}
     <div className="fixed inset-0 z-50 hidden peer-checked:block sm:hidden">
       <label htmlFor="mobile-menu-toggle" className="absolute inset-0 bg-black/30 cursor-pointer" />
       <div className="absolute right-0 top-0 bottom-0 w-64 bg-white/95 backdrop-blur-xl pt-14 px-6 border-l border-gray-200 shadow-lg">
@@ -112,23 +145,50 @@ export function AppHeader() {
               </Link>
             );
           })}
-          <Separator className="my-2 bg-gray-200" />
-          {isSignedIn ? (
-            <Link
-              href="/chat"
-              className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-            >
-              <User className="size-5" />
-              {user?.name ?? "我的"}
-            </Link>
-          ) : (
-            <Link
-              href="/login"
-              className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-emerald-600 hover:bg-emerald-50 transition-colors"
-            >
-              <LogIn className="size-5" />
-              登录
-            </Link>
+
+          {!isLoading && (
+            <>
+              <Separator className="my-2 bg-gray-200" />
+              {isSignedIn ? (
+                <>
+                  <div className="flex items-center gap-3 rounded-lg px-3 py-2.5">
+                    <Avatar className="size-8">
+                      <AvatarImage src={user?.avatarUrl ?? undefined} alt={user?.name ?? ""} />
+                      <AvatarFallback className="text-xs bg-emerald-100 text-emerald-700">
+                        {userInitial}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-base font-medium text-slate-900">{user?.name ?? "我的"}</span>
+                  </div>
+                  <Link
+                    href="/resume/list"
+                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                  >
+                    <FileText className="size-5" />我的简历
+                  </Link>
+                  <Link
+                    href="/applications"
+                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                  >
+                    <ClipboardList className="size-5" />投递追踪
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <LogOut className="size-5" />退出登录
+                  </button>
+                </>
+              ) : (
+                <Link
+                  href="/login"
+                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-emerald-600 hover:bg-emerald-50 transition-colors"
+                >
+                  <LogIn className="size-5" />
+                  登录
+                </Link>
+              )}
+            </>
           )}
         </nav>
       </div>

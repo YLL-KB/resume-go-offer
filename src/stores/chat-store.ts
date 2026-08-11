@@ -73,7 +73,7 @@ interface ChatState {
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   deleteMessage: (id: string) => Promise<void>;
-  startNewChat: () => void;
+  startNewChat: () => Promise<void>;
   loadConversation: (conversationId: string) => Promise<void>;
   stop: () => void;
 }
@@ -172,10 +172,52 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setConversations: (list) => set((s) => ({ conversations: typeof list === "function" ? list(s.conversations) : list })),
 
-  startNewChat: () => {
+  startNewChat: async () => {
     if (typeof window !== "undefined") localStorage.removeItem("chat_conversation_id");
     set({
       conversationId: null,
+      messages: [],
+      isStreaming: true,
+      error: null,
+      resumeData: null,
+      skillsHtmlMap: null,
+      isExtracting: false,
+      extractStreamText: "",
+      showPreview: false,
+    });
+
+    try {
+      const res = await fetch("/api/chat/greeting", { method: "POST" });
+      const data = await res.json() as { conversationId?: string; greeting?: string; error?: string; message?: string };
+      if (res.status === 403 && data.error === "limit_reached") {
+        set({
+          messages: [{
+            id: randomUUID(),
+            role: "assistant" as const,
+            content: data.message ?? "未登录用户已达到对话上限，请登录后继续使用",
+            createdAt: new Date().toISOString(),
+          }],
+          isStreaming: false,
+        });
+        return;
+      }
+      if (data.conversationId && data.greeting) {
+        set({
+          conversationId: data.conversationId,
+          messages: [{
+            id: randomUUID(),
+            role: "assistant" as const,
+            content: data.greeting,
+            createdAt: new Date().toISOString(),
+          }],
+          isStreaming: false,
+        });
+        return;
+      }
+    } catch { /* API unavailable, fall through to fallback */ }
+
+    // Fallback to static greeting
+    set({
       messages: [{
         id: randomUUID(),
         role: "assistant" as const,
@@ -183,12 +225,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         createdAt: new Date().toISOString(),
       }],
       isStreaming: false,
-      error: null,
-      resumeData: null,
-      skillsHtmlMap: null,
-      isExtracting: false,
-      extractStreamText: "",
-      showPreview: false,
     });
   },
 
@@ -211,8 +247,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const res = await fetch(`/api/chat/history?conversationId=${conversationId}`);
       const data = await res.json() as { messages: ChatMessage[] };
+      const dbMessages = data.messages ?? [];
+      // Only prepend fallback greeting for old conversations that lack one
+      const hasGreeting = dbMessages.length > 0 && dbMessages[0].role === "assistant";
+      const displayMessages = (!hasGreeting && dbMessages.length > 0)
+        ? [{
+            id: `greeting-${conversationId}`,
+            role: "assistant" as const,
+            content: GREETING_NEW_USER,
+            createdAt: dbMessages[0].createdAt,
+          }, ...dbMessages]
+        : dbMessages;
       set({
-        messages: data.messages ?? [],
+        messages: displayMessages,
         conversationId,
         isLoadingHistory: false,
       });

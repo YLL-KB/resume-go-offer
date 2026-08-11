@@ -2,17 +2,36 @@
  * GitHub OAuth 登录工具
  *
  * 文档：https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
+ *
+ * 环境自动切换：
+ *   - 本地开发（NODE_ENV=development 或 localhost）→ 优先用 GITHUB_CLIENT_ID_DEV / GITHUB_CLIENT_SECRET_DEV
+ *   - 生产环境 → 用 GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
  */
 
 // ── Cookie 名称 ──
 
 const STATE_COOKIE = "github_oauth_state";
 
+// ── 判断是否为本地开发环境 ──
+
+function isDevEnv(): boolean {
+  if (process.env.NODE_ENV === "development") return true;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+  return appUrl.includes("localhost") || appUrl.includes("127.0.0.1");
+}
+
 // ── 配置 ──
 
 function getGitHubConfig() {
-  const clientId = process.env.GITHUB_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  const isDev = isDevEnv();
+
+  const clientId = isDev
+    ? (process.env.GITHUB_CLIENT_ID_DEV || process.env.GITHUB_CLIENT_ID)
+    : process.env.GITHUB_CLIENT_ID;
+
+  const clientSecret = isDev
+    ? (process.env.GITHUB_CLIENT_SECRET_DEV || process.env.GITHUB_CLIENT_SECRET)
+    : process.env.GITHUB_CLIENT_SECRET;
 
   if (!clientId || !clientSecret || clientId === "你的ClientID" || clientSecret === "你的ClientSecret") {
     return null;

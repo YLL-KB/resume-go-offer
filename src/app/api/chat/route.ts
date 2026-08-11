@@ -76,6 +76,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 匿名用户限制：最多 5 个对话
+    if (!convId && isAnonymous) {
+      const rows = await (db as ReturnType<typeof getDb>)
+        .select()
+        .from(conversations)
+        .where(eq(conversations.userId, userId))
+        .limit(5);
+      if (rows.length >= 5) {
+        return new Response(
+          JSON.stringify({ error: "limit_reached", message: "未登录用户最多创建5个对话，请登录后继续使用" }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     if (!convId) {
       convId = crypto.randomUUID();
       await db.insert(conversations).values({
@@ -100,9 +115,10 @@ export async function POST(request: NextRequest) {
       .orderBy(asc(messages.createdAt));
 
     // ── 拼接 messages ──
-    const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-      { role: "system", content: SYSTEM_PROMPT },
-    ];
+    // LangGraph 模式下不插入 system prompt（Router/Worker 各自管理自己的提示词）
+    const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = USE_LANGGRAPH
+      ? []
+      : [{ role: "system", content: SYSTEM_PROMPT }];
     for (const msg of history.slice(-30)) {
       if (msg.role === "user" || msg.role === "assistant") {
         chatMessages.push({ role: msg.role, content: msg.content });
@@ -150,6 +166,8 @@ export async function POST(request: NextRequest) {
             for await (const event of streamAgent({ messages: agentInput })) {
               switch (event.event) {
                 case "on_chat_model_stream": {
+                  // 跳过 Router 节点的内部输出，只推送 Worker 内容给前端
+                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
                   const content = event.data?.chunk?.content;
                   if (content) {
                     fullReply += content;
@@ -158,6 +176,8 @@ export async function POST(request: NextRequest) {
                   break;
                 }
                 case "on_chat_model_end": {
+                  // 跳过 Router 节点的内部事件
+                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
                   const toolCalls = event.data?.output?.tool_calls;
                   if (toolCalls && toolCalls.length > 0) {
                     for (const tc of toolCalls) {
@@ -170,6 +190,8 @@ export async function POST(request: NextRequest) {
                   break;
                 }
                 case "on_tool_end": {
+                  // 跳过 Router 节点的工具事件（Router 不使用工具，防御性检查）
+                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
                   if (event.name === "extractResume") {
                     const raw = event.data?.output;
                     if (typeof raw === "string") {
