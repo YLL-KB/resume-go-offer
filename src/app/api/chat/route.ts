@@ -9,7 +9,7 @@
 
 import { NextRequest } from "next/server";
 import { ai, openai } from "@/lib/ai";
-import { SYSTEM_PROMPT } from "@/lib/ai/prompts";
+import { SYSTEM_PROMPT, GREETING_NEW_USER } from "@/lib/ai/prompts";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { getAuthUserId, ANON_COOKIE } from "@/lib/auth/utils";
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
         .from(conversations)
         .where(eq(conversations.userId, userId))
         .limit(5);
-      if (rows.length >= 5) {
+      if (rows.length >= Number(process.env.ANON_LIMIT || 5)) {
         return new Response(
           JSON.stringify({ error: "limit_reached", message: "未登录用户最多创建5个对话，请登录后继续使用" }),
           { status: 403, headers: { "Content-Type": "application/json" } }
@@ -99,6 +99,14 @@ export async function POST(request: NextRequest) {
         title: "新对话",
         createdAt: now,
         updatedAt: now,
+      });
+      // 新对话预存欢迎语，后续加载历史时直接展示
+      await db.insert(messages).values({
+        id: crypto.randomUUID(),
+        conversationId: convId,
+        role: "assistant",
+        content: GREETING_NEW_USER,
+        createdAt: now,
       });
     } else {
       await db

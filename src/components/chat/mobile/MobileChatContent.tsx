@@ -32,8 +32,9 @@ export function MobileChatContent({ conversationId }: Props) {
       loadConversation(conversationId).finally(() => setReady(true));
     } else {
       startNewChat();
+      setReady(true);
     }
-    fetch("/api/chat/history")
+    fetch(`/api/chat/history?_t=${Date.now()}`)
       .then((res) => res.json())
       .then((data: unknown) =>
         setConversations(

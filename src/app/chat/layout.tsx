@@ -79,7 +79,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
 
   // 加载对话列表
   useEffect(() => {
-    fetch("/api/chat/history")
+    fetch(`/api/chat/history?_t=${Date.now()}`)
       .then((res) => res.json())
       .then((data: unknown) => setConversations((data as { conversations?: [] }).conversations ?? []))
       .catch(() => {});

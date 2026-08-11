@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
         .from(conversations)
         .where(eq(conversations.userId, userId))
         .limit(5);
-      if (rows.length >= 5) {
+      if (rows.length >= Number(process.env.ANON_LIMIT || 5)) {
         return NextResponse.json(
           { error: "limit_reached", message: "未登录用户最多创建5个对话，请登录后继续使用" },
           { status: 403 }

@@ -70,8 +70,9 @@ export function ChatContent({ conversationId }: { conversationId: string | null 
       loadConversation(conversationId).finally(() => setReady(true));
     } else {
       startNewChat();
+      setReady(true);
     }
-    fetch("/api/chat/history")
+    fetch(`/api/chat/history?_t=${Date.now()}`)
       .then((res) => res.json())
       .then((data: unknown) => setConversations((data as { conversations?: [] }).conversations ?? []))
       .catch(() => {});

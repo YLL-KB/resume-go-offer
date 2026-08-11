@@ -73,7 +73,7 @@ interface ChatState {
   renameConversation: (id: string, title: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   deleteMessage: (id: string) => Promise<void>;
-  startNewChat: () => Promise<void>;
+  startNewChat: () => void;
   loadConversation: (conversationId: string) => Promise<void>;
   stop: () => void;
 }
@@ -172,52 +172,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setConversations: (list) => set((s) => ({ conversations: typeof list === "function" ? list(s.conversations) : list })),
 
-  startNewChat: async () => {
+  startNewChat: () => {
     if (typeof window !== "undefined") localStorage.removeItem("chat_conversation_id");
     set({
       conversationId: null,
-      messages: [],
-      isStreaming: true,
-      error: null,
-      resumeData: null,
-      skillsHtmlMap: null,
-      isExtracting: false,
-      extractStreamText: "",
-      showPreview: false,
-    });
-
-    try {
-      const res = await fetch("/api/chat/greeting", { method: "POST" });
-      const data = await res.json() as { conversationId?: string; greeting?: string; error?: string; message?: string };
-      if (res.status === 403 && data.error === "limit_reached") {
-        set({
-          messages: [{
-            id: randomUUID(),
-            role: "assistant" as const,
-            content: data.message ?? "未登录用户已达到对话上限，请登录后继续使用",
-            createdAt: new Date().toISOString(),
-          }],
-          isStreaming: false,
-        });
-        return;
-      }
-      if (data.conversationId && data.greeting) {
-        set({
-          conversationId: data.conversationId,
-          messages: [{
-            id: randomUUID(),
-            role: "assistant" as const,
-            content: data.greeting,
-            createdAt: new Date().toISOString(),
-          }],
-          isStreaming: false,
-        });
-        return;
-      }
-    } catch { /* API unavailable, fall through to fallback */ }
-
-    // Fallback to static greeting
-    set({
       messages: [{
         id: randomUUID(),
         role: "assistant" as const,
@@ -225,6 +183,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         createdAt: new Date().toISOString(),
       }],
       isStreaming: false,
+      error: null,
+      resumeData: null,
+      skillsHtmlMap: null,
+      isExtracting: false,
+      extractStreamText: "",
+      showPreview: false,
     });
   },
 
@@ -285,15 +249,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
   deleteConversation: async (id) => {
     const res = await fetch(`/api/chat/history/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("删除失败");
-    set((s) => ({
-      conversations: s.conversations.filter((c) => c.id !== id),
-      conversationId: s.conversationId === id ? null : s.conversationId,
-      messages: s.conversationId === id ? [] : s.messages,
-      showPreview: s.conversationId === id ? false : s.showPreview,
-    }));
-    if (get().conversationId === null && typeof window !== "undefined") {
+    const wasActive = get().conversationId === id;
+    set({
+      conversationId: wasActive ? null : get().conversationId,
+      messages: wasActive ? [] : get().messages,
+      showPreview: wasActive ? false : get().showPreview,
+    });
+    if (wasActive && typeof window !== "undefined") {
       localStorage.removeItem("chat_conversation_id");
     }
+    // 重新拉列表确保数据一致，不走浏览器缓存
+    try {
+      const listRes = await fetch(`/api/chat/history?_t=${Date.now()}`);
+      const data = await listRes.json() as { conversations?: Array<{ id: string; title: string; updatedAt: string }> };
+      if (data.conversations) {
+        set({ conversations: data.conversations });
+      }
+    } catch { /* 重新获取失败不影响已完成的删除 */ }
   },
 
   deleteMessage: async (id) => {
