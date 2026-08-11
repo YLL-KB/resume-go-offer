@@ -122,5 +122,21 @@ export const searchKnowledgeTool = tool(
 
 export const AGENT_TOOLS = [pushFormTool, extractResumeTool, suggestOptimizationTool, searchKnowledgeTool];
 
+/** 按模式获取工具子集，减少无关工具干扰 */
+export function getToolsForMode(mode: string) {
+  switch (mode) {
+    case "chatting":
+      return [searchKnowledgeTool];
+    case "collecting":
+      return [pushFormTool, searchKnowledgeTool, suggestOptimizationTool];
+    case "advising":
+      return [suggestOptimizationTool, searchKnowledgeTool, pushFormTool];
+    case "extracting":
+      return [extractResumeTool, pushFormTool, suggestOptimizationTool, searchKnowledgeTool];
+    default:
+      return AGENT_TOOLS;
+  }
+}
+
 // 导出类型给前端用
-export type AgentToolName = "pushForm" | "extractResume" | "suggestOptimization";
+export type AgentToolName = "pushForm" | "extractResume" | "suggestOptimization" | "searchKnowledge";

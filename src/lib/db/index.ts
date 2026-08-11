@@ -11,7 +11,10 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 let localDb: ReturnType<typeof drizzleSqlite> | null = null;
 
 const MIGRATIONS = [
-  `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY NOT NULL, authing_sub TEXT UNIQUE, name TEXT, email TEXT, avatar_url TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY NOT NULL, authing_sub TEXT UNIQUE, github_id TEXT UNIQUE, github_login TEXT, name TEXT, email TEXT, avatar_url TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  // 为已有的 users 表补充 github 列（列不存在时执行）
+  `ALTER TABLE users ADD COLUMN github_id TEXT UNIQUE`,
+  `ALTER TABLE users ADD COLUMN github_login TEXT`,
   `CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, resume_id TEXT, title TEXT DEFAULT '新对话', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY NOT NULL, conversation_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS resumes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, title TEXT NOT NULL, template_id TEXT DEFAULT 'classic' NOT NULL, data TEXT NOT NULL, version INTEGER DEFAULT 1 NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
@@ -43,7 +46,11 @@ export function getDb(): DrizzleD1Database<typeof schema> | ReturnType<typeof dr
   const sqlite = new Database(dbPath);
   sqlite.pragma("journal_mode = WAL");
   for (const sql of MIGRATIONS) {
-    sqlite.exec(sql);
+    try {
+      sqlite.exec(sql);
+    } catch {
+      // ALTER TABLE 可能因为列已存在而失败，忽略
+    }
   }
 
   localDb = drizzleSqlite(sqlite, { schema });

@@ -5,7 +5,9 @@ import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 // ============================================================
 export const users = sqliteTable("users", {
 	id: text("id").primaryKey(),
-	authingSub: text("authing_sub").unique(), // Authing 用户标识，未登录为 null
+	authingSub: text("authing_sub").unique(), // Authing 用户标识
+	githubId: text("github_id").unique(), // GitHub 用户 ID（数字字符串）
+	githubLogin: text("github_login"), // GitHub 用户名
 	name: text("name"),
 	email: text("email"),
 	avatarUrl: text("avatar_url"),

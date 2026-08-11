@@ -1,16 +1,18 @@
 /**
- * LangGraph Agent — 简历顾问对话图
+ * LangGraph Agent — 2-Agent 简历顾问对话图
  *
- * 用状态图管理对话流程：agent 节点做决策，tools 节点执行工具调用。
- * 取代之前纯 prompt 驱动的 [FORM:xxx] 文本标记方式。
+ * Router (glm-4-flash): 快速分类用户意图 → 选择 mode
+ * Worker (glm-4-plus):  根据 mode 加载对应提示词，执行工具 + 生成回复
+ *
+ * 图结构: __start__ → router → worker ↔ tools → __end__
  */
 
 import { StateGraph, Annotation, MessagesAnnotation } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import { AIMessage, SystemMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
-import { AGENT_TOOLS } from "./tools";
-import { SYSTEM_PROMPT } from "./prompts";
+import { AGENT_TOOLS, getToolsForMode } from "./tools";
+import { ROUTER_PROMPT, WORKER_PROMPTS } from "./prompts";
 import { RESUME_KNOWLEDGE_BASE } from "./knowledge";
 import { vectorStore } from "./vectorstore";
 import { embedTexts } from "./embeddings";
@@ -20,8 +22,8 @@ import { embedTexts } from "./embeddings";
 let knowledgeInitPromise: Promise<void> | null = null;
 
 async function ensureKnowledgeBase(): Promise<void> {
-  if (vectorStore.size > 0) return; // 已初始化
-  if (knowledgeInitPromise) return knowledgeInitPromise; // 初始化进行中
+  if (vectorStore.size > 0) return;
+  if (knowledgeInitPromise) return knowledgeInitPromise;
 
   knowledgeInitPromise = (async () => {
     try {
@@ -35,7 +37,6 @@ async function ensureKnowledgeBase(): Promise<void> {
       console.log(`[VectorStore] 知识库初始化完成，共 ${vectorStore.size} 条`);
     } catch (err) {
       console.error("[VectorStore] 知识库初始化失败:", err);
-      // 重置 promise 以便下次重试
       knowledgeInitPromise = null;
       throw err;
     }
@@ -47,7 +48,6 @@ async function ensureKnowledgeBase(): Promise<void> {
 // ── 状态定义 ──
 
 const GraphState = Annotation.Root({
-  // 继承内置消息 reducer（支持追加/更新）
   ...MessagesAnnotation.spec,
 
   // 已推送的表单（防重复）
@@ -56,10 +56,16 @@ const GraphState = Annotation.Root({
     default: () => [],
   }),
 
-  // 当前对话阶段
-  conversationPhase: Annotation<"greeting" | "collecting" | "reviewing" | "refining">({
+  // Router 分类结果
+  mode: Annotation<"chatting" | "collecting" | "advising" | "extracting">({
     reducer: (_, update) => update,
-    default: () => "greeting",
+    default: () => "chatting",
+  }),
+
+  // Router 给 Worker 的一句简短指令
+  routerInstruction: Annotation<string>({
+    reducer: (_, update) => update,
+    default: () => "",
   }),
 
   // 安全计数器：防止 tool calling 死循环
@@ -73,15 +79,15 @@ type GraphStateType = typeof GraphState.State;
 
 // ── 常量 ──
 
-const MAX_ITERATIONS = 8; // 最多 8 轮 tool calling
+const MAX_ITERATIONS = 8;
 
 // ── 获取模型 ──
 
-function getModel() {
+function getRouterModel() {
   return new ChatOpenAI({
-    model: process.env.AI_MODEL ?? "gpt-4o-mini",
-    temperature: 0.7,
-    maxTokens: 4096,
+    model: process.env.ROUTER_MODEL ?? "glm-4-flash",
+    temperature: 0.1,
+    maxTokens: 64,
     apiKey: process.env.OPENAI_API_KEY,
     configuration: {
       baseURL: process.env.OPENAI_BASE_URL,
@@ -89,39 +95,119 @@ function getModel() {
   });
 }
 
-// ── Agent 节点 ──
+function getWorkerModel(mode?: string) {
+  // chatting/collecting 是高频模式，用快模型；advising/extracting 用质量模型
+  const needsQuality = mode === "advising" || mode === "extracting";
+  const model = needsQuality
+    ? (process.env.AI_MODEL ?? "gpt-4o-mini")
+    : (process.env.ROUTER_MODEL ?? "glm-4-flash");
 
-async function agentNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
-  // 懒初始化知识库（首次调用时触发，不阻塞 agent 响应）
+  return new ChatOpenAI({
+    model,
+    temperature: 0.7,
+    maxTokens: needsQuality ? 4096 : 2048,
+    apiKey: process.env.OPENAI_API_KEY,
+    configuration: {
+      baseURL: process.env.OPENAI_BASE_URL,
+    },
+  });
+}
+
+// ── Router 节点 ──
+
+async function routerNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
+  const model = getRouterModel();
+
+  // 只取最近 5 条消息给 Router
+  const msgs = state.messages ?? [];
+  const recentMsgs = msgs.slice(-5);
+
+  const response = await model.invoke([
+    new SystemMessage(ROUTER_PROMPT),
+    ...recentMsgs,
+  ]);
+
+  const content = typeof response.content === "string"
+    ? response.content
+    : JSON.stringify(response.content);
+
+  console.log(`[Router] 原始输出: ${content.slice(0, 200)}`);
+
+  const validModes = ["chatting", "collecting", "advising", "extracting"];
+
+  try {
+    // 尝试提取 JSON
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+    const mode = validModes.includes(parsed.mode) ? parsed.mode : "collecting";
+    const instruction = typeof parsed.instruction === "string" ? parsed.instruction : "";
+    console.log(`[Router] → ${mode} | ${instruction}`);
+    return { mode, routerInstruction: instruction };
+  } catch {
+    console.warn("[Router] JSON 解析失败，fallback → collecting");
+    return { mode: "collecting", routerInstruction: "" };
+  }
+}
+
+// ── Worker 节点 ──
+
+async function workerNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
   ensureKnowledgeBase().catch(() => {});
 
-  // 安全检查：防止无限 tool calling 循环
+  // 安全检查
   if ((state.iterationCount ?? 0) >= MAX_ITERATIONS) {
     return {
       messages: [
         new AIMessage({
-          content:
-            "好的，我这边已经处理了不少信息。咱们先看看目前的成果，有什么需要调整的你随时告诉我。",
+          content: "好的，我这边已经处理了不少信息。咱们先看看目前的成果，有什么需要调整的你随时告诉我。",
         }),
       ],
-      iterationCount: 0, // 重置
+      iterationCount: 0,
     };
   }
 
-  const model = getModel().bindTools(AGENT_TOOLS);
+  const mode = state.mode ?? "chatting";
+  const modePrompt = WORKER_PROMPTS[mode] ?? WORKER_PROMPTS.chatting;
 
-  // 确保 system prompt 是第一条消息
-  const msgs = state.messages ?? [];
-  const hasSystemMsg = msgs.length > 0 && msgs[0]?.getType?.() === "system";
-  const messages = hasSystemMsg
-    ? msgs
-    : [new SystemMessage(SYSTEM_PROMPT), ...msgs];
+  // 拼接 Router 指令
+  let fullPrompt = state.routerInstruction
+    ? `${modePrompt}\n\n## 当前指令\n${state.routerInstruction}`
+    : modePrompt;
 
-  const response = await model.invoke(messages);
+  // 扫描历史 tool_calls，收集已推送的表单（防止重复推送）
+  const pushed = new Set(state.formsPushed ?? []);
+  for (const msg of (state.messages ?? [])) {
+    if (msg && typeof msg === "object" && "tool_calls" in msg) {
+      for (const tc of (msg as AIMessage).tool_calls ?? []) {
+        if (tc.name === "pushForm" && tc.args?.type) {
+          pushed.add(tc.args.type as string);
+        }
+      }
+    }
+  }
+  if (pushed.size > 0) {
+    fullPrompt += `\n\n## 已推送过的表单（禁止重复推送）\n${[...pushed].map(f => `- ${f}`).join("\n")}`;
+  }
+
+  const tools = getToolsForMode(mode);
+  const model = getWorkerModel(mode).bindTools(tools);
+
+  // 替换旧 system message，确保 worker 总用对应当前 mode 的提示词
+  const msgs = [...(state.messages ?? [])];
+  if (msgs.length > 0 && msgs[0]?.getType?.() === "system") {
+    msgs[0] = new SystemMessage(fullPrompt);
+  } else {
+    msgs.unshift(new SystemMessage(fullPrompt));
+  }
+
+  console.log(`[Worker] mode=${mode}  tools=${tools.map(t => t.name).join(",")}  prompt=${fullPrompt.length}chars`);
+
+  const response = await model.invoke(msgs);
 
   return {
     messages: [response],
     iterationCount: 1,
+    formsPushed: [...pushed],
   };
 }
 
@@ -147,14 +233,16 @@ const toolNode = new ToolNode(AGENT_TOOLS, { handleToolErrors: true });
 // ── 构建图 ──
 
 const agentGraph = new StateGraph(GraphState)
-  .addNode("agent", agentNode)
+  .addNode("router", routerNode)
+  .addNode("worker", workerNode)
   .addNode("tools", toolNode)
-  .addEdge("__start__", "agent")
-  .addConditionalEdges("agent", shouldContinue, {
+  .addEdge("__start__", "router")
+  .addEdge("router", "worker")
+  .addConditionalEdges("worker", shouldContinue, {
     tools: "tools",
     __end__: "__end__",
   })
-  .addEdge("tools", "agent")
+  .addEdge("tools", "worker")
   .compile();
 
 export { agentGraph };
@@ -163,7 +251,6 @@ export { agentGraph };
 
 export interface RunAgentInput {
   messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
-  conversationPhase?: "greeting" | "collecting" | "reviewing" | "refining";
 }
 
 // ── 将对话历史转换为 LangChain 消息 ──
@@ -190,7 +277,6 @@ function toLangChainMessages(
 export async function runAgent(input: RunAgentInput) {
   const initialState = {
     messages: toLangChainMessages(input.messages),
-    conversationPhase: input.conversationPhase ?? "collecting",
   };
 
   return agentGraph.stream(initialState);
@@ -202,10 +288,8 @@ export async function runAgent(input: RunAgentInput) {
 export async function* streamAgent(input: RunAgentInput) {
   const initialState = {
     messages: toLangChainMessages(input.messages),
-    conversationPhase: input.conversationPhase ?? "collecting",
   };
 
-  // 使用 streamEvents 获取 token 级别的事件
   const eventStream = agentGraph.streamEvents(initialState, {
     version: "v2",
   });
