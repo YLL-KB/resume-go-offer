@@ -8,6 +8,7 @@
  */
 
 import { NextRequest } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai, openai } from "@/lib/ai";
 import { SYSTEM_PROMPT, GREETING_NEW_USER } from "@/lib/ai/prompts";
 import { getDb } from "@/lib/db";
@@ -20,7 +21,7 @@ import { streamAgent } from "@/lib/ai/graph";
 // 环境变量控制：启用 LangGraph Agent 模式
 const USE_LANGGRAPH = process.env.LANGGRAPH_ENABLED === "true";
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   // ── 解析请求 ──
   let body: { conversationId?: string; message: string };
   try {
@@ -291,4 +292,4 @@ export async function POST(request: NextRequest) {
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
-}
+});

@@ -6,9 +6,10 @@
  */
 
 import { NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getAuthorizationUrl, isAuthingConfigured } from "@/lib/auth/oidc";
 
-export async function GET() {
+export const GET = withRequestLog(async () => {
   // 检查是否已配置
   if (!isAuthingConfigured()) {
     return new NextResponse(CONFIG_GUIDE_HTML, {
@@ -21,7 +22,7 @@ export async function GET() {
   const loginUrl = getAuthorizationUrl(redirectUri);
 
   return NextResponse.redirect(loginUrl);
-}
+});
 
 const CONFIG_GUIDE_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">

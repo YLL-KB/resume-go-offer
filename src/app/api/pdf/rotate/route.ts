@@ -9,6 +9,7 @@
  * Response: { url: string }
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { PDFDocument, degrees } from "pdf-lib";
 import fs from "fs";
 import path from "path";
@@ -17,7 +18,7 @@ export const runtime = "nodejs";
 
 const VALID_ANGLES = [90, 180, 270];
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestLog(async (req: NextRequest) => {
   try {
     const { file, pages, angle } = await req.json() as {
       file: string;
@@ -60,4 +61,4 @@ export async function POST(req: NextRequest) {
     console.error("PDF rotate error:", err);
     return NextResponse.json({ error: "旋转失败" }, { status: 500 });
   }
-}
+});

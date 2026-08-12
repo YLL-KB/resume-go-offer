@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getAuthUserId } from "@/lib/auth/utils";
@@ -28,10 +29,8 @@ function filePaths(id: string) {
 }
 
 // ── GET ──
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const GET = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   const { id: rawId } = await params;
   const id = rawId.endsWith(".pdf") ? rawId.slice(0, -4) : rawId;
   const { pdf: pdfPath } = filePaths(id);
@@ -60,13 +59,11 @@ export async function GET(
         : { "Content-Disposition": "inline" }),
     },
   });
-}
+});
 
 // ── DELETE ──
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const DELETE = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   const { id: rawId } = await params;
   const id = rawId.endsWith(".pdf") ? rawId.slice(0, -4) : rawId;
   const { pdf: pdfPath, meta: metaPath } = filePaths(id);
@@ -129,4 +126,4 @@ export async function DELETE(
   }
 
   return NextResponse.json({ success: true, id });
-}
+});

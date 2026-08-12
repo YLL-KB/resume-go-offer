@@ -4,15 +4,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { getAuthUserId } from "@/lib/auth/utils";
 import { eq, and } from "drizzle-orm";
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const PATCH = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   const { id } = await params;
   const body = await request.json() as { title?: string };
   if (!body.title?.trim()) {
@@ -33,12 +32,10 @@ export async function PATCH(
   }
 
   return NextResponse.json({ ok: true });
-}
+});
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const DELETE = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   const { id } = await params;
   const { userId } = await getAuthUserId(request);
   const db = getDb() as ReturnType<typeof getDb>;
@@ -59,4 +56,4 @@ export async function DELETE(
   await db.delete(conversations).where(eq(conversations.id, id));
 
   return NextResponse.json({ ok: true });
-}
+});

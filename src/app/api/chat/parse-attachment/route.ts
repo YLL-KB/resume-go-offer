@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
+import { withRequestLog } from "@/lib/logging/request-logger";
 export const runtime = "nodejs";
 
 // ── 文件大小限制 ──
@@ -43,7 +44,7 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const contentType = request.headers.get("content-type") ?? "";
 
@@ -197,4 +198,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

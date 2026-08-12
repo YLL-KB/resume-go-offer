@@ -22,10 +22,23 @@ function getAdminIds(): Set<string> {
 
 export async function getAdminUser(request: Request): Promise<AdminUser | null> {
   const ids = getAdminIds();
-  if (ids.size === 0) return null;
 
   const user = await getUser(request);
-  if (!user?.githubId || !ids.has(user.githubId)) return null;
+  if (!user?.githubId) return null;
+
+  // 本地开发：dev mock 用户自动拥有管理员权限
+  if (process.env.NODE_ENV === "development" && user.githubId === "00000000") {
+    return {
+      id: user.id,
+      name: user.name ?? null,
+      githubId: user.githubId,
+      githubLogin: user.githubLogin ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+    };
+  }
+
+  if (ids.size === 0) return null;
+  if (!ids.has(user.githubId)) return null;
 
   return {
     id: user.id,

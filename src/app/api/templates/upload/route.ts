@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -15,7 +16,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // 允许此路由处理 multipart/form-data
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -90,4 +91,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

@@ -6,6 +6,7 @@
  * Response: { id: string, url: string }
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -30,7 +31,7 @@ async function cleanup() {
   } catch { /* dir 不存在 */ }
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -59,4 +60,4 @@ export async function POST(request: NextRequest) {
     console.error("Upload resume error:", err);
     return NextResponse.json({ error: "上传失败" }, { status: 500 });
   }
-}
+});

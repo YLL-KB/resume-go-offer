@@ -5,9 +5,10 @@
  */
 
 import { NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getWechatLoginUrl, isWechatConfigured } from "@/lib/auth/wechat";
 
-export async function GET() {
+export const GET = withRequestLog(async () => {
   if (!isWechatConfigured()) {
     return new NextResponse(
       '<html><body style="padding:40px;font-family:sans-serif"><h2>微信登录未配置</h2><p>请设置环境变量 <code>WECHAT_APP_ID</code> 和 <code>WECHAT_APP_SECRET</code></p></body></html>',
@@ -20,4 +21,4 @@ export async function GET() {
   const url = getWechatLoginUrl(redirectUri);
 
   return NextResponse.redirect(url);
-}
+});

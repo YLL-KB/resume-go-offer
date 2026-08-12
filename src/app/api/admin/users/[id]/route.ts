@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { users, conversations, messages, resumes, applications } from "@/lib/db/schema";
 import { getAdminUser } from "@/lib/auth/admin";
 import { eq } from "drizzle-orm";
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export const DELETE = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }) => {
   const admin = await getAdminUser(request);
   if (!admin) return NextResponse.json({ error: "无权限" }, { status: 403 });
 
@@ -46,4 +45,4 @@ export async function DELETE(
     console.error("Admin delete user error:", err);
     return NextResponse.json({ error: "删除用户失败" }, { status: 500 });
   }
-}
+});

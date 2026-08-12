@@ -25,6 +25,7 @@
  * }
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import fs from "fs";
 import path from "path";
 
@@ -113,7 +114,7 @@ function parseLayoutResponse(raw: string, pageNum: number): PageLayout {
 }
 
 // ── 主路由 ──
-export async function POST(req: NextRequest) {
+export const POST = withRequestLog(async (req: NextRequest) => {
   try {
     const apiKey = process.env.ZHIPU_API_KEY;
     if (!apiKey) {
@@ -211,4 +212,4 @@ export async function POST(req: NextRequest) {
     console.error("PDF OCR layout error:", err);
     return NextResponse.json({ error: "布局分析失败" }, { status: 500 });
   }
-}
+});

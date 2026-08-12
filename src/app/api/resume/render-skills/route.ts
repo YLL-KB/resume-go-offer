@@ -6,10 +6,11 @@
  */
 
 import { NextRequest } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { renderSkillsHtml } from "@/lib/skills-html";
 import { THEMES, type ResumeTheme } from "@/lib/theme-utils";
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   let body: { categorizedSkills?: Record<string, string[]>; theme?: string };
   try {
     body = await request.json() as typeof body;
@@ -47,4 +48,4 @@ export async function POST(request: NextRequest) {
       Connection: "keep-alive",
     },
   });
-}
+});

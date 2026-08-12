@@ -4,9 +4,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai } from "@/lib/ai";
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const { content, type, target } = await request.json() as { content: string; type: "weakness" | "suggestion"; target: string };
 
@@ -40,4 +41,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

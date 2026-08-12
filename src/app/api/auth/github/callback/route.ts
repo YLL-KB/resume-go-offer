@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import {
   exchangeGitHubCode,
   getGitHubUser,
@@ -13,6 +14,7 @@ import {
   getStateFromCookie,
   clearStateCookie,
   isGitHubConfigured,
+  isDevEnv,
 } from "@/lib/auth/github";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
@@ -26,7 +28,7 @@ function getBaseUrl(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   const baseUrl = getBaseUrl(request);
 
   if (!isGitHubConfigured()) {
@@ -131,15 +133,16 @@ export async function GET(request: NextRequest) {
     });
 
     const maxAge = 60 * 60 * 24 * 30; // 30 天
+    const secure = isDevEnv() ? "" : "; Secure";
 
     const response = NextResponse.redirect(new URL("/chat", baseUrl));
     response.headers.append(
       "Set-Cookie",
-      `auth_session=${encodeURIComponent(sessionValue)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`,
+      `auth_session=${encodeURIComponent(sessionValue)}; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=${maxAge}`,
     );
     response.headers.append(
       "Set-Cookie",
-      `auth_user=${encodeURIComponent(JSON.stringify(appUser))}; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`,
+      `auth_user=${encodeURIComponent(JSON.stringify(appUser))}${secure}; SameSite=Lax; Path=/; Max-Age=${maxAge}`,
     );
     clearStateCookie(response.headers);
 
@@ -149,4 +152,4 @@ export async function GET(request: NextRequest) {
     const message = err instanceof Error ? err.message : "github_auth_failed";
     return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(message)}`, baseUrl));
   }
-}
+});

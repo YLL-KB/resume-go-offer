@@ -3,15 +3,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { messages, conversations } from "@/lib/db/schema";
 import { getAuthUserId } from "@/lib/auth/utils";
 import { eq, and } from "drizzle-orm";
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const DELETE = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   const { id } = await params;
   const { userId } = await getAuthUserId(request);
   const db = getDb() as ReturnType<typeof getDb>;
@@ -44,4 +43,4 @@ export async function DELETE(
   await db.delete(messages).where(eq(messages.id, id));
 
   return NextResponse.json({ ok: true });
-}
+});

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { resumes } from "@/lib/db/schema";
 import { resumeDataSchema } from "@/lib/validators/resume.schema";
@@ -6,10 +7,8 @@ import { getAuthUserId } from "@/lib/auth/utils";
 import { eq, and } from "drizzle-orm";
 
 // GET /api/resume/[id] — 获取单份简历
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const GET = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   try {
     const { id } = await params;
     const { userId } = await getAuthUserId(request);
@@ -33,13 +32,11 @@ export async function GET(
     console.error("获取简历失败", err);
     return NextResponse.json({ error: "获取失败" }, { status: 500 });
   }
-}
+});
 
 // PATCH /api/resume/[id] — 更新简历数据
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const PATCH = withRequestLog(async (req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   try {
     const { id } = await params;
     const { userId } = await getAuthUserId(req);
@@ -68,13 +65,11 @@ export async function PATCH(
     console.error("更新简历失败", err);
     return NextResponse.json({ error: "更新失败" }, { status: 500 });
   }
-}
+});
 
 // DELETE /api/resume/[id] — 删除简历
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const DELETE = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   try {
     const { id } = await params;
     const { userId } = await getAuthUserId(request);
@@ -94,4 +89,4 @@ export async function DELETE(
     console.error("删除简历失败", err);
     return NextResponse.json({ error: "删除失败" }, { status: 500 });
   }
-}
+});

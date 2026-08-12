@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getGitHubAuthorizeUrl, setStateCookie, isGitHubConfigured } from "@/lib/auth/github";
 
 function getBaseUrl(request: NextRequest): string {
@@ -15,7 +16,7 @@ function getBaseUrl(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   const baseUrl = getBaseUrl(request);
 
   if (!isGitHubConfigured()) {
@@ -30,4 +31,4 @@ export async function GET(request: NextRequest) {
   setStateCookie(response.headers, state);
 
   return response;
-}
+});

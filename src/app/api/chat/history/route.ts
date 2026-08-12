@@ -7,12 +7,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { getAuthUserId, setAnonymousCookie } from "@/lib/auth/utils";
 import { eq, desc, asc, and } from "drizzle-orm";
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   const db = getDb() as ReturnType<typeof getDb>;
   const { userId, isAnonymous } = await getAuthUserId(request);
 
@@ -58,4 +59,4 @@ export async function GET(request: NextRequest) {
     setAnonymousCookie(response, userId);
   }
   return response;
-}
+});

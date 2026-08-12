@@ -8,6 +8,7 @@
  *   ?source=analysis 从分析暂存目录读取 (public/uploads/analysis/)
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import fs from "fs";
 import path from "path";
 
@@ -101,10 +102,8 @@ async function enrichWithLayout(
 }
 
 // ── 主路由 ──
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const GET = withRequestLog(async (req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   try {
     const { id } = await params;
     const url = new URL(req.url);
@@ -176,4 +175,4 @@ export async function GET(
     console.error("提取失败:", err);
     return NextResponse.json({ error: "提取失败" }, { status: 500 });
   }
-}
+});

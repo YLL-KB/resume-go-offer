@@ -19,6 +19,11 @@ const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY NOT NULL, conversation_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS resumes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, title TEXT NOT NULL, template_id TEXT DEFAULT 'classic' NOT NULL, data TEXT NOT NULL, version INTEGER DEFAULT 1 NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS applications (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, resume_id TEXT NOT NULL, company TEXT NOT NULL, position TEXT NOT NULL, status TEXT DEFAULT 'applied' NOT NULL, applied_at TEXT NOT NULL, notes TEXT DEFAULT '')`,
+  `CREATE TABLE IF NOT EXISTS request_logs (id TEXT PRIMARY KEY NOT NULL, method TEXT NOT NULL, path TEXT NOT NULL, query_params TEXT DEFAULT '', user_id TEXT, ip TEXT NOT NULL, status_code INTEGER NOT NULL, duration_ms INTEGER NOT NULL, error_message TEXT, user_agent TEXT DEFAULT '', timestamp TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp)`,
+  `CREATE INDEX IF NOT EXISTS idx_request_logs_path ON request_logs(path)`,
+  `CREATE INDEX IF NOT EXISTS idx_request_logs_status_code ON request_logs(status_code)`,
+  `CREATE INDEX IF NOT EXISTS idx_request_logs_user_id ON request_logs(user_id)`,
 ];
 
 /**

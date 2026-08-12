@@ -4,15 +4,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { applications } from "@/lib/db/schema";
 import { getAuthUserId } from "@/lib/auth/utils";
 import { eq, and } from "drizzle-orm";
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const PATCH = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   try {
     const { id } = await params;
     const { userId } = await getAuthUserId(request);
@@ -46,12 +45,10 @@ export async function PATCH(
     console.error("更新投递失败", err);
     return NextResponse.json({ error: "更新失败" }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const DELETE = withRequestLog(async (request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   try {
     const { id } = await params;
     const { userId } = await getAuthUserId(request);
@@ -71,4 +68,4 @@ export async function DELETE(
     console.error("删除投递失败", err);
     return NextResponse.json({ error: "删除失败" }, { status: 500 });
   }
-}
+});

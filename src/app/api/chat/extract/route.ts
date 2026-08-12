@@ -6,12 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai } from "@/lib/ai";
 import { getDb } from "@/lib/db";
 import { messages } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   let conversationId: string;
   let resumeData: Record<string, unknown> | undefined;
   try {
@@ -97,4 +98,4 @@ export async function POST(request: NextRequest) {
       Connection: "keep-alive",
     },
   });
-}
+});

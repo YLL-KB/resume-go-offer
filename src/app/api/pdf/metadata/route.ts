@@ -6,13 +6,14 @@
  * Response: { pageCount, pages: [{ width, height }], fileSize, title, author, creator }
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { PDFDocument } from "pdf-lib";
 import fs from "fs";
 import path from "path";
 
 export const runtime = "nodejs";
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestLog(async (req: NextRequest) => {
   try {
     const { file } = await req.json() as { file: string };
     if (!file) return NextResponse.json({ error: "缺少 file 参数" }, { status: 400 });
@@ -42,4 +43,4 @@ export async function POST(req: NextRequest) {
     console.error("PDF metadata error:", err);
     return NextResponse.json({ error: "读取失败" }, { status: 500 });
   }
-}
+});

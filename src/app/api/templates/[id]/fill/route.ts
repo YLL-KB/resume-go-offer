@@ -7,6 +7,7 @@
  * Part C: 自定义页（复制模版底版 + 涂白 + 渲染）
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import fs from "fs";
@@ -121,7 +122,7 @@ function whiteOut(page: ReturnType<PDFDocument["getPages"]>[0], b: { x: number; 
 }
 
 // ═══════════════════════════════════════════════════════
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withRequestLog(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const { id } = await params;
     const body = await req.json() as { strayEdits?: EditItem[]; moduleEdits?: ModuleEdit[]; customPages?: CustomPageItem[]; source?: string };
@@ -243,4 +244,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     console.error("PDF fill error:", err);
     return NextResponse.json({ error: "填充失败" }, { status: 500 });
   }
-}
+});

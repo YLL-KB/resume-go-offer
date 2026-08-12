@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import {
   exchangeWechatCode,
   getWechatUserInfo,
@@ -20,7 +21,7 @@ function getBaseUrl(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   const baseUrl = getBaseUrl(request);
 
   if (!isWechatConfigured()) {
@@ -81,4 +82,4 @@ export async function GET(request: NextRequest) {
     console.error("WeChat callback error:", err);
     return NextResponse.redirect(new URL("/login?error=wechat_auth_failed", baseUrl));
   }
-}
+});

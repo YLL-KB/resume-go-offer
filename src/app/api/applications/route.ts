@@ -4,12 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { applications } from "@/lib/db/schema";
 import { getAuthUserId } from "@/lib/auth/utils";
 import { eq, desc } from "drizzle-orm";
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   try {
     const { userId } = await getAuthUserId(request);
     const db = getDb();
@@ -25,9 +26,9 @@ export async function GET(request: NextRequest) {
     console.error("获取投递列表失败", err);
     return NextResponse.json({ error: "获取失败" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const { userId, isAnonymous } = await getAuthUserId(request);
     if (isAnonymous) {
@@ -74,4 +75,4 @@ export async function POST(request: NextRequest) {
     console.error("创建投递失败", err);
     return NextResponse.json({ error: "创建失败" }, { status: 500 });
   }
-}
+});

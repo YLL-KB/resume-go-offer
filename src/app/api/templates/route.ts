@@ -4,13 +4,14 @@
  */
 
 import { NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withRequestLog(async () => {
   try {
     const uploadDir = path.join(process.cwd(), "public", "uploads", "templates");
     const uploaded: Record<string, unknown>[] = [];
@@ -57,4 +58,4 @@ export async function GET() {
     console.error("Templates list error:", err);
     return NextResponse.json([]);
   }
-}
+});

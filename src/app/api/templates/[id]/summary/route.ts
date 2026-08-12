@@ -3,6 +3,7 @@
  * 读取上传的 PDF 模版，用 AI 提取简历标题和内容摘要。
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai } from "@/lib/ai";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -10,10 +11,8 @@ import path from "node:path";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const POST = withRequestLog(async (_request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   const { id } = await params;
   const pdfPath = path.join(process.cwd(), "public", "uploads", "templates", `${id}.pdf`);
 
@@ -51,4 +50,4 @@ export async function POST(
     console.error("Template summary error:", err);
     return NextResponse.json({ error: "分析失败，请稍后再试" }, { status: 500 });
   }
-}
+});

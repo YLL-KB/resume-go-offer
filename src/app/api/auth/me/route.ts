@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getSessionFromCookie, getUserInfo, isAuthingConfigured } from "@/lib/auth/oidc";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
@@ -19,7 +20,7 @@ function parseCookies(cookieHeader: string): Record<string, string> {
   return result;
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   const cookieHeader = request.headers.get("Cookie");
   const cookies = cookieHeader ? parseCookies(cookieHeader) : {};
 
@@ -78,6 +79,21 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 本地开发：无任何登录态时返回 mock 用户，免登录
+  if (process.env.NODE_ENV === "development") {
+    return NextResponse.json({
+      user: {
+        id: "dev-user-001",
+        name: "Dev User",
+        email: "dev@localhost",
+        avatarUrl: null,
+        githubId: "00000000",
+        githubLogin: "dev",
+      },
+      isSignedIn: true,
+    });
+  }
+
   // Authing 登录态
   if (!isAuthingConfigured()) {
     return NextResponse.json({ user: null, isSignedIn: false });
@@ -105,4 +121,4 @@ export async function GET(request: NextRequest) {
   } catch {
     return NextResponse.json({ user: null, isSignedIn: false }, { status: 401 });
   }
-}
+});

@@ -69,3 +69,20 @@ export const applications = sqliteTable("applications", {
 	appliedAt: text("applied_at").notNull(),
 	notes: text("notes").default(""),
 });
+
+// ============================================================
+// RequestLog — API 请求日志
+// ============================================================
+export const requestLogs = sqliteTable("request_logs", {
+	id: text("id").primaryKey(),
+	method: text("method").notNull(),
+	path: text("path").notNull(),
+	queryParams: text("query_params").default(""),
+	userId: text("user_id"),
+	ip: text("ip").notNull(),
+	statusCode: integer("status_code").notNull(),
+	durationMs: integer("duration_ms").notNull(),
+	errorMessage: text("error_message"),
+	userAgent: text("user_agent").default(""),
+	timestamp: text("timestamp").notNull(),
+});

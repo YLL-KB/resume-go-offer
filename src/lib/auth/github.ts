@@ -134,9 +134,10 @@ export function getGitHubAuthorizeUrl(redirectUri: string, state?: string) {
 // ── State Cookie（CSRF 防护）──
 
 export function setStateCookie(headers: Headers, state: string) {
+  const secure = isDevEnv() ? "" : "; Secure";
   headers.append(
     "Set-Cookie",
-    `${STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
+    `${STATE_COOKIE}=${state}; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=600`,
   );
 }
 
@@ -148,11 +149,14 @@ export function getStateFromCookie(request: Request): string | null {
 }
 
 export function clearStateCookie(headers: Headers) {
+  const secure = isDevEnv() ? "" : "; Secure";
   headers.append(
     "Set-Cookie",
-    `${STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+    `${STATE_COOKIE}=; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=0`,
   );
 }
+
+export { isDevEnv };
 
 // ── 用 code 换取 access_token ──
 

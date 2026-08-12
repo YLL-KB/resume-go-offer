@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { users, conversations } from "@/lib/db/schema";
 import { getAdminUser } from "@/lib/auth/admin";
 import { eq, desc } from "drizzle-orm";
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   const admin = await getAdminUser(request);
   if (!admin) return NextResponse.json({ error: "无权限" }, { status: 403 });
 
@@ -36,4 +37,4 @@ export async function GET(request: NextRequest) {
     console.error("Admin users error:", err);
     return NextResponse.json({ error: "获取用户列表失败" }, { status: 500 });
   }
-}
+});

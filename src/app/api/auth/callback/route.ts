@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import {
   exchangeCodeForToken,
   getUserInfo,
@@ -23,7 +24,7 @@ function getBaseUrl(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   const baseUrl = getBaseUrl(request);
 
   if (!isAuthingConfigured()) {
@@ -85,4 +86,4 @@ export async function GET(request: NextRequest) {
       new URL("/login?error=auth_failed", baseUrl),
     );
   }
-}
+});

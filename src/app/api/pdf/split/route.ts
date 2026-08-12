@@ -9,6 +9,7 @@
  *   提取单页 → url；提取多页 → urls[]
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { PDFDocument } from "pdf-lib";
 import fs from "fs";
 import path from "path";
@@ -33,7 +34,7 @@ function parsePages(input: number[] | string, totalPages: number): number[] {
   return result.filter(p => p >= 1 && p <= totalPages);
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestLog(async (req: NextRequest) => {
   try {
     const { file, pages } = await req.json() as { file: string; pages: number[] | string };
     if (!file) return NextResponse.json({ error: "缺少 file 参数" }, { status: 400 });
@@ -72,4 +73,4 @@ export async function POST(req: NextRequest) {
     console.error("PDF split error:", err);
     return NextResponse.json({ error: "拆分失败" }, { status: 500 });
   }
-}
+});

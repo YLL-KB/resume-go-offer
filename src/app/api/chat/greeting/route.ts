@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai } from "@/lib/ai";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
@@ -27,7 +28,7 @@ const GREETING_PROMPT = `你是一位拥有10年经验的资深大厂HR兼金牌
  * 生成 AI 开场白并返回，但不创建对话也不写入数据库（懒创建）。
  * 首次访问 /chat 时调用，让每次新对话看到不同的开场白。
  */
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   try {
     const db = getDb();
     const { userId, isAnonymous } = await getAuthUserId(request);
@@ -74,9 +75,9 @@ export async function GET(request: NextRequest) {
     console.error("Greeting API error:", err);
     return NextResponse.json({ error: "生成开场白失败" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const db = getDb();
     const { userId, isAnonymous } = await getAuthUserId(request);
@@ -145,4 +146,4 @@ export async function POST(request: NextRequest) {
     console.error("Greeting API error:", err);
     return NextResponse.json({ error: "生成开场白失败" }, { status: 500 });
   }
-}
+});

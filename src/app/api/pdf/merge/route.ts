@@ -6,13 +6,14 @@
  * Response: { url: string }   — 合并后的 PDF 下载地址
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { PDFDocument } from "pdf-lib";
 import fs from "fs";
 import path from "path";
 
 export const runtime = "nodejs";
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestLog(async (req: NextRequest) => {
   try {
     const { files } = await req.json() as { files: string[] };
     if (!files?.length || files.length < 2) {
@@ -46,4 +47,4 @@ export async function POST(req: NextRequest) {
     console.error("PDF merge error:", err);
     return NextResponse.json({ error: "合并失败" }, { status: 500 });
   }
-}
+});

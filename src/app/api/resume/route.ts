@@ -4,13 +4,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { getDb } from "@/lib/db";
 import { resumes } from "@/lib/db/schema";
 import { resumeDataSchema } from "@/lib/validators/resume.schema";
 import { getAuthUserId } from "@/lib/auth/utils";
 import { eq } from "drizzle-orm";
 
-export async function GET(request: NextRequest) {
+export const GET = withRequestLog(async (request: NextRequest) => {
   try {
     const { userId } = await getAuthUserId(request);
     const db = getDb();
@@ -34,9 +35,9 @@ export async function GET(request: NextRequest) {
     console.error("获取简历列表失败", err);
     return NextResponse.json({ error: "获取失败" }, { status: 500 });
   }
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const { userId } = await getAuthUserId(request);
     const body = await request.json() as {
@@ -84,4 +85,4 @@ export async function POST(request: NextRequest) {
     console.error("创建简历失败", err);
     return NextResponse.json({ error: "创建失败" }, { status: 500 });
   }
-}
+});
