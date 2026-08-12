@@ -21,6 +21,23 @@ import { streamAgent } from "@/lib/ai/graph";
 // 环境变量控制：启用 LangGraph Agent 模式
 const USE_LANGGRAPH = process.env.LANGGRAPH_ENABLED === "true";
 
+// 从 LangChain AIMessage.content 提取纯文本（可能是 string 或 content block 数组）
+function extractTextContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (typeof part === "object" && part !== null && "text" in part) {
+          return String((part as { text: unknown }).text);
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
 export const POST = withRequestLog(async (request: NextRequest) => {
   // ── 解析请求 ──
   let body: { conversationId?: string; message: string };
@@ -187,7 +204,8 @@ export const POST = withRequestLog(async (request: NextRequest) => {
                 case "on_chat_model_end": {
                   // 跳过 Router 节点的内部事件
                   if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
-                  const toolCalls = event.data?.output?.tool_calls;
+                  const output = event.data?.output;
+                  const toolCalls = output?.tool_calls;
                   if (toolCalls && toolCalls.length > 0) {
                     for (const tc of toolCalls) {
                       send({
@@ -195,6 +213,13 @@ export const POST = withRequestLog(async (request: NextRequest) => {
                         conversationId: convId,
                       });
                     }
+                  }
+                  // workerNode 用 model.invoke()（非流式），不会触发 on_chat_model_stream，
+                  // 这里从完整输出兜底提取 Worker 的文本回复
+                  const text = extractTextContent(output?.content);
+                  if (text) {
+                    fullReply += text;
+                    send({ content: text, conversationId: convId });
                   }
                   break;
                 }
