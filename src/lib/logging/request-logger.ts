@@ -89,7 +89,7 @@ async function buildLogEntry(
  *   export const GET = withRequestLog(async (request) => { ... });
  *   export const DELETE = withRequestLog(async (request, { params }) => { ... });
  */
-export function withRequestLog<Args extends any[]>(
+export function withRequestLog<Args extends unknown[]>(
   handler: (req: NextRequest, ...args: Args) => Promise<Response>,
 ): (req: NextRequest, ...args: Args) => Promise<Response> {
   return async (req: NextRequest, ...args: Args) => {

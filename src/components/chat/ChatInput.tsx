@@ -44,7 +44,6 @@ export function ChatInput() {
     clearRegenerate,
     quickSend,
     clearQuickSend,
-    triggerQuickSend,
     stop,
   } = useChatStore();
 
@@ -111,7 +110,7 @@ export function ChatInput() {
       setAttachment({ status: "error", type: "file", name: file.name, error: err instanceof Error ? err.message : "解析失败" });
       toast.error(err instanceof Error ? err.message : "文件解析失败");
     }
-  }, []);
+  }, [clearAttachment]);
 
   const handleUrlSubmit = useCallback(async () => {
     const url = urlInputRef.current?.value?.trim();
@@ -245,7 +244,9 @@ export function ChatInput() {
 
   // sendRaw 的 ref，供 handleFileUpload 等前置函数调用
   const sendRawRef = useRef(sendRaw);
-  sendRawRef.current = sendRaw;
+  useEffect(() => {
+    sendRawRef.current = sendRaw;
+  }, [sendRaw]);
 
   // ── 监听表单事件 ──
   useEffect(() => {

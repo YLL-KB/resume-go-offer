@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, isSignedIn, isLoading } = useAuth();
+  const { isSignedIn, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);

@@ -68,14 +68,6 @@ function formatDate(iso: string) {
   }
 }
 
-function formatDateShort(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
-  } catch {
-    return iso;
-  }
-}
-
 function methodBadge(method: string) {
   const map: Record<string, string> = {
     GET: "bg-emerald-100 text-emerald-700",

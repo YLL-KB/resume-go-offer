@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, LogIn, User, MessageSquare, ClipboardList, LogOut, Loader2, Menu, X } from "lucide-react";
+import { FileText, LogIn, MessageSquare, ClipboardList, LogOut, Loader2, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {

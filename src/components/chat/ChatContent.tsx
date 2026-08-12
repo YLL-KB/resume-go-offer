@@ -11,7 +11,7 @@ import { Loader2 } from "lucide-react";
 // ── 聊天主体 ──
 
 export function ChatContent({ conversationId }: { conversationId: string | null }) {
-  const { resumeData, messages, isStreaming, isExtracting, loadConversation, setConversations, startNewChat, isLoadingHistory, showPreview } = useChatStore();
+  const { resumeData, loadConversation, setConversations, startNewChat, isLoadingHistory, showPreview } = useChatStore();
 
   const [ready, setReady] = useState(false);
 
