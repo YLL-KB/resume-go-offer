@@ -104,7 +104,9 @@ export function ChatInput() {
         throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
       }
       const data = await res.json() as { formatted: string };
-      setAttachment({ status: "done", type: "file", name: file.name, formatted: data.formatted });
+      // 自动发送给 AI，不等到用户手动点发送
+      if (data.formatted) sendRawRef.current(data.formatted);
+      clearAttachment();
     } catch (err) {
       setAttachment({ status: "error", type: "file", name: file.name, error: err instanceof Error ? err.message : "解析失败" });
       toast.error(err instanceof Error ? err.message : "文件解析失败");
@@ -240,6 +242,10 @@ export function ChatInput() {
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview, router]);
+
+  // sendRaw 的 ref，供 handleFileUpload 等前置函数调用
+  const sendRawRef = useRef(sendRaw);
+  sendRawRef.current = sendRaw;
 
   // ── 监听表单事件 ──
   useEffect(() => {

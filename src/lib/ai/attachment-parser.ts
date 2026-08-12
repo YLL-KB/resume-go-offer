@@ -8,6 +8,147 @@
 import { extractClient, safeJsonParse, EXTRACT_MODEL } from "./index";
 import { JOB_PARSING_PROMPT, RESUME_FILE_PARSING_PROMPT } from "./prompts";
 
+// ── Resume Workshop PDF 格式检测与解码 ──
+// Resume Workshop 导出的 PDF 将简历数据用 base64 编码嵌入在文本中，
+// AI 无法解析 base64，会幻觉出虚假姓名/公司。这里先解码为可读文本。
+
+const RW_MARKER = "RESUME_WORKSHOP_IMPORT_V1_START";
+
+function stripHtmlTags(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#?\w+;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+interface RWModule {
+  id: string;
+  type: string;
+  title: string;
+  visible: boolean;
+  basics?: { name?: string; email?: string; phone?: string; location?: string; infoItems?: Array<{ label: string; value: string; visible: boolean }> };
+  items?: Array<{
+    title: string;
+    subtitle: string;
+    startDate: string;
+    endDate: string;
+    description: string;
+    visible: boolean;
+  }>;
+}
+
+/**
+ * 检测文本是否为 Resume Workshop 导出的 base64 编码 PDF，
+ * 如果是则解码并格式化为人类可读的简历文本，否则返回 null。
+ */
+export function detectAndParseResumeWorkshop(text: string): string | null {
+  const idx = text.indexOf(RW_MARKER);
+  if (idx === -1) return null;
+
+  try {
+    // 提取 base64 载荷：转换 base64url → 标准 base64，清理非法字符
+    let b64 = text.substring(idx + RW_MARKER.length);
+    b64 = b64.replace(/-/g, "+").replace(/_/g, "/").replace(/[^A-Za-z0-9+/=]/g, "");
+
+    const decoded = Buffer.from(b64, "base64").toString("utf8");
+
+    // 找到 JSON 边界（PDF 提取可能带尾部垃圾数据）
+    let depth = 0;
+    let jsonEnd = 0;
+    for (let i = 0; i < decoded.length; i++) {
+      if (decoded[i] === "{") depth++;
+      if (decoded[i] === "}") {
+        depth--;
+        if (depth === 0) { jsonEnd = i + 1; break; }
+      }
+    }
+
+    const cleanJson = decoded.substring(0, jsonEnd).replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+    const data = JSON.parse(cleanJson);
+    const modules: RWModule[] = data?.resume?.modules ?? [];
+    if (modules.length === 0) return null;
+
+    // 格式化为人类可读文本
+    const lines: string[] = [];
+
+    for (const mod of modules) {
+      if (!mod.visible) continue;
+
+      switch (mod.type) {
+        case "basics": {
+          const b = mod.basics;
+          if (!b) break;
+          lines.push(`姓名：${b.name || ""}`);
+          if (b.email) lines.push(`邮箱：${b.email}`);
+          if (b.phone) lines.push(`电话：${b.phone}`);
+          if (b.location) lines.push(`城市：${b.location}`);
+          for (const item of b.infoItems ?? []) {
+            if (item.visible && item.value) lines.push(`${item.label}：${item.value}`);
+          }
+          break;
+        }
+        case "skills": {
+          lines.push("\n专业技能：");
+          for (const item of mod.items ?? []) {
+            if (!item.visible) continue;
+            const desc = item.description ? stripHtmlTags(item.description) : "";
+            lines.push(`${item.title}：${desc}`);
+          }
+          break;
+        }
+        case "education": {
+          lines.push("\n教育经历：");
+          for (const item of mod.items ?? []) {
+            if (!item.visible) continue;
+            const period = [item.startDate, item.endDate].filter(Boolean).join("-");
+            const detail = [item.title, item.subtitle, period].filter(Boolean).join(" | ");
+            lines.push(`- ${detail}`);
+          }
+          break;
+        }
+        case "work": {
+          lines.push("\n工作经历：");
+          for (const item of mod.items ?? []) {
+            if (!item.visible) continue;
+            const period = [item.startDate, item.endDate].filter(Boolean).join("-");
+            lines.push(`- ${item.title} | ${period}`);
+            if (item.description) {
+              for (const line of stripHtmlTags(item.description).split(/。\s*/)) {
+                const trimmed = line.trim();
+                if (trimmed) lines.push(`  ${trimmed}。`);
+              }
+            }
+          }
+          break;
+        }
+        case "projects": {
+          lines.push("\n项目经历：");
+          for (const item of mod.items ?? []) {
+            if (!item.visible) continue;
+            const period = [item.startDate, item.endDate].filter(Boolean).join("-");
+            lines.push(`- ${item.title} | ${period}`);
+            if (item.description) {
+              lines.push(`  ${stripHtmlTags(item.description)}`);
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    const result = lines.join("\n").trim();
+    return result.length >= 20 ? result : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Zhipu Vision API 配置 ──
 
 const ZHIPU_BASE = "https://open.bigmodel.cn/api/paas/v4";

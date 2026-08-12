@@ -169,13 +169,17 @@ export async function POST(request: NextRequest) {
         pages.push(pageText);
       }
 
-      const text = pages.join("\n").trim();
+      const rawText = pages.join("\n").trim();
 
-      if (!text || text.length < 20) {
+      if (!rawText || rawText.length < 20) {
         return NextResponse.json({ error: "未能从 PDF 中提取到文字内容（可能是扫描版 PDF）" }, { status: 422 });
       }
 
-      const { parseResumeFromFile } = await import("@/lib/ai/attachment-parser");
+      // 检测 Resume Workshop 格式：base64 编码的 JSON → 解码为可读文本
+      const { detectAndParseResumeWorkshop, parseResumeFromFile } = await import("@/lib/ai/attachment-parser");
+      const decoded = detectAndParseResumeWorkshop(rawText);
+      const text = decoded ?? rawText;
+
       const summary = await parseResumeFromFile(text);
 
       return NextResponse.json({
