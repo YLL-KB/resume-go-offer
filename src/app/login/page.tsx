@@ -19,7 +19,7 @@ export default function LoginPage() {
   useEffect(() => {
     if (isLoading) return;
     if (isSignedIn) {
-      router.push("/chat");
+      router.push("/");
     }
   }, [isSignedIn, isLoading, router]);
 

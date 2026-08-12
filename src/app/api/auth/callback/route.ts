@@ -56,7 +56,7 @@ export const GET = withRequestLog(async (request: NextRequest) => {
     const tokens = await exchangeCodeForToken(code, redirectUri);
     const user = await getUserInfo(tokens.access_token);
 
-    const response = NextResponse.redirect(new URL("/chat", baseUrl));
+    const response = NextResponse.redirect(new URL("/", baseUrl));
     setSessionCookie(
       response.headers,
       tokens.access_token,

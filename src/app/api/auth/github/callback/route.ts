@@ -135,7 +135,7 @@ export const GET = withRequestLog(async (request: NextRequest) => {
     const maxAge = 60 * 60 * 24 * 30; // 30 天
     const secure = isDevEnv() ? "" : "; Secure";
 
-    const response = NextResponse.redirect(new URL("/chat", baseUrl));
+    const response = NextResponse.redirect(new URL("/", baseUrl));
     response.headers.append(
       "Set-Cookie",
       `auth_session=${encodeURIComponent(sessionValue)}; HttpOnly${secure}; SameSite=Lax; Path=/; Max-Age=${maxAge}`,

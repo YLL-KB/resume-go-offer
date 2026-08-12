@@ -86,9 +86,7 @@ const STATE_COOKIE = "github_oauth_state";
 // ── 判断是否为本地开发环境 ──
 
 function isDevEnv(): boolean {
-  if (process.env.NODE_ENV === "development") return true;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  return appUrl.includes("localhost") || appUrl.includes("127.0.0.1");
+  return process.env.NODE_ENV === "development";
 }
 
 // ── 配置 ──
