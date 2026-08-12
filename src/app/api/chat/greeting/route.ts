@@ -21,6 +21,61 @@ const GREETING_PROMPT = `你是一位拥有10年经验的资深大厂HR兼金牌
 - 提到你可以帮用户做简历优化、职业规划、投递建议等
 - 用自然的语气，不要太机械或模板化`;
 
+/**
+ * GET /api/chat/greeting
+ *
+ * 生成 AI 开场白并返回，但不创建对话也不写入数据库（懒创建）。
+ * 首次访问 /chat 时调用，让每次新对话看到不同的开场白。
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const db = getDb();
+    const { userId, isAnonymous } = await getAuthUserId(request);
+
+    // 匿名用户限制：最多 5 个对话
+    if (isAnonymous) {
+      const rows = await (db as ReturnType<typeof getDb>)
+        .select()
+        .from(conversations)
+        .where(eq(conversations.userId, userId))
+        .limit(5);
+      if (rows.length >= Number(process.env.ANON_LIMIT || 5)) {
+        return NextResponse.json(
+          { error: "limit_reached", message: "未登录用户最多创建5个对话，请登录后继续使用" },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 调用 AI 生成开场白
+    const aiResponse = await ai.chat([
+      { role: "system", content: GREETING_PROMPT },
+      { role: "user", content: "请生成一段开场白" },
+    ]);
+
+    let greeting = "";
+    const stream = aiResponse as AsyncIterable<{ choices: Array<{ delta: { content?: string } }> }>;
+    for await (const chunk of stream) {
+      greeting += chunk.choices[0]?.delta?.content ?? "";
+    }
+
+    const response = NextResponse.json({ greeting });
+
+    // 匿名用户：种持久化 Cookie
+    if (isAnonymous) {
+      response.headers.set(
+        "Set-Cookie",
+        `${ANON_COOKIE}=${userId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=31536000`
+      );
+    }
+
+    return response;
+  } catch (err) {
+    console.error("Greeting API error:", err);
+    return NextResponse.json({ error: "生成开场白失败" }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const db = getDb();

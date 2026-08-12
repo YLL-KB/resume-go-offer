@@ -71,6 +71,17 @@ export function ChatContent({ conversationId }: { conversationId: string | null 
     } else {
       startNewChat();
       setReady(true);
+      // 异步获取 AI 开场白（不创建对话，懒创建）
+      fetch("/api/chat/greeting")
+        .then((res) => res.json() as Promise<{ greeting?: string }>)
+        .then((data) => {
+          if (data.greeting) {
+            useChatStore.setState((s) => ({
+              messages: [{ ...s.messages[0], content: data.greeting! }],
+            }));
+          }
+        })
+        .catch(() => {}); // 失败则保留 fallback
     }
     fetch(`/api/chat/history?_t=${Date.now()}`)
       .then((res) => res.json())
