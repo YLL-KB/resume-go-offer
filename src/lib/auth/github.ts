@@ -8,6 +8,64 @@
  *   - 生产环境 → 用 GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
  */
 
+import https from "https";
+
+// ── 自定义 fetch：使用 https 模块（HTTP/1.1）+ 重试 ──
+// Node.js 内置 fetch (undici) 的 HTTP/2 从中国 VPS 访问 GitHub 间歇性超时，
+// 而原生 https 模块用 HTTP/1.1 稳定连通。
+
+function githubFetch(url: string, init: RequestInit, retries = 3): Promise<Response> {
+  const doRequest = (): Promise<Response> =>
+    new Promise((resolve, reject) => {
+      const u = new URL(url);
+      const opts: https.RequestOptions = {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: init.method || "GET",
+        headers: (init.headers as Record<string, string>) ?? {},
+        timeout: 15_000,
+      };
+
+      const req = https.request(opts, (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const body = Buffer.concat(chunks);
+          resolve(
+            new Response(body, {
+              status: res.statusCode ?? 500,
+              statusText: res.statusMessage,
+              headers: new Headers(
+                Object.entries(res.headers).filter(([, v]) => typeof v === "string") as [string, string][]
+              ),
+            }),
+          );
+        });
+      });
+
+      req.on("error", reject);
+      req.on("timeout", () => { req.destroy(); reject(new Error("connect timeout")); });
+
+      if (init.body) req.write(init.body as string);
+      req.end();
+    });
+
+  let lastErr: unknown;
+  return doRequest().catch(async (err) => {
+    lastErr = err;
+    for (let i = 1; i < retries; i++) {
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, i - 1))); // 1s, 2s, 4s
+      try {
+        return await doRequest();
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr;
+  });
+}
+
 // ── Cookie 名称 ──
 
 const STATE_COOKIE = "github_oauth_state";
@@ -95,7 +153,7 @@ export async function exchangeGitHubCode(code: string, redirectUri: string): Pro
   const cfg = getGitHubConfig();
   if (!cfg) throw new Error("GitHub OAuth 未配置");
 
-  const res = await fetch("https://github.com/login/oauth/access_token", {
+  const res = await githubFetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -134,7 +192,7 @@ export interface GitHubUser {
 }
 
 export async function getGitHubUser(accessToken: string): Promise<GitHubUser> {
-  const res = await fetch("https://api.github.com/user", {
+  const res = await githubFetch("https://api.github.com/user", {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/vnd.github+json",
@@ -159,7 +217,7 @@ interface GitHubEmail {
 }
 
 export async function getGitHubEmails(accessToken: string): Promise<GitHubEmail[]> {
-  const res = await fetch("https://api.github.com/user/emails", {
+  const res = await githubFetch("https://api.github.com/user/emails", {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/vnd.github+json",
