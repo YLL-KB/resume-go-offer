@@ -13,8 +13,7 @@ import { Loader2 } from "lucide-react";
 export function ChatContent({ conversationId }: { conversationId: string | null }) {
   const { resumeData, messages, isStreaming, isExtracting, loadConversation, setConversations, startNewChat, isLoadingHistory, showPreview } = useChatStore();
 
-  // 桥接 SSR 到 useEffect 之间的间隙
-  const [ready, setReady] = useState(!conversationId);
+  const [ready, setReady] = useState(false);
 
   // ── 移动端检测 ──
   const [isDesktop, setIsDesktop] = useState(false);
@@ -69,8 +68,7 @@ export function ChatContent({ conversationId }: { conversationId: string | null 
     if (conversationId) {
       loadConversation(conversationId).finally(() => setReady(true));
     } else {
-      startNewChat();
-      setReady(true);
+      startNewChat(); // 兜底问候语，ready=false 时不展示
       // 异步获取 AI 开场白（不创建对话，懒创建）
       fetch("/api/chat/greeting")
         .then((res) => res.json() as Promise<{ greeting?: string }>)
@@ -81,7 +79,8 @@ export function ChatContent({ conversationId }: { conversationId: string | null 
             }));
           }
         })
-        .catch(() => {}); // 失败则保留 fallback
+        .catch(() => {}) // 失败则保留 fallback
+        .finally(() => setReady(true));
     }
     fetch(`/api/chat/history?_t=${Date.now()}`)
       .then((res) => res.json())

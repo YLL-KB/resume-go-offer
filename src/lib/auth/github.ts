@@ -13,18 +13,23 @@ import https from "https";
 // ── 自定义 fetch：使用 https 模块（HTTP/1.1）+ 重试 ──
 // Node.js 内置 fetch (undici) 的 HTTP/2 从中国 VPS 访问 GitHub 间歇性超时，
 // 而原生 https 模块用 HTTP/1.1 稳定连通。
+// 设置 GITHUB_PROXY 环境变量可通过代理访问 GitHub（如 https://ghproxy.net/）
+
+const GITHUB_PROXY = (process.env.GITHUB_PROXY || "").replace(/\/$/, "");
 
 function githubFetch(url: string, init: RequestInit, retries = 3): Promise<Response> {
-  const doRequest = (): Promise<Response> =>
-    new Promise((resolve, reject) => {
-      const u = new URL(url);
+  const targetUrl = GITHUB_PROXY ? `${GITHUB_PROXY}/${url}` : url;
+
+  const doRequest = (): Promise<Response> => {
+    const reqPromise = new Promise<Response>((resolve, reject) => {
+      const u = new URL(targetUrl);
       const opts: https.RequestOptions = {
         hostname: u.hostname,
         port: u.port || 443,
         path: u.pathname + u.search,
         method: init.method || "GET",
         headers: (init.headers as Record<string, string>) ?? {},
-        timeout: 15_000,
+        timeout: 10_000,
       };
 
       const req = https.request(opts, (res) => {
@@ -51,11 +56,19 @@ function githubFetch(url: string, init: RequestInit, retries = 3): Promise<Respo
       req.end();
     });
 
+    // TCP 握手超时：timeout 选项不管连接阶段，单独用 race 兜底
+    const timeoutPromise = new Promise<Response>((_, reject) =>
+      setTimeout(() => reject(new Error("connect timeout")), 10_000)
+    );
+
+    return Promise.race([reqPromise, timeoutPromise]);
+  };
+
   let lastErr: unknown;
   return doRequest().catch(async (err) => {
     lastErr = err;
     for (let i = 1; i < retries; i++) {
-      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, i - 1))); // 1s, 2s, 4s
+      await new Promise((r) => setTimeout(r, 500)); // 500ms 间隔，快速重试
       try {
         return await doRequest();
       } catch (e) {
