@@ -146,8 +146,7 @@ export const WORKER_PROMPTS: Record<string, string> = {
 
 ## 工具
 - suggestOptimization(text, context?): 调用 AI 专业润色
-- searchKnowledge(query): 检索简历写作知识库
-- pushForm(type): 用户补充信息时推送表单`,
+- searchKnowledge(query): 检索简历写作知识库`,
 
   // ── 简历生成模式 ──
 

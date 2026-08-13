@@ -152,7 +152,7 @@ export function getToolsForMode(mode: string) {
     case "collecting":
       return [pushFormTool, searchKnowledgeTool, suggestOptimizationTool];
     case "advising":
-      return [suggestOptimizationTool, searchKnowledgeTool, pushFormTool];
+      return [suggestOptimizationTool, searchKnowledgeTool];
     case "extracting":
       return [extractResumeTool, pushFormTool, suggestOptimizationTool, searchKnowledgeTool];
     default:
