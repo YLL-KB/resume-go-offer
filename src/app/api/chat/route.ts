@@ -291,6 +291,20 @@ export const POST = withRequestLog(async (request: NextRequest) => {
             console.error("Stream error:", err);
             send({ error: "AI 回复出错，请重试" });
           }
+          // 即使流中断，也把已生成的部分回复落库，避免整条丢失
+          if (fullReply) {
+            try {
+              await db.insert(messages).values({
+                id: crypto.randomUUID(),
+                conversationId: convId!,
+                role: "assistant",
+                content: fullReply,
+                createdAt: new Date().toISOString(),
+              });
+            } catch (e) {
+              console.error("Failed to save partial AI reply:", e);
+            }
+          }
           controller.close();
         }
       },

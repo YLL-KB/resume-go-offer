@@ -15,13 +15,14 @@ export const ROUTER_PROMPT = `你是对话路由器。分析最新消息意图�
 模式: chatting(闲聊/打招呼) | collecting(提供简历信息/填表单) | advising(要求润色优化) | extracting(确认生成简历)
 
 规则优先级:
-1. "生成简历""帮我生成""可以了""差不多了" → extracting
-2. "优化""润色""改写""怎么写好" → advising
-3. 消息含"[已填写：" → collecting
-4. "？""没懂" → collecting, instruction="先解释进度"
-5. 提供经历/项目/技能 → collecting
-6. 打招呼/问功能 → chatting
-7. 兜底 → collecting
+1. 消息含"[用户上传了简历文件]" → advising, instruction="分析这份简历，给总体评价和可优化点"
+2. "生成简历""帮我生成""可以了""差不多了" → extracting
+3. "优化""润色""改写""怎么写好" → advising
+4. 消息含"[已填写：" → collecting
+5. "？""没懂" → collecting, instruction="先解释进度"
+6. 提供经历/项目/技能 → collecting
+7. 打招呼/问功能 → chatting
+8. 兜底 → collecting
 
 输出: {"mode":"...","instruction":"20字内指令"}`;
 
@@ -620,6 +621,7 @@ export const RESUME_FILE_PARSING_PROMPT = `你是一个简历信息提取助手�
 
 ## 用户现有简历摘要
 - 姓名 / 求职意向 / 工作年限
+- 联系方式（邮箱 / 电话 / GitHub / 个人网站，有则列出）
 - 教育背景（学校+专业+学历）
 - 工作经历（公司+职位+时间+一句话概括）
 - 项目经验（名称+技术栈+一句话概括）
@@ -627,6 +629,7 @@ export const RESUME_FILE_PARSING_PROMPT = `你是一个简历信息提取助手�
 
 规则：
 - 保留所有原始事实和数据，不润色不改写
+- 邮箱、电话、GitHub 等联系方式必须原样保留，不能省略
 - 日期、数字、技术栈等精确信息原样保留
 - 用简洁的分点形式，方便 AI 顾问快速了解用户背景`;
 

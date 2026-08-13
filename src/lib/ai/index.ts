@@ -40,6 +40,9 @@ export const DEFAULT_MODEL = process.env.AI_MODEL ?? "gpt-4o-mini";
 /** 结构化提取等非聊天任务可用更快模型，默认复用 DEFAULT_MODEL */
 export const EXTRACT_MODEL = process.env.AI_EXTRACT_MODEL ?? DEFAULT_MODEL;
 
+/** 外部 AI 调用的兜底超时，防止上游 API 卡死导致流式对话挂起 */
+const AI_TIMEOUT_MS = 90_000;
+
 console.log(`[AI] 聊天模型=${DEFAULT_MODEL}  提取模型=${EXTRACT_MODEL}`);
 
 if (process.env.LANGCHAIN_TRACING_V2 === "true" && process.env.LANGCHAIN_API_KEY) {
@@ -354,7 +357,7 @@ export const ai = {
         { role: "system", content: systemPrompt },
         { role: "user", content: text },
       ],
-    });
+    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     return res.choices[0]?.message?.content?.trim() ?? text;
   },
@@ -383,7 +386,7 @@ export const ai = {
         },
         { role: "user", content: parts.join("\n") },
       ],
-    });
+    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     return res.choices[0]?.message?.content?.trim() ?? "";
   },
@@ -424,7 +427,7 @@ export const ai = {
         },
         { role: "user", content },
       ],
-    });
+    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
     const parsed = safeJsonParse<{
@@ -492,7 +495,7 @@ export const ai = {
           content: `问题：${target}\n\n完整简历原文：\n${resumeContent.slice(0, 3000)}`,
         },
       ],
-    });
+    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     return res.choices[0]?.message?.content?.trim() ?? "暂无优化建议";
   },
@@ -552,7 +555,7 @@ export const ai = {
         },
         { role: "user", content },
       ],
-    });
+    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
     const parsed = safeJsonParse<{
@@ -624,7 +627,7 @@ export const ai = {
         { role: "system", content: systemPrompt },
         { role: "user", content: `分析以下简历模板的文字内容，识别模块结构：\n\n${text.slice(0, 4000)}` },
       ],
-    });
+    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const content = res.choices[0]?.message?.content?.trim() ?? "";
     const result = safeJsonParse<{
@@ -667,7 +670,7 @@ export const ai = {
         },
         { role: "user", content: `简历文本：\n${text.slice(0, 3000)}` },
       ],
-    });
+    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const content = res.choices[0]?.message?.content?.trim() ?? "";
     const parsed = safeJsonParse<{ title: string; summary: string }>(content);
@@ -741,7 +744,7 @@ export const ai = {
       messages: [
         { role: "user", content: buildSkillsHtmlPrompt(categorizedSkills, skillStyle) },
       ],
-    });
+    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const html = res.choices[0]?.message?.content?.trim() ?? "";
     if (!html) return null;
