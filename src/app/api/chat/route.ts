@@ -21,23 +21,6 @@ import { streamAgent } from "@/lib/ai/graph";
 // 环境变量控制：启用 LangGraph Agent 模式
 const USE_LANGGRAPH = process.env.LANGGRAPH_ENABLED === "true";
 
-// 从 LangChain AIMessage.content 提取纯文本（可能是 string 或 content block 数组）
-function extractTextContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === "string") return part;
-        if (typeof part === "object" && part !== null && "text" in part) {
-          return String((part as { text: unknown }).text);
-        }
-        return "";
-      })
-      .join("");
-  }
-  return "";
-}
-
 export const POST = withRequestLog(async (request: NextRequest) => {
   // ── 解析请求 ──
   let body: { conversationId?: string; message: string };
@@ -214,13 +197,7 @@ export const POST = withRequestLog(async (request: NextRequest) => {
                       });
                     }
                   }
-                  // workerNode 用 model.invoke()（非流式），不会触发 on_chat_model_stream，
-                  // 这里从完整输出兜底提取 Worker 的文本回复
-                  const text = extractTextContent(output?.content);
-                  if (text) {
-                    fullReply += text;
-                    send({ content: text, conversationId: convId });
-                  }
+                  // 文本已由 on_chat_model_stream 累积，这里不再重复提取，避免双写
                   break;
                 }
                 case "on_tool_end": {

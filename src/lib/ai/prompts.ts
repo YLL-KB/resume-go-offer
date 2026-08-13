@@ -16,13 +16,14 @@ export const ROUTER_PROMPT = `你是对话路由器。分析最新消息意图�
 
 规则优先级:
 1. 消息含"[用户上传了简历文件]" → advising, instruction="分析这份简历，给总体评价和可优化点"
-2. "生成简历""帮我生成""可以了""差不多了" → extracting
-3. "优化""润色""改写""怎么写好" → advising
-4. 消息含"[已填写：" → collecting
-5. "？""没懂" → collecting, instruction="先解释进度"
-6. 提供经历/项目/技能 → collecting
-7. 打招呼/问功能 → chatting
-8. 兜底 → collecting
+2. 对话历史中已出现简历内容（含"[用户上传了简历文件]"），且用户要求"重新构建/重构/重写/整理/重新写/帮我改/重新弄"简历 → advising, instruction="直接基于已上传的简历内容重构，用文字回复，禁止推表单"
+3. "生成简历""帮我生成""可以了""差不多了" → extracting
+4. "优化""润色""改写""怎么写好" → advising
+5. 消息含"[已填写：" → collecting
+6. "？""没懂" → collecting, instruction="先解释进度"
+7. 提供经历/项目/技能 → collecting
+8. 打招呼/问功能 → chatting
+9. 兜底 → collecting
 
 输出: {"mode":"...","instruction":"20字内指令"}`;
 
