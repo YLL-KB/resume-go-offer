@@ -147,6 +147,7 @@ export const POST = withRequestLog(async (request: NextRequest) => {
     // ── 调用 AI 流式输出（LangGraph Agent 或 原始 Chat）──
     const encoder = new TextEncoder();
     let fullReply = "";
+    let pendingText = ""; // 当前 Worker invoke 的缓冲文本（工具调用循环会产生多次 invoke）
 
     let aborted = false;
     let saved = false;
@@ -176,14 +177,13 @@ export const POST = withRequestLog(async (request: NextRequest) => {
             for await (const event of streamAgent({ messages: agentInput })) {
               switch (event.event) {
                 case "on_chat_model_stream": {
-                  // 跳过 Router 节点的内部输出，只推送 Worker 内容给前端
+                  // 跳过 Router 节点的内部输出，只处理 Worker 内容
                   if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
                   const content = event.data?.chunk?.content;
                   if (content) {
-                    // 跳过开头的空白字符（模型常先吐 "\n"），避免"AI 正在思考"动画被提前顶掉、出现空白气泡
-                    if (!fullReply && !content.trim()) break;
-                    fullReply += content;
-                    send({ content, conversationId: convId });
+                    // 只缓冲不推送：Worker 调用工具前会先输出一段开场白（如"我来帮你优化…让我先搜索…"），
+                    // 与最终答复内容重复。待 on_chat_model_end 确认本轮无 tool_calls 后再一次性提交。
+                    pendingText += content;
                   }
                   break;
                 }
@@ -193,14 +193,23 @@ export const POST = withRequestLog(async (request: NextRequest) => {
                   const output = event.data?.output;
                   const toolCalls = output?.tool_calls;
                   if (toolCalls && toolCalls.length > 0) {
+                    // 本轮 Worker 只是发起工具调用，其开场白文本丢弃，避免与最终答复重复
+                    pendingText = "";
                     for (const tc of toolCalls) {
                       send({
                         tool_call: { name: tc.name, args: tc.args },
                         conversationId: convId,
                       });
                     }
+                  } else if (pendingText) {
+                    // 最终答复（无 tool_calls）：提交本轮缓冲的完整文本
+                    const content = pendingText.replace(/^\s+/, "");
+                    pendingText = "";
+                    if (content) {
+                      fullReply += content;
+                      send({ content, conversationId: convId });
+                    }
                   }
-                  // 文本已由 on_chat_model_stream 累积，这里不再重复提取，避免双写
                   break;
                 }
                 case "on_tool_end": {
