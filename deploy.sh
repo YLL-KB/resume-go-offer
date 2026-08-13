@@ -17,6 +17,7 @@ EXCLUDES=(
   --exclude='.git'
   --exclude='node_modules'
   --exclude='.next'
+  --exclude='.open-next'
   --exclude='.turbo'
   --exclude='.db'
   --exclude='.wrangler'
