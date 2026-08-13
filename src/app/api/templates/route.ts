@@ -13,17 +13,17 @@ export const dynamic = "force-dynamic";
 
 export const GET = withRequestLog(async () => {
   try {
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "templates");
+    const uploadDir = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "templates");
     const uploaded: Record<string, unknown>[] = [];
 
     try {
-      await fs.access(uploadDir);
-      const files = await fs.readdir(uploadDir);
+      await fs.access(/* turbopackIgnore: true */ uploadDir);
+      const files = await fs.readdir(/* turbopackIgnore: true */ uploadDir);
       const metaFiles = files.filter((f) => f.endsWith(".meta.json"));
 
       for (const mf of metaFiles) {
         try {
-          const raw = await fs.readFile(path.join(uploadDir, mf), "utf-8");
+          const raw = await fs.readFile(/* turbopackIgnore: true */ path.join(uploadDir, mf), "utf-8");
           const meta = JSON.parse(raw);
           uploaded.push({
             id: meta.id,

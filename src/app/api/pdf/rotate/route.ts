@@ -31,12 +31,12 @@ export const POST = withRequestLog(async (req: NextRequest) => {
       return NextResponse.json({ error: "angle 必须是 90、180 或 270" }, { status: 400 });
     }
 
-    const filePath = path.resolve(process.cwd(), "public", file.replace(/^\//, ""));
+    const filePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public", file.replace(/^\//, ""));
     if (!fs.existsSync(filePath)) {
       return NextResponse.json({ error: "文件不存在" }, { status: 404 });
     }
 
-    const pdfDoc = await PDFDocument.load(fs.readFileSync(filePath));
+    const pdfDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ filePath));
     const totalPages = pdfDoc.getPageCount();
 
     // 确定要旋转的页
@@ -51,7 +51,7 @@ export const POST = withRequestLog(async (req: NextRequest) => {
     }
 
     const outBytes = await pdfDoc.save();
-    const outDir = path.resolve(process.cwd(), "public/rotated");
+    const outDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public/rotated");
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
     const outName = `rotated-${Date.now()}.pdf`;
     fs.writeFileSync(path.join(outDir, outName), outBytes);

@@ -19,8 +19,8 @@ export const runtime = "nodejs";
 let _fontBytes: ArrayBuffer | null = null;
 async function getCjkFont(): Promise<ArrayBuffer> {
   if (_fontBytes) return _fontBytes;
-  const p = path.resolve(process.cwd(), "public", "NotoSansSC-Regular.otf");
-  if (fs.existsSync(p)) { _fontBytes = fs.readFileSync(p).buffer; return _fontBytes!; }
+  const p = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public", "NotoSansSC-Regular.otf");
+  if (fs.existsSync(p)) { _fontBytes = fs.readFileSync(/* turbopackIgnore: true */ p).buffer; return _fontBytes!; }
   throw new Error("请先下载 CJK 字体");
 }
 
@@ -129,10 +129,10 @@ export const POST = withRequestLog(async (req: NextRequest, { params }: { params
     const { strayEdits = [], moduleEdits = [], customPages = [], source } = body;
 
     const pdfDir = source === "analysis" ? "public/uploads/analysis" : "public/uploads/templates";
-    const pdfPath = path.resolve(process.cwd(), pdfDir, `${id}.pdf`);
+    const pdfPath = path.resolve(/* turbopackIgnore: true */ process.cwd(), pdfDir, `${id}.pdf`);
     if (!fs.existsSync(pdfPath)) return NextResponse.json({ error: source === "analysis" ? "分析文件不存在或已过期" : "模版不存在" }, { status: 404 });
 
-    const pdfDoc = await PDFDocument.load(fs.readFileSync(pdfPath));
+    const pdfDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ pdfPath));
     pdfDoc.registerFontkit(fontkit);
     const fontBytes = await getCjkFont();
     const font = await pdfDoc.embedFont(fontBytes);
@@ -202,7 +202,7 @@ export const POST = withRequestLog(async (req: NextRequest, { params }: { params
 
     // ═══ Part C: 自定义页 ═══
     if (customPages.length) {
-      const templateDoc = await PDFDocument.load(fs.readFileSync(pdfPath));
+      const templateDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ pdfPath));
       const page1Blocks = moduleEdits.filter(m => m.page === 1).flatMap(m => m.blocks);
 
       for (const cp of customPages) {
@@ -234,7 +234,7 @@ export const POST = withRequestLog(async (req: NextRequest, { params }: { params
 
     // 保存
     const filledBytes = await pdfDoc.save();
-    const filledDir = path.resolve(process.cwd(), "public/filled");
+    const filledDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public/filled");
     if (!fs.existsSync(filledDir)) fs.mkdirSync(filledDir, { recursive: true });
     const filledPath = path.join(filledDir, `${id}.pdf`);
     fs.writeFileSync(filledPath, filledBytes);

@@ -23,12 +23,12 @@ export const POST = withRequestLog(async (req: NextRequest) => {
     const mergedDoc = await PDFDocument.create();
 
     for (const file of files) {
-      const filePath = path.resolve(process.cwd(), "public", file.replace(/^\//, ""));
+      const filePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public", file.replace(/^\//, ""));
       if (!fs.existsSync(filePath)) {
         return NextResponse.json({ error: `文件不存在: ${file}` }, { status: 404 });
       }
 
-      const srcDoc = await PDFDocument.load(fs.readFileSync(filePath));
+      const srcDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ filePath));
       const copiedPages = await mergedDoc.copyPages(srcDoc, srcDoc.getPageIndices());
       for (const page of copiedPages) {
         mergedDoc.addPage(page);
@@ -36,7 +36,7 @@ export const POST = withRequestLog(async (req: NextRequest) => {
     }
 
     const mergedBytes = await mergedDoc.save();
-    const outDir = path.resolve(process.cwd(), "public/merged");
+    const outDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public/merged");
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
     const outName = `merged-${Date.now()}.pdf`;
     const outPath = path.join(outDir, outName);

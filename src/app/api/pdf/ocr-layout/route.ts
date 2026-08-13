@@ -130,14 +130,14 @@ export const POST = withRequestLog(async (req: NextRequest) => {
     };
     if (!file) return NextResponse.json({ error: "缺少 file 参数" }, { status: 400 });
 
-    const filePath = path.resolve(process.cwd(), "public", file.replace(/^\//, ""));
+    const filePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public", file.replace(/^\//, ""));
     if (!fs.existsSync(filePath)) {
       return NextResponse.json({ error: "文件不存在" }, { status: 404 });
     }
 
     // 读 PDF 并确定要分析的页
     const { PDFDocument } = await import("pdf-lib");
-    const pdfDoc = await PDFDocument.load(fs.readFileSync(filePath));
+    const pdfDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ filePath));
     const totalPages = pdfDoc.getPageCount();
     const targetPages = reqPages?.length
       ? reqPages.filter(p => p >= 1 && p <= totalPages)
@@ -147,7 +147,7 @@ export const POST = withRequestLog(async (req: NextRequest) => {
       return NextResponse.json({ error: "页码超出范围" }, { status: 400 });
     }
 
-    const pdfBuffer = fs.readFileSync(filePath);
+    const pdfBuffer = fs.readFileSync(/* turbopackIgnore: true */ filePath);
     const base64Pdf = pdfBuffer.toString("base64");
 
     // 逐页分析布局

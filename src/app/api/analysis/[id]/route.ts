@@ -14,11 +14,11 @@ export const GET = withRequestLog(async (_request: NextRequest,
   { params }: { params: Promise<{ id: string }> },) => {
   const { id: rawId } = await params;
   const id = rawId.endsWith(".pdf") ? rawId.slice(0, -4) : rawId;
-  const pdfPath = path.join(process.cwd(), "public", "uploads", "analysis", `${id}.pdf`);
+  const pdfPath = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "analysis", `${id}.pdf`);
 
   let fileBuffer: Buffer;
   try {
-    fileBuffer = await fs.readFile(pdfPath);
+    fileBuffer = await fs.readFile(/* turbopackIgnore: true */ pdfPath);
   } catch {
     return NextResponse.json({ error: "分析文件不存在或已过期" }, { status: 404 });
   }

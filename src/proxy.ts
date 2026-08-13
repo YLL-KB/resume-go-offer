@@ -16,7 +16,7 @@ function withHtmlNoCache(response: NextResponse, request: NextRequest) {
   return response;
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const ua = request.headers.get("user-agent") ?? "";
   const { pathname } = request.nextUrl;
 

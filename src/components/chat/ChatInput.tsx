@@ -29,6 +29,7 @@ export function ChatInput() {
     setConversationId,
     addMessage,
     appendToLastMessage,
+    clearLastAssistantMessage,
     setStreaming,
     setError,
     setResumeData,
@@ -222,6 +223,10 @@ export function ChatInput() {
                     detail: { type: parsed.tool_call.args.type as string },
                   }));
                 }
+                // 收到工具调用时，清空已推送的开场白（如"让我先搜索…"），避免与最终答复重复
+                if (parsed.tool_call) {
+                  clearLastAssistantMessage();
+                }
                 if (parsed.resumeData) {
                   setResumeData(parsed.resumeData as Partial<ResumeData>);
                   setShowPreview(true);
@@ -239,7 +244,7 @@ export function ChatInput() {
       setStreaming(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview]);
+  }, [isStreaming, conversationId, addMessage, appendToLastMessage, clearLastAssistantMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview]);
 
   // sendRaw 的 ref，供 handleFileUpload 等前置函数调用
   const sendRawRef = useRef(sendRaw);

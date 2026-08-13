@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 // ── 工具：拼接文件路径 ──
 function filePaths(id: string) {
-  const dir = path.join(process.cwd(), "public", "uploads", "templates");
+  const dir = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "templates");
   return {
     dir,
     pdf: path.join(dir, `${id}.pdf`),
@@ -37,7 +37,7 @@ export const GET = withRequestLog(async (request: NextRequest,
 
   let fileBuffer: Buffer;
   try {
-    fileBuffer = await fs.readFile(pdfPath);
+    fileBuffer = await fs.readFile(/* turbopackIgnore: true */ pdfPath);
   } catch {
     return NextResponse.json(
       { error: "模版文件不存在" },
@@ -76,7 +76,7 @@ export const DELETE = withRequestLog(async (request: NextRequest,
 
   // 检查上传者（若 meta 中无 uploadedBy 则兼容旧数据，仅拒绝明确不匹配的）
   try {
-    const raw = await fs.readFile(metaPath, "utf-8");
+    const raw = await fs.readFile(/* turbopackIgnore: true */ metaPath, "utf-8");
     const meta = JSON.parse(raw);
     if (meta.uploadedBy && meta.uploadedBy !== userId) {
       return NextResponse.json({ error: "无权删除此模版" }, { status: 403 });
@@ -97,7 +97,7 @@ export const DELETE = withRequestLog(async (request: NextRequest,
   // 检查文件是否存在
   let metaExists = false;
   try {
-    await fs.access(metaPath);
+    await fs.access(/* turbopackIgnore: true */ metaPath);
     metaExists = true;
   } catch {
     // meta 不存在

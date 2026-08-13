@@ -59,6 +59,7 @@ interface ChatState {
   addMessage: (msg: ChatMessage) => void;
   setMessages: (msgs: ChatMessage[]) => void;
   appendToLastMessage: (content: string) => void;
+  clearLastAssistantMessage: () => void;
   setStreaming: (v: boolean) => void;
   setError: (err: string | null) => void;
   setResumeData: (data: Partial<ResumeData>) => void;
@@ -112,6 +113,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const last = msgs[msgs.length - 1];
       if (last && last.role === "assistant") {
         msgs[msgs.length - 1] = { ...last, content: last.content + content };
+      }
+      return { messages: msgs };
+    }),
+
+  clearLastAssistantMessage: () =>
+    set((s) => {
+      const msgs = [...s.messages];
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === "assistant") {
+        msgs[msgs.length - 1] = { ...last, content: "" };
       }
       return { messages: msgs };
     }),

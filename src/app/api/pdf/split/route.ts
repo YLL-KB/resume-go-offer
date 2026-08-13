@@ -40,12 +40,12 @@ export const POST = withRequestLog(async (req: NextRequest) => {
     if (!file) return NextResponse.json({ error: "缺少 file 参数" }, { status: 400 });
     if (!pages) return NextResponse.json({ error: "缺少 pages 参数" }, { status: 400 });
 
-    const filePath = path.resolve(process.cwd(), "public", file.replace(/^\//, ""));
+    const filePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public", file.replace(/^\//, ""));
     if (!fs.existsSync(filePath)) {
       return NextResponse.json({ error: "文件不存在" }, { status: 404 });
     }
 
-    const srcDoc = await PDFDocument.load(fs.readFileSync(filePath));
+    const srcDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ filePath));
     const totalPages = srcDoc.getPageCount();
     const pageNums = parsePages(pages, totalPages);
 
@@ -53,7 +53,7 @@ export const POST = withRequestLog(async (req: NextRequest) => {
       return NextResponse.json({ error: "页码超出范围" }, { status: 400 });
     }
 
-    const outDir = path.resolve(process.cwd(), "public/split");
+    const outDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public/split");
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
     // 每组连续页码合为一个 PDF

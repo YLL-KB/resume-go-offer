@@ -14,16 +14,16 @@ export const dynamic = "force-dynamic";
 export const POST = withRequestLog(async (_request: NextRequest,
   { params }: { params: Promise<{ id: string }> },) => {
   const { id } = await params;
-  const pdfPath = path.join(process.cwd(), "public", "uploads", "templates", `${id}.pdf`);
+  const pdfPath = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "templates", `${id}.pdf`);
 
-  try { await fs.access(pdfPath); } catch {
+  try { await fs.access(/* turbopackIgnore: true */ pdfPath); } catch {
     return NextResponse.json({ error: "模版文件不存在" }, { status: 404 });
   }
 
   try {
-    const pdfBuffer = await fs.readFile(pdfPath);
+    const pdfBuffer = await fs.readFile(/* turbopackIgnore: true */ pdfPath);
     const pdfjs = await import("pdfjs-dist");
-    pdfjs.GlobalWorkerOptions.workerSrc = path.join(process.cwd(), "public", "pdf.worker.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "pdf.worker.mjs");
 
     const pdf = await pdfjs.getDocument({ data: pdfBuffer.buffer }).promise;
     const texts: string[] = [];
@@ -37,7 +37,7 @@ export const POST = withRequestLog(async (_request: NextRequest,
     if (fullText.length < 20) {
       let name = id;
       try {
-        const metaRaw = await fs.readFile(path.join(process.cwd(), "public", "uploads", "templates", `${id}.meta.json`), "utf-8");
+        const metaRaw = await fs.readFile(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "templates", `${id}.meta.json`), "utf-8");
         name = JSON.parse(metaRaw).name ?? id;
       } catch { /* ignore */ }
       return NextResponse.json({ title: name, summary: "该 PDF 内可提取的文本内容较少，无法自动生成摘要。", rawLength: fullText.length });

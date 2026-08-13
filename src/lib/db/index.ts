@@ -52,7 +52,7 @@ export function getDb(): DrizzleD1Database<typeof schema> | ReturnType<typeof dr
   if (localDb) return localDb;
 
   // ── 本地开发：SQLite fallback + 自动建表 ──
-  const dbDir = path.resolve(process.cwd(), ".db");
+  const dbDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), ".db");
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
   }

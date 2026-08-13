@@ -147,7 +147,8 @@ export const POST = withRequestLog(async (request: NextRequest) => {
     // ── 调用 AI 流式输出（LangGraph Agent 或 原始 Chat）──
     const encoder = new TextEncoder();
     let fullReply = "";
-    let pendingText = ""; // 当前 Worker invoke 的缓冲文本（工具调用循环会产生多次 invoke）
+    let currentRunId: string | null = null;
+    let runText = ""; // 当前 invoke 已实时推送的文本（用于保存去重：工具调用轮次的文本丢弃）
 
     let aborted = false;
     let saved = false;
@@ -179,11 +180,18 @@ export const POST = withRequestLog(async (request: NextRequest) => {
                 case "on_chat_model_stream": {
                   // 跳过 Router 节点的内部输出，只处理 Worker 内容
                   if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
+                  // 用 run_id 区分不同轮次的 invoke（工具调用循环会产生多次 invoke）
+                  const runId = (event as { run_id?: string }).run_id;
+                  if (runId && runId !== currentRunId) {
+                    currentRunId = runId;
+                    runText = "";
+                  }
                   const content = event.data?.chunk?.content;
                   if (content) {
-                    // 只缓冲不推送：Worker 调用工具前会先输出一段开场白（如"我来帮你优化…让我先搜索…"），
-                    // 与最终答复内容重复。待 on_chat_model_end 确认本轮无 tool_calls 后再一次性提交。
-                    pendingText += content;
+                    // 跳过开头的空白字符，避免空白气泡闪现
+                    if (!fullReply && !runText && !content.trim()) break;
+                    runText += content;
+                    send({ content, conversationId: convId });
                   }
                   break;
                 }
@@ -193,22 +201,18 @@ export const POST = withRequestLog(async (request: NextRequest) => {
                   const output = event.data?.output;
                   const toolCalls = output?.tool_calls;
                   if (toolCalls && toolCalls.length > 0) {
-                    // 本轮 Worker 只是发起工具调用，其开场白文本丢弃，避免与最终答复重复
-                    pendingText = "";
+                    // 本轮只是发起工具调用，其开场白不纳入保存；前端收到 tool_call 后也会清空已推送的开场白
+                    runText = "";
                     for (const tc of toolCalls) {
                       send({
                         tool_call: { name: tc.name, args: tc.args },
                         conversationId: convId,
                       });
                     }
-                  } else if (pendingText) {
-                    // 最终答复（无 tool_calls）：提交本轮缓冲的完整文本
-                    const content = pendingText.replace(/^\s+/, "");
-                    pendingText = "";
-                    if (content) {
-                      fullReply += content;
-                      send({ content, conversationId: convId });
-                    }
+                  } else if (runText) {
+                    // 最终答复（无 tool_calls）：文本已实时流式推送，这里仅纳入 fullReply 用于落库
+                    fullReply += runText;
+                    runText = "";
                   }
                   break;
                 }

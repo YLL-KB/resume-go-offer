@@ -45,7 +45,7 @@ export const POST = withRequestLog(async (request: NextRequest) => {
     const id = crypto.randomUUID();
 
     // 保存 PDF 文件
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "templates");
+    const uploadDir = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "templates");
     await fs.mkdir(uploadDir, { recursive: true });
 
     const pdfPath = path.join(uploadDir, `${id}.pdf`);
