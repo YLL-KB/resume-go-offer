@@ -149,6 +149,7 @@ export const POST = withRequestLog(async (request: NextRequest) => {
     let fullReply = "";
 
     let aborted = false;
+    let saved = false;
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -239,7 +240,7 @@ export const POST = withRequestLog(async (request: NextRequest) => {
               role: "assistant",
               content: fullReply,
               createdAt: new Date().toISOString(),
-            });
+            }).then(() => { saved = true; });
 
             let titlePromise: Promise<unknown> = Promise.resolve();
             if (history.length === 0) {
@@ -261,15 +262,19 @@ export const POST = withRequestLog(async (request: NextRequest) => {
             await Promise.all([savePromise.catch((e: unknown) => console.error("Failed to save AI reply:", e)), titlePromise]);
           }
 
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          try {
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          } catch {
+            // 客户端已断开，无需推送 [DONE]
+          }
           controller.close();
         } catch (err) {
           if (!aborted) {
             console.error("Stream error:", err);
             send({ error: "AI 回复出错，请重试" });
           }
-          // 即使流中断，也把已生成的部分回复落库，避免整条丢失
-          if (fullReply) {
+          // 即使流中断，也把已生成的部分回复落库，避免整条丢失（已保存过则跳过）
+          if (fullReply && !saved) {
             try {
               await db.insert(messages).values({
                 id: crypto.randomUUID(),
@@ -278,6 +283,7 @@ export const POST = withRequestLog(async (request: NextRequest) => {
                 content: fullReply,
                 createdAt: new Date().toISOString(),
               });
+              saved = true;
             } catch (e) {
               console.error("Failed to save partial AI reply:", e);
             }

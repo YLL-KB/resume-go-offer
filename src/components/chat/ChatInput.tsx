@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
 import { useChatStore, type ResumeData } from "@/stores/chat-store";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +13,6 @@ import { mergeArrayItems, type AnyRecord } from "@/lib/utils/merge-data";
 const MAX_BUFFER_BYTES = 1024 * 1024; // 1MB SSE buffer limit
 
 export function ChatInput() {
-  const router = useRouter();
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -212,7 +210,8 @@ export function ChatInput() {
               if (sameConv) {
                 if (parsed.conversationId && !conversationId) {
                   setConversationId(parsed.conversationId);
-                  router.replace(`${location.pathname.startsWith("/m/") ? "/m" : ""}/chat/${parsed.conversationId}`);
+                  // 用 history.replaceState 更新 URL，避免 router.replace 触发页面重挂载导致 SSE 流中断
+                  window.history.replaceState(null, "", `${location.pathname.startsWith("/m/") ? "/m" : ""}/chat/${parsed.conversationId}`);
                 }
                 if (parsed.title) {
                   setConversations((prev) => prev.map((c) => c.id === effectiveConvId ? { ...c, title: parsed.title as string } : c));
@@ -240,7 +239,7 @@ export function ChatInput() {
       setStreaming(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview, router]);
+  }, [isStreaming, conversationId, addMessage, appendToLastMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview]);
 
   // sendRaw 的 ref，供 handleFileUpload 等前置函数调用
   const sendRawRef = useRef(sendRaw);
