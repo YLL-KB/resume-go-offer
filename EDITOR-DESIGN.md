@@ -21,20 +21,20 @@
 
 **定位**：保留模版的设计感（字体、颜色、位置、对齐），只改文字内容。
 
-**数据模型**：从 PDF 中提取的 `RichTextBlock[]`，每个 block 包含：
+**数据模型**：从 PDF 中提取的 `RichTextBlock[]`。基础字段 `TextBlock` 定义于 `src/components/preview/ClickablePdfView.tsx`，`RichTextBlock` 在其上扩展字号/字体/颜色：
 
 ```typescript
-interface RichTextBlock {
-  globalIndex: number;   // 全局唯一序号
-  page: number;          // 所在页
-  x: number;             // PDF 原生 x 坐标（从左）
-  y: number;             // PDF 原生 y 坐标（从底）
-  width: number;         // 文字块宽度
-  height: number;        // 文字块高度
-  text: string;          // 原文
-  fontSize: number;      // 字号
-  fontName: string;      // 字体名
-  color: string;         // 颜色 (hex)
+// src/components/preview/ClickablePdfView.tsx
+interface TextBlock {
+  x: number; y: number; width: number; height: number;
+  text: string; page: number; globalIndex: number; pageHeight: number;
+}
+
+// src/lib/pdf/text-extractor.ts
+interface RichTextBlock extends TextBlock {
+  fontSize: number;  // 字号
+  fontName: string;  // 字体名
+  color: string;     // 颜色 (hex)
 }
 ```
 
@@ -64,21 +64,19 @@ RichTextBlock { x=行最左, y=行基线, width=行宽+16, height=行高+6, ... 
 
 ### Layer 2：自定义页 — 自由排版编辑
 
-**定位**：当简历内容超过一页时，在保留模版视觉风格的前提下，新增页面自由填写内容。
+> **已简化**：原先用 TipTap 富文本编辑器 +「+ 添加页面」按钮。TipTap 及编辑 UI 现已移除，
+> 仅保留数据模型 `CustomPage` 和 `fill` API 的 Part C 渲染逻辑，前端暂无编辑入口。
 
-**数据模型**：
+**数据模型**（保留）：
 
 ```typescript
 interface CustomPage {
   id: string;        // "custom-0", "custom-1" ...
-  markdown: string;  // TipTap 输出的 HTML
+  markdown: string;  // 自定义页内容（HTML 片段，由 parseHtmlToLines 解析）
 }
 ```
 
-**为什么用富文本（TipTap）而不是继续逐块编辑**：
-- 自定义页没有预置文字块，无法也无必要逐块放置
-- 用户需要连续排版（段落、标题、列表），富文本编辑器天然适合
-- 导出时按 A4 排版规则自动计算 y 坐标，从上到下流式渲染
+导出时按 A4 排版规则自动计算 y 坐标，从上到下流式渲染。
 
 **底版继承**：自定义页不是纯白纸，而是**复制模版第一页 → 涂白所有文字块**，保留模版的边框、线条、图标等装饰元素：
 
@@ -184,7 +182,7 @@ if (customPages.length > 0):
               │
               ▼
     ┌──────────────────────────┐
-    │ htmlToTextLines()         │  解析 TipTap 输出的 HTML
+    │ parseHtmlToLines()        │  解析自定义页 HTML 片段
     │ → TextLine[]              │  提取标题/列表/段落结构
     └──────────────────────────┘
               │
@@ -211,41 +209,34 @@ public/filled/{id}.pdf  (每次覆盖写入)
 
 ## HTML → PDF 文本解析
 
-TipTap 富文本编辑器输出 HTML，填充 API 需要将其转为可绘制的文本行。
+自定义页内容（`CustomPage.markdown`，HTML 片段）在 `fill` API 中通过 `parseHtmlToLines()` 转为可绘制的文本行（`src/app/api/templates/[id]/fill/route.ts`）。
 
 ### 解析流程
 
 ```
-输入 HTML (TipTap 输出):
+输入 HTML 片段 (自定义页 markdown 字段):
   <h2>项目经验</h2>
   <p>负责XX系统架构设计</p>
   <ul>
-    <li><p>带领5人团队</p></li>
-    <li><p>性能优化30%</p></li>
+    <li>带领5人团队</li>
+    <li>性能优化30%</li>
   </ul>
 
-      ↓ htmlToTextLines()
+      ↓ parseHtmlToLines(html, titleSize, bodySize)
 
-解码实体:   &amp; → &, &nbsp; → 空格, etc.
+先解码实体:  &amp;→&, &lt;→<, &gt;→>, &nbsp;→空格, &ldquo;→“ ...
       ↓
-标签转换:
-  <h2>  → \n[H2]        (标题标记，与文字同行)
-  </h2> → (移除)
-  <li>  → \n[LI]        (列表标记)
-  </p>  → \n            (段落换行)
-  <p>   → (移除)
-  <ul>  → \n            (列表容器换行)
+按块分割: 正则匹配 <h1>~<h6> / <p> / <li> / <ul>|<ol> 块
       ↓
-剥离剩余标签:  <strong>, <em>, <span> 等全部移除
+逐块识别:
+  <h1>~<h6> → bold 标题，字号 = titleSize + 偏移（h1=+6, h2=+4, h3=+0 ...）
+  <p>      → 正文，字号 = bodySize
+  <li>     → "• 内容"，indent=18，字号 = bodySize
+  <ul>/<ol> → 跳过（容器块）
       ↓
-按 \n 分割，逐行识别标记:
-  [H1] → fontSize=titleSize+4, bold, indent=0
-  [H2] → fontSize=titleSize,   bold, indent=0
-  [H3] → fontSize=titleSize-2, bold, indent=0
-  [LI] → fontSize=bodySize,    indent=18  (缩进)
-  其他  → fontSize=bodySize,   indent=0
+内联处理: collectInline() 提取 <span style="color:..."> 的颜色，剥离其余标签
       ↓
-输出 TextLine[]
+输出 TextLine[]（text / fontSize / indent / spaceBefore / spaceAfter / bold / color）
 ```
 
 ### 风格继承
@@ -275,10 +266,11 @@ EditorState
 │   ├── templateId
 │   └── pdfUrl
 │
-├── Markdown 提取（MinerU 管线，预留）
-│   ├── markdown, markdownSource
+├── Markdown 提取（MinerU / pdfjs 降级）
+│   ├── markdown, markdownSource（"mineru" | "mineru-flash" | "pdfjs"）
 │   ├── mdModules, activeModuleId
 │   ├── editedModules, deletedModules
+│   ├── moduleContents（模块级 HTML 编辑）
 │   └── parsing
 │
 ├── 图片
@@ -292,15 +284,20 @@ EditorState
 │   ├── removeCustomPage()
 │   └── updateCustomPage()
 │
+├── AI 分析
+│   └── aiAnalysis, setAiAnalysis
+│
 └── 持久化
     ├── resumeData, resumeId
     └── saving, saved
 ```
 
+**持久化**：`persist` 中间件只把 `aiAnalysis` 序列化到 sessionStorage，其余为运行时内存态（切换模版时通过 `setTemplate` 重置）。
+
 **为什么图片和自定义页放在 store 而不是组件 state**：
 - 切换模版时需要重置所有这些状态
 - 保存草稿时需要完整序列化
-- 未来接入 MinerU 管线时会增加更多交叉依赖
+- MinerU 管线会带来更多交叉依赖
 
 ---
 
@@ -349,16 +346,11 @@ MinerU    → "提取语义，重新排版"    → 抛弃模版设计
 
 **两者可以互补：** MinerU 用来做**语义标注**——识别每个文字块是"姓名"还是"工作经历标题"，辅助自动填表；但填充回 PDF 还是用 pdfjs-dist 的坐标方案。
 
-**当前 MinerU 代码状态：** `mineru-extractor.ts`、`extract.ts`、`extract-markdown/route.ts` 已实现，但 `extractMarkdown()` / `parseMarkdownModules()` 零引用未接通。store 中预留的 `markdown` / `mdModules` 字段也一直空着。
+**当前 MinerU 代码状态：** `mineru-extractor.ts`、`extract-markdown/route.ts` 已实现并接通。提取流程为：MinerU 高精度（需 `MINERU_TOKEN`）→ 降级 MinerU Flash → 降级 pdfjs-dist 本地提取。`extractMarkdown()` / `parseMarkdownModules()` 已接入编辑器，`markdownSource` 字段标记实际使用的来源。
 
-### 3. 为什么自定义页用 TipTap 而不是 Milkdown？
+### 3. 自定义页编辑器：富文本 → 纯文本
 
-虽然 `@milkdown/*` 包已安装（原计划用于 MinerU 管线的 Markdown 编辑），但 TipTap 有以下优势：
-- 已在本项目中稳定运行（`RichTextEditor.tsx`）
-- 输出 HTML 更容易在服务端解析
-- 中文支持开箱即用
-
-Milkdown 更适合纯 Markdown 编辑场景，后续接通 MinerU 管线时可能会切换。
+早期自定义页用 TipTap 富文本（曾对比过 Milkdown），后因编辑器整体简化为「模版页逐块 Textarea + AI 分析」而移除。当前 `@tiptap/*`、`@milkdown/*` 依赖均已移除，`src/components/editor/` 目录清空；自定义页的数据模型 `CustomPage.markdown` 与 `fill` API 的 `parseHtmlToLines` 渲染逻辑仍保留，但前端暂无编辑入口。
 
 ### 4. 为什么不支持拖拽移动文字块？
 

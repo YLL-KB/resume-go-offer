@@ -4,7 +4,7 @@
 
 - **项目根：** `/Users/loong/code/resume-go-offer`
 - **框架：** Next.js 16 App Router (Turbopack)
-- **数据库：** Cloudflare D1（本地开发用 wrangler d1）
+- **数据库：** SQLite (better-sqlite3) 本地开发 / Cloudflare D1（`getDb()` 自动切换）
 - **AI Agent：** LangGraph + LangChain（OpenAI 兼容 SDK）
 - **包管理：** `pnpm`
 - **开发命令：** `pnpm dev`（端口 3000）
@@ -102,7 +102,7 @@ src/app/chat/
 ChatInput（用户输入）
   → /api/chat（SSE Streaming）
     → LangGraph Agent（工具调用循环）
-      → pushForm / extractResume / suggestOptimization
+      → pushForm / extractResume / suggestOptimization / searchKnowledge
     → 前端实时渲染 Markdown + 表单卡片
   → ChatMessages（消息列表 + ChatBubble 气泡）
   → ResumePreviewPanel（简历预览面板，分栏拖拽）
@@ -112,7 +112,7 @@ ChatInput（用户输入）
 - `src/lib/ai/index.ts` — AI Agent 入口（createAgent 工厂函数）
 - `src/lib/ai/graph.ts` — LangGraph StateGraph 定义 + 节点编排
 - `src/lib/ai/prompts.ts` — 系统提示词 + 提取提示词 + 开场白
-- `src/lib/ai/tools.ts` — 工具注册（pushForm / extractResume / suggestOptimization）
+- `src/lib/ai/tools.ts` — 工具注册（pushForm / extractResume / suggestOptimization / searchKnowledge）
 - `src/lib/ai/knowledge.ts` — RAG 知识库检索
 - `src/lib/ai/vectorstore.ts` — 自研向量存储（Embedding + 相似度搜索）
 - `src/lib/ai/embeddings.ts` — Embedding 生成
@@ -150,7 +150,7 @@ data: [DONE]
 - `/chat` → 新对话，ChatContent 挂载，local state 干净
 - `/chat/[id]` → 已有对话，路由切换时组件卸载重挂载，所有 local state（resumeData、showPreview、isExtracting 等）天然清零
 - 只有 conversations 列表和主题等全局字段留在 Zustand store
-- 新对话发送第一条消息后 → `router.replace("/chat/<new-id>")` 同步 URL
+- 新对话发送第一条消息后 → `window.history.replaceState` 更新 URL 为 `/chat/<new-id>`（用 `router.replace` 会触发页面重挂载、中断 SSE 流）
 
 ### 6. 模版系统
 
@@ -188,10 +188,13 @@ data: [DONE]
 |------|------|------|
 | `/` | 首页 | 营销落地页，唯一 CTA 指向 `/chat` |
 | `/chat` | AI 对话 | **核心入口**，对话式简历生成 |
+| `/m/chat` | 移动端对话 | 移动端聊天界面 |
 | `/resume/new?template=xxx` | 新建简历 | PDF 编辑器 |
-| `/resume/builder` | 手动填表 | 遗留功能 |
+| `/resume/list` | 简历列表 | 已保存简历 |
 | `/resume/preview` | 独立预览 | 从 localStorage 读取数据渲染 |
-| `/login` | 登录 | Authing OIDC |
+| `/applications` | 投递记录 | 岗位投递管理 |
+| `/admin` | 管理后台 | 请求日志查看 |
+| `/login` | 登录 | GitHub / Authing / 微信 |
 
 ---
 
@@ -207,9 +210,8 @@ data: [DONE]
 - 导出时坐标原样传给 fill API，pdf-lib 在相同位置覆盖文字
 
 **Layer 2 — 自定义页（自由排版）：**
-- 用户点击「+ 添加页面」→ 复制模版第一页作为底版（保留边框/线条/装饰）
-- 底版上所有文字块涂白 → 用 TipTap 富文本编辑器自由编辑
-- 导出时 HTML 解析为 TextLine（标题/列表/正文），从文字区域下方开始排版
+- 已简化：TipTap 富文本和「+ 添加页面」编辑 UI 已移除，仅保留 `CustomPage.markdown` 数据模型和 `fill` API 的 Part C 渲染逻辑
+- 导出时 `parseHtmlToLines()` 解析为 TextLine（标题/列表/正文），从文字区域下方开始排版
 
 ### 坐标系统（重要！）
 
@@ -231,7 +233,7 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
 3. Part B — 自定义页：
    - copyPages() 复制模版第一页
    - 涂白所有文字块
-   - htmlToTextLines() 解析 HTML → TextLine[]
+   - parseHtmlToLines() 解析 HTML → TextLine[]
    - 从文字区域下方逐行渲染，超出自动续页
 4. 输出 public/filled/{id}.pdf
 ```
@@ -252,18 +254,18 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
 
 ## 架构决策
 
-### D1 vs 本地文件
+### 数据库 vs 本地文件
 
-- **用户数据和简历内容** → D1 数据库（applications、resumes 表）
+- **用户数据和简历内容** → 数据库（SQLite `.db/local.db` 或 D1），表：users / conversations / messages / resumes / applications / request_logs
 - **模版文件** → 本地文件系统 `public/uploads/templates/`
-- 原因：D1 不适合存储大文件，PDF 作为静态资源更高效
+- 原因：数据库不适合存储大文件，PDF 作为静态资源更高效
 
 ### 开发环境
 
 - **`pnpm dev`** 而非 `wrangler dev`
   - `wrangler dev` 会尝试连接 Cloudflare 远程代理，本机因无有效 token 会失败
   - `pnpm dev` 仅启动 Next.js，API 路由中 `runtime = "nodejs"` 正常生效
-  - D1 本地数据库由 wrangler 后台自动管理
+  - 本地数据库用 SQLite（`better-sqlite3`），数据在 `.db/local.db`，启动时自动建表
 
 ### AI 调用
 
@@ -292,12 +294,14 @@ src/
 │   │   ├── page.tsx                    # 新对话页
 │   │   ├── [id]/page.tsx               # 已有对话页（路由隔离，切换即卸载）
 │   │   └── loading.tsx                 # 路由切换 loading
+│   ├── m/chat/                         # 移动端对话页
+│   ├── admin/                          # 管理后台（请求日志）
+│   ├── applications/                   # 投递记录页
 │   ├── resume/
 │   │   ├── new/
 │   │   │   ├── page.tsx                # 新建简历页
 │   │   │   └── ResumeNewContent.tsx    # 编辑器主组件（页签切换、导出逻辑）
-│   │   ├── edit/page.tsx               # 编辑已有简历
-│   │   ├── builder/page.tsx            # 手动填表（遗留）
+│   │   ├── list/page.tsx               # 简历列表
 │   │   └── preview/page.tsx            # 独立简历预览页
 │   └── api/
 │       ├── chat/
@@ -305,8 +309,10 @@ src/
 │       │   ├── history/route.ts        # GET 对话列表
 │       │   ├── history/[id]/route.ts   # DELETE 删除对话
 │       │   ├── extract/route.ts        # POST 提取简历数据
+│       │   ├── greeting/route.ts       # GET 开场白
 │       │   ├── messages/[id]/route.ts  # GET 历史消息
 │       │   └── parse-attachment/route.ts # POST 解析上传附件
+│       ├── auth/                       # 登录（GitHub / Authing / 微信）
 │       ├── templates/
 │       │   ├── route.ts                # GET 列表
 │       │   ├── upload/route.ts         # POST 上传
@@ -324,10 +330,13 @@ src/
 │       │   ├── parse-resume/route.ts
 │       │   ├── generate-summary/route.ts
 │       │   └── upload-resume/route.ts
+│       ├── analysis/                   # AI 简历分析结果
 │       ├── resume/
 │       │   ├── route.ts                # POST 创建 + GET 列表
 │       │   ├── [id]/route.ts           # GET/PUT/DELETE 单个简历
 │       │   └── render-skills/route.ts  # POST 技能渲染
+│       ├── applications/               # 投递记录 CRUD
+│       ├── admin/                      # 管理 API（日志/用户）
 │       └── pdf/                        # PDF 工具（合并/拆分/旋转/OCR）
 ├── components/
 │   ├── ui/                             # shadcn/ui 组件库
@@ -339,17 +348,11 @@ src/
 │   │   ├── ChatInput.tsx               # 输入框 + SSE 流处理 + 表单事件桥接 + 附件上传
 │   │   ├── FormCard.tsx                # 6 种结构化表单组件
 │   │   ├── ResumePreviewPanel.tsx      # 简历预览面板（模板切换 + 打印导出）
-│   │   └── EditResumeForm.tsx          # 简历编辑弹窗
-│   ├── editor/
-│   │   ├── RichTextEditor.tsx          # TipTap 富文本编辑器（自定义页用）
-│   │   ├── MarkdownEditor.tsx          # 纯文本 Markdown 编辑器
-│   │   ├── FullEditor.tsx              # 结构化表单编辑器
-│   │   ├── SectionEditor.tsx           # 按模块分区的编辑器
-│   │   ├── ModuleList.tsx              # 模块列表
-│   │   ├── UploadZone.tsx              # 文件拖拽上传区
-│   │   └── extensions/                 # TipTap 自定义扩展
-│   │       ├── FontSize.ts
-│   │       └── TextIndent.ts
+│   │   ├── EditResumeForm.tsx          # 简历编辑弹窗
+│   │   └── mobile/                     # 移动端对话组件
+│   │       ├── MobileChatContent.tsx
+│   │       └── MobileChatHeader.tsx
+│   ├── ClientLayout.tsx                # 客户端布局
 │   ├── preview/
 │   │   ├── ClickablePdfView.tsx        # 可点击的 PDF 预览（react-pdf）
 │   │   ├── PdfPageView.tsx             # 多页 PDF 预览
@@ -358,15 +361,7 @@ src/
 │   │   ├── use-auto-one-page.ts        # 自动单页缩放 hook
 │   │   └── use-content-height.ts       # 内容高度监听 hook
 │   ├── resume/
-│   │   ├── TemplateModern.tsx          # 现代风格简历模板（核心输出模板）
-│   │   ├── TemplateClassic.tsx         # 经典风格简历模板
-│   │   ├── BasicInfoStep.tsx           # 基本信息表单
-│   │   ├── EducationStep.tsx
-│   │   ├── ExperienceStep.tsx
-│   │   ├── ProjectStep.tsx
-│   │   ├── SkillsStep.tsx
-│   │   └── StepIndicator.tsx
-│   ├── resume-editor.tsx               # 简历编辑器（供旧页面使用）
+│   │   └── TemplateResume.tsx          # 简历模板组件
 │   └── templates/
 │       ├── classic/                    # 经典模版渲染器
 │       │   ├── config.ts
@@ -381,21 +376,24 @@ src/
 │   ├── ai/
 │   │   ├── index.ts                    # AI Agent 入口（createAgent 工厂）
 │   │   ├── graph.ts                    # LangGraph StateGraph 定义 + 节点编排
-│   │   ├── tools.ts                    # 工具注册（pushForm/extractResume/suggestOptimization）
+│   │   ├── tools.ts                    # 工具注册（pushForm/extractResume/suggestOptimization/searchKnowledge）
 │   │   ├── prompts.ts                  # 系统提示词 + 提取提示词 + 开场白
 │   │   ├── knowledge.ts                # RAG 知识库检索
 │   │   ├── vectorstore.ts              # 自研向量存储（Embedding + 相似度搜索）
 │   │   ├── embeddings.ts               # Embedding 生成
 │   │   └── attachment-parser.ts        # 附件解析（PDF/图片 → 文字提取）
-│   ├── auth/                           # Authing OIDC 认证
+│   ├── auth/                           # GitHub / Authing / 微信认证
 │   ├── db/
 │   │   ├── schema.ts                   # Drizzle ORM Schema
-│   │   └── index.ts                    # DB 连接（D1 / SQLite fallback）
+│   │   └── index.ts                    # DB 连接（SQLite / D1 fallback）
 │   ├── pdf/
 │   │   ├── text-extractor.ts           # pdfjs-dist 文字块提取
 │   │   ├── mineru-extractor.ts         # MinerU 客户端封装
+│   │   ├── module-detector.ts          # 模块检测
 │   │   ├── image-extractor.ts          # PDF 图片提取
 │   │   └── page-renderer.ts            # Canvas 页面渲染
+│   ├── editor/
+│   │   └── html-parser.ts              # 模块 HTML 解析
 │   ├── api/
 │   │   ├── resume.ts                   # 简历 CRUD API 客户端
 │   │   └── templates.ts                # 模版 API 客户端
