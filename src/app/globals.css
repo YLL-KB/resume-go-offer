@@ -290,4 +290,20 @@
   text-decoration: underline;
 }
 
+/* 流式输出光标：标记 AI 仍在生成（输出中途变慢时提示用户未卡死） */
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: #10b981;
+  border-radius: 1px;
+  animation: streaming-cursor-blink 1s step-end infinite;
+}
+@keyframes streaming-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 

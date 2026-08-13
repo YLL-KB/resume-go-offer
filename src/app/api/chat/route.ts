@@ -180,6 +180,8 @@ export const POST = withRequestLog(async (request: NextRequest) => {
                   if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
                   const content = event.data?.chunk?.content;
                   if (content) {
+                    // 跳过开头的空白字符（模型常先吐 "\n"），避免"AI 正在思考"动画被提前顶掉、出现空白气泡
+                    if (!fullReply && !content.trim()) break;
                     fullReply += content;
                     send({ content, conversationId: convId });
                   }
@@ -226,6 +228,8 @@ export const POST = withRequestLog(async (request: NextRequest) => {
             for await (const chunk of stream) {
               const content = chunk.choices[0]?.delta?.content;
               if (content) {
+                // 跳过开头的空白字符，避免空白气泡闪现
+                if (!fullReply && !content.trim()) continue;
                 fullReply += content;
                 send({ content, conversationId: convId });
               }

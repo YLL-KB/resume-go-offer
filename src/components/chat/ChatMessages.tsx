@@ -152,6 +152,12 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds, userAvatarUrl }: { msg
   const hasContent = text.length > 0 || forms.length > 0;
   if (!hasContent) return null;
 
+  // 最后一条 AI 消息正在流式输出时，末尾追加闪烁光标，提示仍在生成
+  const isLastStreaming = isStreaming && !isUser && messages[messages.length - 1]?.id === msg.id;
+  const renderHtml = isLastStreaming
+    ? marked.parse(`${text}<span class="streaming-cursor"></span>`, { async: false }) as string
+    : marked.parse(text, { async: false }) as string;
+
   return (
     <div className={`group flex gap-3 ${isUser ? "flex-row-reverse" : ""}`}>
       <div
@@ -188,7 +194,7 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds, userAvatarUrl }: { msg
               <div
                 ref={contentRef}
                 className={`md-content select-text ${isUser ? "[&_strong]:text-primary-foreground [&_code]:bg-white/20" : "[&_a]:text-emerald-400"}`}
-                dangerouslySetInnerHTML={{ __html: marked.parse(text, { async: false }) as string }}
+                dangerouslySetInnerHTML={{ __html: renderHtml }}
               />
             </div>
 
@@ -322,13 +328,14 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds, userAvatarUrl }: { msg
 function TypingIndicator() {
   return (
     <div className="flex gap-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
         <Bot className="size-4" />
       </div>
-      <div className="flex items-center gap-1 rounded-2xl bg-white/70 border border-gray-200/60 px-4 py-4">
-        <span className="size-2 animate-bounce rounded-full bg-slate-300" style={{ animationDelay: "0ms" }} />
-        <span className="size-2 animate-bounce rounded-full bg-slate-300" style={{ animationDelay: "150ms" }} />
-        <span className="size-2 animate-bounce rounded-full bg-slate-300" style={{ animationDelay: "300ms" }} />
+      <div className="flex items-center gap-2 rounded-2xl bg-white/70 border border-gray-200/60 px-4 py-3">
+        <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "0ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "150ms" }} />
+        <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "300ms" }} />
+        <span className="ml-1 text-xs text-slate-400">AI 正在思考...</span>
       </div>
     </div>
   );
