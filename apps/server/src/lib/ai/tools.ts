@@ -10,6 +10,7 @@ import type { BaseMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { embedText } from "./embeddings";
 import { vectorStore } from "./vectorstore";
+import { recordDegradation } from "../observability/context";
 
 const FORM_LABELS: Record<string, string> = {
   basic: "基本信息", education: "教育经历", experience: "工作经历",
@@ -74,6 +75,7 @@ export const extractResumeTool = tool(
     const result = await ai.extractResumeData(conversationText);
 
     if (!result) {
+      recordDegradation("extract_null");
       return JSON.stringify({ error: "简历提取失败，请让用户再补充一些信息后重试" });
     }
 
@@ -97,6 +99,7 @@ export const suggestOptimizationTool = tool(
       const optimized = await ai.improveText(text, context ?? undefined);
       return `优化建议：\n原始：「${text}」\n优化后：「${optimized}」\n\n请在回复中向用户展示这个优化结果，让用户确认是否接受。`;
     } catch {
+      recordDegradation("suggest_fallback");
       return "润色失败，请直接根据你的专业知识给用户提供优化建议。";
     }
   },
@@ -117,11 +120,13 @@ export const suggestOptimizationTool = tool(
 export const searchKnowledgeTool = tool(
   async ({ query }) => {
     if (vectorStore.size === 0) {
+      recordDegradation("knowledge_empty");
       return "知识库尚未初始化，请稍后重试。";
     }
     const queryVector = await embedText(query);
     const results = vectorStore.search(queryVector, 3);
     if (results.length === 0) {
+      recordDegradation("knowledge_no_result");
       return "未找到相关知识。请根据你的专业判断直接给用户建议。";
     }
     return results

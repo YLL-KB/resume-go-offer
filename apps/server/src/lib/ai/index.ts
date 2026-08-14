@@ -10,6 +10,7 @@
  */
 
 import OpenAI from "openai";
+import { getTraceCollector, recordDegradation } from "../observability/context";
 
 function checkApiKey(key: string | undefined, name: string): string {
   if (!key || key === "sk-placeholder") {
@@ -42,6 +43,49 @@ export const EXTRACT_MODEL = process.env.AI_EXTRACT_MODEL ?? DEFAULT_MODEL;
 
 /** 外部 AI 调用的兜底超时，防止上游 API 卡死导致流式对话挂起 */
 const AI_TIMEOUT_MS = 90_000;
+
+/**
+ * 直连 SDK 调用的统一观测封装：对非流式 chat.completions.create 计时、
+ * 记录 model/token/耗时到当前 trace（若在聊天图的 collector 上下文内）。
+ * 不在 trace 上下文时（独立路由调用）自动 no-op，零副作用。
+ */
+async function tracedCompletion(
+  client: OpenAI,
+  params: OpenAI.ChatCompletionCreateParamsNonStreaming,
+  name: string,
+  createOptions?: { signal?: AbortSignal },
+): Promise<OpenAI.ChatCompletion> {
+  const collector = getTraceCollector();
+  const t0 = Date.now();
+  try {
+    const res = await client.chat.completions.create(params, createOptions);
+    if (collector) {
+      collector.addSpan({
+        type: "model",
+        name,
+        model: String(params.model),
+        input: params.messages,
+        output: res.choices[0]?.message?.content,
+        tokens: res.usage?.total_tokens ?? 0,
+        durationMs: Date.now() - t0,
+        status: "success",
+      });
+    }
+    return res;
+  } catch (err) {
+    if (collector) {
+      collector.addSpan({
+        type: "model",
+        name,
+        model: String(params.model),
+        durationMs: Date.now() - t0,
+        status: "error",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
+    }
+    throw err;
+  }
+}
 
 console.log(`[AI] 聊天模型=${DEFAULT_MODEL}  提取模型=${EXTRACT_MODEL}`);
 
@@ -98,6 +142,7 @@ export function safeJsonParse<T>(text: string): T | null {
   }
 
   // 6. 兜底：正则逐字段提取
+  recordDegradation("regex_fallback");
   try {
     const ov = cleaned.match(/"overview"\s*:\s*"([^"]+)"/)?.[1] ?? "";
     const sc = parseInt(cleaned.match(/"score"\s*:\s*(\d+)/)?.[1] ?? "0");
@@ -235,7 +280,7 @@ export const ai = {
 
     console.log(`[extract] 模型=${EXTRACT_MODEL}  prompt=${prompt.length}chars  历史=${conversationHistory.length}chars`);
 
-    const res = await extractClient.chat.completions.create({
+    const res = await tracedCompletion(extractClient, {
       model: EXTRACT_MODEL,
       temperature: 0.3,
       max_tokens: 8192,
@@ -243,7 +288,7 @@ export const ai = {
       messages: [
         { role: "user", content: prompt },
       ],
-    }, { signal: AbortSignal.timeout(90_000) });
+    }, "extractResume", { signal: AbortSignal.timeout(90_000) });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
     const t1 = Date.now();
@@ -252,7 +297,8 @@ export const ai = {
     const parsed = safeJsonParse<Record<string, unknown>>(text);
     if (!parsed) {
       console.warn(`[extract] JSON 解析失败，重试中...`);
-      const retry = await extractClient.chat.completions.create({
+      recordDegradation("extract_json_retry");
+      const retry = await tracedCompletion(extractClient, {
         model: EXTRACT_MODEL,
         temperature: 0.1,
         max_tokens: 8192,
@@ -260,7 +306,7 @@ export const ai = {
         messages: [
           { role: "user", content: prompt + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON，不要遗漏任何经历。" },
         ],
-      }, { signal: AbortSignal.timeout(90_000) });
+      }, "extractResume-retry", { signal: AbortSignal.timeout(90_000) });
       const retryText = retry.choices[0]?.message?.content?.trim() ?? "";
       const t2 = Date.now();
       console.log(`[extract] 重试完成 ${((t2 - t0) / 1000).toFixed(1)}s`);
@@ -350,14 +396,14 @@ export const ai = {
       context ? `\n目标岗位/行业: ${context}` : "",
     ].join("\n");
 
-    const res = await openai.chat.completions.create({
+    const res = await tracedCompletion(openai, {
       model: DEFAULT_MODEL,
       temperature: 0.7,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: text },
       ],
-    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
+    }, "improveText", { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     return res.choices[0]?.message?.content?.trim() ?? text;
   },

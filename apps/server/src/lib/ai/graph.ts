@@ -16,6 +16,7 @@ import { ROUTER_PROMPT, WORKER_PROMPTS } from "./prompts";
 import { RESUME_KNOWLEDGE_BASE } from "./knowledge";
 import { vectorStore } from "./vectorstore";
 import { embedTexts } from "./embeddings";
+import { recordDegradation } from "../observability/context";
 
 // ── 知识库初始化（懒加载，只执行一次）──
 
@@ -81,13 +82,61 @@ type GraphStateType = typeof GraphState.State;
 
 const MAX_ITERATIONS = 8;
 
+// ── Router 辅助：消息文本提取 / 截断 / 关键词兜底分类 ──
+
+function messageText(m: BaseMessage): string {
+  const c = m.content;
+  if (typeof c === "string") return c;
+  if (Array.isArray(c)) {
+    return c
+      .map((p) =>
+        typeof p === "string" ? p : p && typeof p === "object" && "text" in p ? String((p as { text: unknown }).text) : "",
+      )
+      .join("");
+  }
+  return "";
+}
+
+/** 截断长消息，避免长上下文（简历摘要、长回复）让 glm-4-flash 崩溃输出文本 */
+function truncateMessage(m: BaseMessage, maxLen: number): BaseMessage {
+  const text = messageText(m);
+  if (text.length <= maxLen) return m;
+  const half = Math.floor(maxLen / 2);
+  const truncated = text.slice(0, half) + "\n…(中间省略)…\n" + text.slice(-half);
+  const type = (m as unknown as { _getType?: () => string })._getType?.() ?? "human";
+  if (type === "system") return new SystemMessage(truncated);
+  if (type === "ai") return new AIMessage(truncated);
+  return new HumanMessage(truncated);
+}
+
+/** router 输出非 JSON 时的关键词兜底分类（不再一律 fallback 到 collecting） */
+function classifyByKeywords(text: string, hasResume: boolean): { mode: "chatting" | "collecting" | "advising" | "extracting"; instruction: string } {
+  if (/生成简历|帮我生成|可以了|差不多了|确认生成|出简历/.test(text)) {
+    return { mode: "extracting", instruction: "确认生成简历" };
+  }
+  if (hasResume && /优化|润色|改写|怎么写|更改|重构|重写|整理|重新写|帮我改|继续|还有|其他项目|其他经历|更多/.test(text)) {
+    return { mode: "advising", instruction: "基于简历优化" };
+  }
+  if (/优化|润色|改写|怎么写好/.test(text)) {
+    return { mode: "advising", instruction: "润色优化" };
+  }
+  if (/你好|您好|hi|hello|在吗|谢谢|能做什么|你是谁/.test(text)) {
+    return { mode: "chatting", instruction: "闲聊" };
+  }
+  return { mode: "collecting", instruction: "收集信息" };
+}
+
 // ── 获取模型 ──
 
 function getRouterModel() {
   return new ChatOpenAI({
     model: process.env.ROUTER_MODEL ?? "glm-4-flash",
     temperature: 0.1,
-    maxTokens: 48,
+    maxTokens: 128,
+    timeout: 30_000,
+    modelKwargs: {
+      response_format: { type: "json_object" },
+    },
     apiKey: process.env.OPENAI_API_KEY,
     configuration: {
       baseURL: process.env.OPENAI_BASE_URL,
@@ -106,6 +155,8 @@ function getWorkerModel(mode?: string) {
     model,
     temperature: 0.7,
     maxTokens: needsQuality ? 4096 : 2048,
+    // 质量模型（glm-4-plus）推理较慢给 90s，快模型给 45s，避免上游挂起卡死对话
+    timeout: needsQuality ? 90_000 : 45_000,
     apiKey: process.env.OPENAI_API_KEY,
     configuration: {
       baseURL: process.env.OPENAI_BASE_URL,
@@ -119,14 +170,21 @@ async function routerNode(state: GraphStateType): Promise<Partial<GraphStateType
   const t0 = Date.now();
   const model = getRouterModel();
 
-  // 只取最近 5 条消息给 Router
+  // 极简输入：router 只看到「是否已上传简历」信号 + 最新一条消息。
+  // 历史消息（简历摘要、长回复）会让 glm-4-flash 崩溃输出文本而非 JSON。
   const msgs = state.messages ?? [];
-  const recentMsgs = msgs.slice(-5);
+  const hasResume = msgs.some((m) => messageText(m).includes("[用户上传了简历文件]"));
+  const latestText = msgs.length > 0 ? messageText(msgs[msgs.length - 1]) : "";
 
-  const response = await model.invoke([
+  const routerMsgs: BaseMessage[] = [
     new SystemMessage(ROUTER_PROMPT),
-    ...recentMsgs,
-  ]);
+    new SystemMessage(`已上传简历: ${hasResume ? "是" : "否"}`),
+  ];
+  if (latestText) {
+    routerMsgs.push(truncateMessage(msgs[msgs.length - 1], 500));
+  }
+
+  const response = await model.invoke(routerMsgs, { signal: AbortSignal.timeout(15_000) });
   console.log(`[Router] invoke 耗时 ${Date.now() - t0}ms`);
 
   const content = typeof response.content === "string"
@@ -141,23 +199,32 @@ async function routerNode(state: GraphStateType): Promise<Partial<GraphStateType
     // 尝试提取 JSON
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
-    const mode = validModes.includes(parsed.mode) ? parsed.mode : "collecting";
+    const rawMode = parsed.mode;
+    const mode = validModes.includes(rawMode) ? rawMode : "collecting";
+    if (mode !== rawMode) {
+      recordDegradation("illegal_mode", { mode: rawMode });
+    }
     const instruction = typeof parsed.instruction === "string" ? parsed.instruction : "";
     console.log(`[Router] → ${mode} | ${instruction}`);
     return { mode, routerInstruction: instruction };
   } catch {
-    console.warn("[Router] JSON 解析失败，fallback → collecting");
-    return { mode: "collecting", routerInstruction: "" };
+    console.warn("[Router] JSON 解析失败，fallback → 关键词分类");
+    recordDegradation("router_json_fallback");
+    const fallback = classifyByKeywords(latestText, hasResume);
+    return { mode: fallback.mode, routerInstruction: fallback.instruction };
   }
 }
 
 // ── Worker 节点 ──
 
 async function workerNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
-  ensureKnowledgeBase().catch(() => {});
+  ensureKnowledgeBase().catch(() => {
+    recordDegradation("knowledge_init_failed");
+  });
 
   // 安全检查
   if ((state.iterationCount ?? 0) >= MAX_ITERATIONS) {
+    recordDegradation("iteration_limit", { count: state.iterationCount });
     return {
       messages: [
         new AIMessage({
@@ -206,9 +273,12 @@ async function workerNode(state: GraphStateType): Promise<Partial<GraphStateType
 
   // 用 stream() 触发 on_chat_model_stream 事件，实现 token 级流式输出；
   // 手动合并 chunk 得到完整消息（含 tool_calls）返回给图。
+  // AbortSignal 显式超时兜底，防止上游 API 挂起导致对话永久卡死。
+  const needsQuality = mode === "advising" || mode === "extracting";
+  const workerTimeout = needsQuality ? 90_000 : 45_000;
   const wt0 = Date.now();
   let response: AIMessageChunk | null = null;
-  const stream = await model.stream(msgs);
+  const stream = await model.stream(msgs, { signal: AbortSignal.timeout(workerTimeout) });
   for await (const chunk of stream as AsyncIterable<AIMessageChunk>) {
     response = response ? response.concat(chunk) : chunk;
   }
