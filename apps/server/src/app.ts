@@ -5,6 +5,10 @@ import { chatRoutes } from "./routes/chat";
 import { aiRoutes } from "./routes/ai";
 import { pdfRoutes } from "./routes/pdf";
 import { templatesRoutes } from "./routes/templates";
+import { adminRoutes } from "./routes/admin";
+import { applicationsRoutes } from "./routes/applications";
+import { resumeRoutes } from "./routes/resume";
+import { analysisRoutes } from "./routes/analysis";
 import { requestLogger } from "./lib/logging/request-logger";
 
 const app = new Hono();
@@ -18,6 +22,10 @@ api.route("/chat", chatRoutes);
 api.route("/ai", aiRoutes);
 api.route("/pdf", pdfRoutes);
 api.route("/templates", templatesRoutes);
+api.route("/admin", adminRoutes);
+api.route("/applications", applicationsRoutes);
+api.route("/resume", resumeRoutes);
+api.route("/analysis", analysisRoutes);
 
 app.route("/api", api);
 
