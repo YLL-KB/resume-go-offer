@@ -11,13 +11,34 @@
 - **PDF 编辑器** — 上传 PDF 简历模版，自动提取文字块，原位编辑替换，追加自定义页，输出文字可选中的真 PDF
 - **对话历史管理** — 多轮对话持久化，支持重命名、删除、切换历史记录
 
+## 项目结构（pnpm Monorepo）
+
+```
+resume-go-offer/
+├── apps/
+│   ├── server/           # Hono 后端（全部 API，端口 8787）
+│   ├── web/              # Next.js 客户端（端口 3000）
+│   └── admin/            # Next.js 管理后台（端口 3001）
+├── packages/
+│   ├── shared/           # 共享 zod schema + 工具（uuid / merge-data）
+│   ├── ui/               # 共享 shadcn/ui 组件库 + use-auth
+│   └── config/           # 共享 tsconfig 配置
+├── package.json          # pnpm workspace + Turborepo 根脚本
+├── pnpm-workspace.yaml
+└── turbo.json
+```
+
+前后端通过 **Next.js rewrites** 打通：`apps/web` 的 `/api/*` 请求被代理到 `http://localhost:8787/api/*`，前端代码里没有 API 路由实现。
+
 ## 技术栈
 
 | 层 | 技术 |
 |-----|------|
-| 框架 | Next.js 16 (App Router) |
-| 语言 | TypeScript |
-| UI | shadcn/ui + Tailwind CSS v4 + Framer Motion |
+| Monorepo | pnpm workspace + Turborepo |
+| 后端 | Hono 4 + `@hono/node-server`（TypeScript + tsx） |
+| 前端 | Next.js 16 (App Router) + React 19 |
+| 后台 | Next.js 16（独立 app，端口 3001） |
+| UI | shadcn/ui + Tailwind CSS v4 + Framer Motion（封装在 `packages/ui`） |
 | AI Agent | LangGraph + LangChain + OpenAI 兼容 SDK（GPT-4o-mini / 智谱 GLM-4 等） |
 | 向量检索 | 自研 VectorStore + Embedding RAG（简历写作知识库检索） |
 | PDF 解析 | pdfjs-dist（文字块提取）+ react-pdf（预览） |
@@ -25,7 +46,7 @@
 | 状态管理 | Zustand（chat-store / editor-store） |
 | 数据库 | SQLite (better-sqlite3) / Cloudflare D1 + Drizzle ORM |
 | 认证 | GitHub OAuth / Authing OIDC / 微信 |
-| 部署 | VPS（Next.js + PM2），`./deploy.sh` |
+| 部署 | VPS + PM2（`./deploy.sh`） |
 | 包管理 | pnpm |
 
 ## 快速开始
@@ -38,12 +59,13 @@ pnpm install
 
 ### 环境变量
 
-复制 `.env.example` 为 `.env.local`，填入配置：
+环境变量分两处（各 app 独立加载自己的 `.env.local`）：
+
+- **后端 `apps/server/.env.local`** — AI 模型、数据库、认证、MinerU 等
+- **前端 `apps/web/.env.local`** — `NEXT_PUBLIC_*`、Sentry 等
 
 ```env
-# 应用地址
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-
+# ── apps/server/.env.local ──
 # AI 大模型（OpenAI / DeepSeek / 智谱 GLM 等兼容 API）
 OPENAI_API_KEY=your-api-key
 OPENAI_BASE_URL=https://api.openai.com/v1
@@ -73,10 +95,6 @@ WECHAT_APP_SECRET=
 # 可选: 智谱 API（图片解析）
 # ZHIPU_API_KEY=
 
-# 可选: Sentry 错误监控
-# NEXT_PUBLIC_SENTRY_DSN=
-# SENTRY_AUTH_TOKEN=
-
 # 可选: MinerU PDF 提取（不设则用 Flash 模式）
 MINERU_TOKEN=
 
@@ -85,10 +103,22 @@ LANGCHAIN_TRACING_V2=false
 LANGCHAIN_API_KEY=
 ```
 
+```env
+# ── apps/web/.env.local ──
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# 后端地址（rewrites 代理目标，默认 localhost:8787）
+# API_ORIGIN=http://localhost:8787
+
+# 可选: Sentry 错误监控
+# NEXT_PUBLIC_SENTRY_DSN=
+# SENTRY_AUTH_TOKEN=
+```
+
 ### 下载 CJK 字体（PDF 导出必需）
 
 ```bash
-curl -L -o public/NotoSansSC-Regular.otf \
+curl -L -o apps/server/public/NotoSansSC-Regular.otf \
   https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf
 ```
 
@@ -98,13 +128,19 @@ curl -L -o public/NotoSansSC-Regular.otf \
 pnpm dev
 ```
 
-打开 [http://localhost:3000](http://localhost:3000)。
+Turborepo 并行启动三个应用：
+
+| 应用 | 地址 | 说明 |
+|------|------|------|
+| web | http://localhost:3000 | 前端主入口 |
+| server | http://localhost:8787 | Hono API 服务 |
+| admin | http://localhost:3001 | 管理后台 |
 
 > ⚠️ 不要用 `wrangler dev`，参见 [AGENTS.md](./AGENTS.md) 说明。
 
 ### 本地数据库
 
-本地开发使用 SQLite（`better-sqlite3`），数据文件在 `.db/local.db`。首次启动时由 `src/lib/db/index.ts` 里的 `MIGRATIONS` 数组自动建表，**无需手动初始化或执行 migration**。
+本地开发使用 SQLite（`better-sqlite3`），数据文件在 `apps/server/.db/local.db`。首次启动时由 `apps/server/src/db/index.ts` 里的 `MIGRATIONS` 数组自动建表，**无需手动初始化或执行 migration**。数据库目录可通过 `DATABASE_DIR` 环境变量覆盖。
 
 ## 架构
 
@@ -114,10 +150,16 @@ pnpm dev
 用户说话
     │
     ▼
-LangGraph Agent ──► 工具调用（pushForm / extractResume / suggestOptimization / searchKnowledge）
+apps/web 输入框 ──► rewrites 代理 ──► apps/server POST /api/chat
+    │                                      │
+    │                                      ▼
+    │                          LangGraph Agent ──► 工具调用（pushForm / extractResume / retrieveKnowledge）
+    │                                      │
+    ▼                                      ▼
+SSE Streaming ◄────────────────────── 逐 token 推送
     │
     ▼
-SSE Streaming ──► 前端实时渲染 Markdown + 表单卡片
+前端实时渲染 Markdown + 表单卡片
     │
     ▼
 收集完整信息 ──► extractResume() ──► 生成简历 JSON ──► 预览面板
@@ -138,82 +180,6 @@ pdfjs-dist 提取文字块 ──► 逐块原位编辑（textarea 替换 / 删�
 生成预览 ──► fill API (pdf-lib) ──► 合并输出真 PDF
 ```
 
-详细设计文档：[EDITOR-DESIGN.md](./EDITOR-DESIGN.md)
-
-## 项目结构
-
-```
-src/
-├── app/
-│   ├── page.tsx                        # 首页
-│   ├── layout.tsx                      # 根布局
-│   ├── chat/
-│   │   ├── layout.tsx                  # 对话侧边栏 layout
-│   │   ├── page.tsx                    # 新对话页
-│   │   ├── [id]/page.tsx               # 已有对话页（路由隔离）
-│   │   └── loading.tsx
-│   ├── m/chat/                         # 移动端对话页
-│   ├── admin/                          # 管理后台（日志查看）
-│   ├── applications/                   # 投递记录页
-│   ├── resume/
-│   │   ├── new/                        # 新建简历（编辑器）
-│   │   ├── list/                       # 简历列表
-│   │   └── preview/                    # 简历预览页
-│   └── api/
-│       ├── chat/                       # 对话 API（SSE Streaming）
-│       │   ├── route.ts                # 主对话
-│       │   ├── history/                # 对话历史
-│       │   ├── messages/               # 历史消息
-│       │   ├── greeting/               # 开场白
-│       │   ├── extract/route.ts        # 简历提取
-│       │   └── parse-attachment/       # 附件解析
-│       ├── auth/                       # 登录（GitHub / Authing / 微信）
-│       ├── templates/                  # 模版 CRUD + PDF 填充
-│       │   └── [id]/
-│       │       ├── fill/route.ts       # PDF 填充输出（核心）
-│       │       └── extract-markdown/   # MinerU 提取
-│       ├── ai/                         # AI 分析/润色
-│       ├── analysis/                   # AI 简历分析结果
-│       ├── resume/                     # 简历 CRUD
-│       ├── applications/               # 投递记录
-│       ├── admin/                      # 管理 API（日志/用户）
-│       └── pdf/                        # PDF 工具（合并/拆分/旋转/OCR）
-├── components/
-│   ├── ui/                             # shadcn/ui 组件
-│   ├── chat/
-│   │   ├── ChatContent.tsx             # 聊天主体（路由隔离核心）
-│   │   ├── ChatHeader.tsx              # 对话页顶栏
-│   │   ├── ChatMessages.tsx            # 消息列表 + 气泡
-│   │   ├── ChatInput.tsx               # 输入框 + 发送 + 附件
-│   │   ├── FormCard.tsx                # 结构化表单卡片
-│   │   ├── ResumePreviewPanel.tsx      # 简历预览面板（侧边）
-│   │   └── EditResumeForm.tsx          # 简历编辑表单
-│   │   └── mobile/                     # 移动端对话组件
-│   ├── preview/                        # PDF 预览组件
-│   ├── resume/                         # 简历模板组件（TemplateResume）
-│   └── templates/                      # 模版渲染注册表
-├── stores/
-│   ├── chat-store.ts                   # 对话状态（Zustand）
-│   └── editor-store.ts                 # 编辑器全局状态（Zustand）
-├── lib/
-│   ├── ai/
-│   │   ├── index.ts                    # AI Agent 入口
-│   │   ├── graph.ts                    # LangGraph StateGraph
-│   │   ├── tools.ts                    # 工具注册
-│   │   ├── prompts.ts                  # 系统提示词 + 提取提示词
-│   │   ├── knowledge.ts                # RAG 知识库
-│   │   ├── vectorstore.ts              # 自研向量存储
-│   │   ├── embeddings.ts               # Embedding 生成
-│   │   └── attachment-parser.ts        # 附件解析
-│   ├── pdf/                            # pdfjs / MinerU / 图片提取
-│   ├── editor/                         # HTML 解析（html-parser）
-│   ├── auth/                           # GitHub / Authing / 微信认证
-│   ├── db/                             # Drizzle ORM + SQLite/D1
-│   └── validators/                     # Zod 校验
-└── types/
-    └── mineru-open-sdk.d.ts
-```
-
 ## 页面导航
 
 | 路径 | 说明 |
@@ -226,18 +192,20 @@ src/
 | `/resume/list` | 简历列表 |
 | `/resume/preview` | 独立简历预览页 |
 | `/applications` | 投递记录 |
-| `/admin` | 管理后台 |
 | `/login` | GitHub / Authing / 微信登录 |
+
+管理后台是独立 Next 应用（`apps/admin`，端口 3001），用于查看请求日志。
 
 ## 开发规范
 
 详见 [AGENTS.md](./AGENTS.md)，核心规则：
 
 - **返回按钮** 统一 `router.back()`，不硬编码链接
-- **UI 组件** 全部用 `@/components/ui/`，禁用原生 HTML
-- **API 路由** 需要 Node.js 的加 `export const runtime = "nodejs"`
+- **UI 组件** 全部用 `packages/ui`（`@resume/ui`）里的 shadcn/ui 组件，禁用原生 HTML
+- **共享 schema/工具** 放 `packages/shared`（`@resume/shared`），避免前后端各自维护一份
+- **API 路由** 全部在 `apps/server`（Hono），`apps/web` 不写 API 实现
 - **模版上传** 仅 PDF，≤10MB，UUID v4 命名
-- **文件服务** 优先用 `public/` 静态文件 + 302 重定向，不用 `fs.readFile`
+- **文件服务** 优先用 `apps/server/public/` 静态文件 + 302 重定向，不用 `fs.readFile`
 
 ## 部署
 
@@ -250,5 +218,6 @@ src/
 ## 相关文档
 
 - [AGENTS.md](./AGENTS.md) — Agent/开发者指南
-- [EDITOR-DESIGN.md](./EDITOR-DESIGN.md) — 编辑器架构设计
+- [TECH-STACK.md](./TECH-STACK.md) — 技术栈说明
+- [docs/AI-AGENT.md](./docs/AI-AGENT.md) — AI Agent 技术文档
 - [DEPLOY.md](./DEPLOY.md) — 部署与运维指南

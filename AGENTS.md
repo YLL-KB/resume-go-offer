@@ -3,12 +3,16 @@
 ## 项目信息
 
 - **项目根：** `/Users/loong/code/resume-go-offer`
-- **框架：** Next.js 16 App Router (Turbopack)
+- **结构：** pnpm Monorepo（`apps/*` + `packages/*`），Turborepo 编排
+- **后端：** `apps/server` — Hono 4 + `@hono/node-server`（TypeScript + tsx），端口 8787
+- **前端：** `apps/web` — Next.js 16 App Router + React 19，端口 3000
+- **后台：** `apps/admin` — Next.js 16，端口 3001
+- **共享：** `packages/shared`（zod schema + 工具）、`packages/ui`（shadcn/ui）、`packages/config`（tsconfig）
 - **数据库：** SQLite (better-sqlite3) 本地开发 / Cloudflare D1（`getDb()` 自动切换）
 - **AI Agent：** LangGraph + LangChain（OpenAI 兼容 SDK）
 - **包管理：** `pnpm`
-- **开发命令：** `pnpm dev`（端口 3000）
-- **构建命令：** `pnpm build`
+- **开发命令：** `pnpm dev`（并行启动 web:3000 + server:8787 + admin:3001）
+- **构建命令：** `pnpm build` / `pnpm typecheck` / `pnpm lint`（均为 `turbo` 分发）
 
 ## 启动流程
 
@@ -18,6 +22,8 @@
 cd /Users/loong/code/resume-go-offer
 pnpm dev   # 非 wrangler dev。wrangler dev 会连 Cloudflare 远程代理，本机无需
 ```
+
+`pnpm dev` 通过 Turborepo 并行启动三个应用。前端 `/api/*` 请求经 `apps/web/next.config.ts` 的 `rewrites()` 代理到 `http://localhost:8787`（`API_ORIGIN` 环境变量可改）。
 
 ## 代码规范
 
@@ -40,10 +46,10 @@ const router = useRouter();
 
 ### 2. UI 组件
 
-页面内所有交互 UI 优先使用 `@/components/ui/` 中的 shadcn/ui 组件。
+页面内所有交互 UI 优先使用 `@resume/ui`（`packages/ui`）中的 shadcn/ui 组件。
 
-**可用组件：**
-`Button` `Card` `CardContent` `Dialog` `DialogContent` `DialogHeader` `DialogTitle` `DialogDescription` `DialogFooter` `Badge` `Skeleton` `Separator` `Sheet` `Input` `Label` `ScrollArea` `Textarea` `Tabs` `Select`
+**可用组件（`packages/ui/src/components/`）：**
+`app-header` `avatar` `badge` `button` `card` `dialog` `dropdown-menu` `form` `input` `label` `popover` `scroll-area` `select` `separator` `sheet` `skeleton` `tabs` `textarea` `tooltip`
 
 | 标签 | 规则 |
 |------|------|
@@ -51,13 +57,12 @@ const router = useRouter();
 | `nav` `header` `main` `footer` `section` `article` | ✅ 可用，语义标签提升可访问性 |
 | `button` `input` `select` `textarea` | ❌ 禁止，用 UI 组件替代 |
 | `iframe` | 仅 PDF 预览可用，外层必须用 `Dialog` 包裹 |
-| `<html>` `<head>` `<body>` | 文档根结构，layout.tsx 必须保留
+| `<html>` `<head>` `<body>` | 文档根结构，layout.tsx 必须保留 |
 
 ```tsx
 // ✓ 正确
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@resume/ui";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@resume/ui";
 
 // ✗ 错误
 <button>提交</button>
@@ -70,27 +75,29 @@ import { Badge } from "@/components/ui/badge";
 - **每个组件文件不超过 600 行。** 超过则拆分：抽 hooks → `hooks/`、拆子组件 → 同目录、提工具函数 → `lib/`。
 - **新增组件必须使用 shadcn/ui + Tailwind CSS。** 禁止原生 `<button>` `<input>` `<select>` `<textarea>` 交互标签，语义标签 `<nav>` `<header>` `<footer>` `<section>` `<article>` 允许使用。禁止 inline `style={{}}`（动态计算除外），禁止自定义 CSS（`@media print` 等用 Tailwind `print:` 变体，`@page` 等用 `@layer base`）。
 - **所有代码必须通过 ESLint 检查。** 提交前确保 `pnpm lint` 零错误零警告。禁止提交带有 `@typescript-eslint/no-unused-vars`、`react-hooks/exhaustive-deps` 等警告的代码。
-- **以上规则适用于 `src/` 下所有组件文件，无例外。**
+- **以上规则适用于 `apps/web/src/`、`apps/admin/src/`、`packages/ui/src/` 下所有组件文件，无例外。**
 
 ### 4. API 路由
 
+所有后端 API 都在 **`apps/server`**（Hono），`apps/web` 不写 API 实现，前端通过 rewrites 代理访问。
+
 ```ts
-// 每个需要 Node.js 运行时（fs、path 等）的 API 路由顶部必须声明：
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+// apps/server/src/app.ts —— 新路由在这里挂载
+api.route("/chat", chatRoutes);
+api.route("/ai", aiRoutes);
 ```
 
 **注意事项：**
-- `fs.readFile` 在 OpenNext workerd 下可能直接失败
-- 需要提供文件的 API → 优先用 `public/` 目录作为静态文件服务
+- Hono 路由文件放在 `apps/server/src/routes/`，每个资源一个文件
+- `fs.readFile` 在 server 端可用（Node 环境）；但提供文件的 API 优先用 `public/` 目录作为静态文件服务
 - 需要返回 PDF → API 路由做 302 重定向到 `/uploads/xxx.pdf`，不在路由内读文件响应
-- 文件修改后 Next.js 热更新自动生效，无需重启
+- 服务器文件路径基于 `process.cwd()`（即 `apps/server/`），静态资源在 `apps/server/public/`
 
 ### 5. AI 对话（核心）
 
 **路由架构：**
 ```
-src/app/chat/
+apps/web/src/app/chat/
 ├── layout.tsx            # 侧边栏 + 对话列表（全局持久）
 ├── page.tsx              # 新对话页（conversationId=null）
 ├── [id]/page.tsx         # 已有对话页（路由隔离，切换即卸载）
@@ -100,29 +107,30 @@ src/app/chat/
 **架构：**
 ```
 ChatInput（用户输入）
-  → /api/chat（SSE Streaming）
+  → /api/chat（rewrites → apps/server，SSE Streaming）
     → LangGraph Agent（工具调用循环）
-      → pushForm / extractResume / suggestOptimization / searchKnowledge
+      → pushForm / extractResume / retrieveKnowledge
     → 前端实时渲染 Markdown + 表单卡片
   → ChatMessages（消息列表 + ChatBubble 气泡）
   → ResumePreviewPanel（简历预览面板，分栏拖拽）
 ```
 
 **关键文件：**
-- `src/lib/ai/index.ts` — AI Agent 入口（createAgent 工厂函数）
-- `src/lib/ai/graph.ts` — LangGraph StateGraph 定义 + 节点编排
-- `src/lib/ai/prompts.ts` — 系统提示词 + 提取提示词 + 开场白
-- `src/lib/ai/tools.ts` — 工具注册（pushForm / extractResume / suggestOptimization / searchKnowledge）
-- `src/lib/ai/knowledge.ts` — RAG 知识库检索
-- `src/lib/ai/vectorstore.ts` — 自研向量存储（Embedding + 相似度搜索）
-- `src/lib/ai/embeddings.ts` — Embedding 生成
-- `src/lib/ai/attachment-parser.ts` — 附件解析（PDF/图片 → 文字提取）
-- `src/stores/chat-store.ts` — 对话状态管理（Zustand）：消息流、流式输出、引用、表单、简历数据
-- `src/components/chat/ChatContent.tsx` — 聊天主体组件（接受 conversationId prop，路由隔离核心）
-- `src/components/chat/ChatMessages.tsx` — 消息列表 + 单条气泡（Markdown 渲染、表单卡片、引用弹窗）
-- `src/components/chat/ChatInput.tsx` — 输入框（SSE 流接收、引用拼接、表单事件监听、附件上传）
-- `src/components/chat/FormCard.tsx` — 6 种结构化表单（basic / education / experience / project / skills / summary）
-- `src/components/chat/ResumePreviewPanel.tsx` — 简历预览面板（模板切换、打印导出、背景色注入）
+- `apps/server/src/lib/ai/index.ts` — AI Agent 入口（createAgent 工厂函数）
+- `apps/server/src/lib/ai/graph.ts` — LangGraph StateGraph 定义 + 节点编排（router → worker ↔ tools）
+- `apps/server/src/lib/ai/prompts.ts` — 系统提示词 + 提取提示词 + 开场白
+- `apps/server/src/lib/ai/tools.ts` — 工具注册（pushForm / extractResume / retrieveKnowledge）
+- `apps/server/src/lib/ai/knowledge.ts` — RAG 知识库检索
+- `apps/server/src/lib/ai/vectorstore.ts` — 自研向量存储（Embedding + 相似度搜索）
+- `apps/server/src/lib/ai/embeddings.ts` — Embedding 生成
+- `apps/server/src/lib/ai/attachment-parser.ts` — 附件解析（PDF/图片 → 文字提取）
+- `apps/server/src/routes/chat.ts` — POST /api/chat（SSE 转发）+ 历史/消息/开场白/提取/附件解析
+- `apps/web/src/stores/chat-store.ts` — 对话状态管理（Zustand）：消息流、流式输出、引用、表单、简历数据
+- `apps/web/src/components/chat/ChatContent.tsx` — 聊天主体组件（接受 conversationId prop，路由隔离核心）
+- `apps/web/src/components/chat/ChatMessages.tsx` — 消息列表 + 单条气泡（Markdown 渲染、表单卡片、引用弹窗）
+- `apps/web/src/components/chat/ChatInput.tsx` — 输入框（SSE 流接收、引用拼接、表单事件监听、附件上传）
+- `apps/web/src/components/chat/FormCard.tsx` — 6 种结构化表单（basic / education / experience / project / skills / summary）
+- `apps/web/src/components/chat/ResumePreviewPanel.tsx` — 简历预览面板（模板切换、打印导出、背景色注入）
 
 **工具调用流程：**
 ```
@@ -146,6 +154,8 @@ data: {"resumeData":{...}}
 data: [DONE]
 ```
 
+**SSE 流式输出（重要坑）：** `apps/web/next.config.ts` 必须保持 `compress: false`。Next 的 compression 中间件会用 gzip 压缩 `text/event-stream`，导致整个流被缓冲、浏览器要等响应结束才一次性收到数据（表现为「接口在流式、页面却一次性渲染」）。禁用后前端才能逐 token 实时渲染。
+
 **路由隔离设计：**
 - `/chat` → 新对话，ChatContent 挂载，local state 干净
 - `/chat/[id]` → 已有对话，路由切换时组件卸载重挂载，所有 local state（resumeData、showPreview、isExtracting 等）天然清零
@@ -160,11 +170,11 @@ data: [DONE]
 - 单文件 ≤ 10MB
 
 **存储：**
-- 路径：`public/uploads/templates/{uuid}.pdf`
+- 路径：`apps/server/public/uploads/templates/{uuid}.pdf`
 - 元数据：同目录 `{uuid}.meta.json`
 - ID 格式：UUID v4，由 `crypto.randomUUID()` 生成
 
-**API 路由：**
+**API 路由（`apps/server/src/routes/templates.ts`）：**
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -193,14 +203,15 @@ data: [DONE]
 | `/resume/list` | 简历列表 | 已保存简历 |
 | `/resume/preview` | 独立预览 | 从 localStorage 读取数据渲染 |
 | `/applications` | 投递记录 | 岗位投递管理 |
-| `/admin` | 管理后台 | 请求日志查看 |
 | `/login` | 登录 | GitHub / Authing / 微信 |
+
+管理后台是独立 Next 应用 `apps/admin`（端口 3001），查看请求日志（`/logs`）。
 
 ---
 
 ## 编辑器架构（核心）
 
-详细设计见 `EDITOR-DESIGN.md`。这里只列 Agent 需要知道的关键点。
+这里只列 Agent 需要知道的关键点。
 
 ### 两层编辑模型
 
@@ -223,10 +234,10 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
 
 **常见 Bug：** fill API 中做 `pdfY = pageHeight - e.y - e.h` 是错的——因为 `e.y` 已经是 PDF 原生坐标，翻转会导致文字跑到底部。
 
-### PDF 填充管线（fill/route.ts）
+### PDF 填充管线（`apps/server/src/routes/templates.ts` 的 fill）
 
 ```
-1. 加载模版 PDF + 嵌入 CJK 字体 (NotoSansSC-Regular.otf)
+1. 加载模版 PDF + 嵌入 CJK 字体 (apps/server/public/NotoSansSC-Regular.otf)
 2. Part A — 模版页文字替换：
    Pass 1: 画所有白色矩形（覆盖原文，含 descender 余量）
    Pass 2: 画所有新文字（在所有遮罩之上）
@@ -235,44 +246,56 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
    - 涂白所有文字块
    - parseHtmlToLines() 解析 HTML → TextLine[]
    - 从文字区域下方逐行渲染，超出自动续页
-4. 输出 public/filled/{id}.pdf
+4. 输出 apps/server/public/filled/{id}.pdf
 ```
 
 **为什么两遍渲染：** 先画所有遮罩再画所有文字，避免后面的遮罩盖住前面的文字。
 
 ### 状态管理
 
-- `chat-store.ts` — 对话状态：conversationId、messages、isStreaming、resumeData、quoteText、showPreview
-- `editor-store.ts` — 编辑器状态：templateId、pdfUrl、markdown、customPages、resumeData、aiAnalysis
+- `apps/web/src/stores/chat-store.ts` — 对话状态：conversationId、messages、isStreaming、resumeData、quoteText、showPreview
+- `apps/web/src/stores/editor-store.ts` — 编辑器状态：templateId、pdfUrl、markdown、customPages、resumeData、aiAnalysis
 
 ### 字体依赖
 
-- PDF 填充需要 **`public/NotoSansSC-Regular.otf`**（16MB CJK 字体），缺失则 fill API 500
+- PDF 填充需要 **`apps/server/public/NotoSansSC-Regular.otf`**（16MB CJK 字体），缺失则 fill API 500
 - 字体已通过 jsDelivr CDN 下载到位，部署时需确认文件存在
 
 ---
 
 ## 架构决策
 
+### 前后端分层
+
+- **`apps/server`（Hono）** 承载全部后端：AI Agent、数据库、认证、PDF 填充、文件服务。本来就是 Node 环境，无需声明 `runtime = "nodejs"`。
+- **`apps/web`（Next.js）** 纯客户端 + 页面，通过 rewrites 代理访问后端，无 API 实现。
+- **`apps/admin`（Next.js）** 独立后台，端口隔离。
+
 ### 数据库 vs 本地文件
 
-- **用户数据和简历内容** → 数据库（SQLite `.db/local.db` 或 D1），表：users / conversations / messages / resumes / applications / request_logs
-- **模版文件** → 本地文件系统 `public/uploads/templates/`
+- **用户数据和简历内容** → 数据库（SQLite `apps/server/.db/local.db` 或 D1），表：users / conversations / messages / resumes / applications / request_logs
+- **模版文件** → 本地文件系统 `apps/server/public/uploads/templates/`
 - 原因：数据库不适合存储大文件，PDF 作为静态资源更高效
 
 ### 开发环境
 
 - **`pnpm dev`** 而非 `wrangler dev`
   - `wrangler dev` 会尝试连接 Cloudflare 远程代理，本机因无有效 token 会失败
-  - `pnpm dev` 仅启动 Next.js，API 路由中 `runtime = "nodejs"` 正常生效
-  - 本地数据库用 SQLite（`better-sqlite3`），数据在 `.db/local.db`，启动时自动建表
+  - `pnpm dev` 通过 turbo 并行启动 server（tsx watch）+ web（next dev）+ admin
+  - 本地数据库用 SQLite（`better-sqlite3`），数据在 `apps/server/.db/local.db`，启动时自动建表
+- 环境变量分两处：`apps/server/.env.local`（后端）和 `apps/web/.env.local`（前端）。server 通过 `apps/server/src/env.ts` 手动加载 `.env` / `.env.local`（对齐 Next 的加载约定）。
 
 ### AI 调用
 
-- 封装在 `src/lib/ai/index.ts`
+- 封装在 `apps/server/src/lib/ai/index.ts`
 - 基于 OpenAI 兼容 SDK + LangGraph StateGraph
 - 支持 DeepSeek v4 / 智谱 GLM-4-Plus 等模型
-- 通过 `.env.local` 切换 `OPENAI_BASE_URL` 和 `AI_MODEL`
+- 通过 `apps/server/.env.local` 切换 `OPENAI_BASE_URL` 和 `AI_MODEL`
+- `LANGGRAPH_ENABLED === "true"` 走 Agent，否则回退原始 `ai.chat()`
+
+### SSE 流式 vs gzip
+
+`apps/web/next.config.ts` 设置 `compress: false`：Next 的 compression 中间件会缓冲 `text/event-stream`，破坏逐 token 流式输出。生产部署时 gzip 交给反向代理（Nginx），SSE 端点同样配置为不压缩。
 
 ### pdf-lib vs Canvas 截图
 
@@ -285,148 +308,122 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
 ## 关键文件索引
 
 ```
-src/
-├── app/
-│   ├── page.tsx                        # 首页（营销落地页）
-│   ├── layout.tsx                      # 根布局
-│   ├── chat/
-│   │   ├── layout.tsx                  # 对话侧边栏 layout（conversation 列表持久）
-│   │   ├── page.tsx                    # 新对话页
-│   │   ├── [id]/page.tsx               # 已有对话页（路由隔离，切换即卸载）
-│   │   └── loading.tsx                 # 路由切换 loading
-│   ├── m/chat/                         # 移动端对话页
-│   ├── admin/                          # 管理后台（请求日志）
-│   ├── applications/                   # 投递记录页
-│   ├── resume/
-│   │   ├── new/
-│   │   │   ├── page.tsx                # 新建简历页
-│   │   │   └── ResumeNewContent.tsx    # 编辑器主组件（页签切换、导出逻辑）
-│   │   ├── list/page.tsx               # 简历列表
-│   │   └── preview/page.tsx            # 独立简历预览页
-│   └── api/
-│       ├── chat/
-│       │   ├── route.ts                # POST SSE Streaming（LangGraph Agent）
-│       │   ├── history/route.ts        # GET 对话列表
-│       │   ├── history/[id]/route.ts   # DELETE 删除对话
-│       │   ├── extract/route.ts        # POST 提取简历数据
-│       │   ├── greeting/route.ts       # GET 开场白
-│       │   ├── messages/[id]/route.ts  # GET 历史消息
-│       │   └── parse-attachment/route.ts # POST 解析上传附件
-│       ├── auth/                       # 登录（GitHub / Authing / 微信）
-│       ├── templates/
-│       │   ├── route.ts                # GET 列表
-│       │   ├── upload/route.ts         # POST 上传
-│       │   └── [id]/
-│       │       ├── route.ts            # GET 预览 + DELETE 删除
-│       │       ├── fill/route.ts       # POST PDF 填充输出（核心）
-│       │       ├── extract-markdown/
-│       │       │   └── route.ts        # GET MinerU 提取
-│       │       ├── analyze/route.ts    # POST AI 分析模版结构
-│       │       └── summary/route.ts    # POST AI 摘要
-│       ├── ai/
-│       │   ├── analyze-resume/route.ts
-│       │   ├── improve-resume/route.ts
-│       │   ├── improve/route.ts
-│       │   ├── parse-resume/route.ts
-│       │   ├── generate-summary/route.ts
-│       │   └── upload-resume/route.ts
-│       ├── analysis/                   # AI 简历分析结果
-│       ├── resume/
-│       │   ├── route.ts                # POST 创建 + GET 列表
-│       │   ├── [id]/route.ts           # GET/PUT/DELETE 单个简历
-│       │   └── render-skills/route.ts  # POST 技能渲染
-│       ├── applications/               # 投递记录 CRUD
-│       ├── admin/                      # 管理 API（日志/用户）
-│       └── pdf/                        # PDF 工具（合并/拆分/旋转/OCR）
-├── components/
-│   ├── ui/                             # shadcn/ui 组件库
-│   │   └── app-header.tsx              # 全局导航头
-│   ├── chat/
-│   │   ├── ChatContent.tsx             # 聊天主体（路由隔离核心，接受 conversationId）
-│   │   ├── ChatHeader.tsx              # 对话页顶栏 + 移动端菜单按钮
-│   │   ├── ChatMessages.tsx            # 消息列表 + ChatBubble + 引用弹窗 + 表单卡片
-│   │   ├── ChatInput.tsx               # 输入框 + SSE 流处理 + 表单事件桥接 + 附件上传
-│   │   ├── FormCard.tsx                # 6 种结构化表单组件
-│   │   ├── ResumePreviewPanel.tsx      # 简历预览面板（模板切换 + 打印导出）
-│   │   ├── EditResumeForm.tsx          # 简历编辑弹窗
-│   │   └── mobile/                     # 移动端对话组件
-│   │       ├── MobileChatContent.tsx
-│   │       └── MobileChatHeader.tsx
-│   ├── ClientLayout.tsx                # 客户端布局
-│   ├── preview/
-│   │   ├── ClickablePdfView.tsx        # 可点击的 PDF 预览（react-pdf）
-│   │   ├── PdfPageView.tsx             # 多页 PDF 预览
-│   │   ├── index.tsx                   # HTML 预览面板
-│   │   ├── page-break-line.tsx         # 分页线指示器
-│   │   ├── use-auto-one-page.ts        # 自动单页缩放 hook
-│   │   └── use-content-height.ts       # 内容高度监听 hook
-│   ├── resume/
-│   │   └── TemplateResume.tsx          # 简历模板组件
-│   └── templates/
-│       ├── classic/                    # 经典模版渲染器
-│       │   ├── config.ts
-│       │   └── index.tsx
-│       ├── types.ts
-│       ├── registry.ts                 # 模版注册表
-│       └── index.tsx                   # 模版渲染入口
-├── stores/
-│   ├── chat-store.ts                   # 对话状态管理（Zustand）
-│   └── editor-store.ts                 # 编辑器全局状态（Zustand）
-├── lib/
-│   ├── ai/
-│   │   ├── index.ts                    # AI Agent 入口（createAgent 工厂）
-│   │   ├── graph.ts                    # LangGraph StateGraph 定义 + 节点编排
-│   │   ├── tools.ts                    # 工具注册（pushForm/extractResume/suggestOptimization/searchKnowledge）
-│   │   ├── prompts.ts                  # 系统提示词 + 提取提示词 + 开场白
-│   │   ├── knowledge.ts                # RAG 知识库检索
-│   │   ├── vectorstore.ts              # 自研向量存储（Embedding + 相似度搜索）
-│   │   ├── embeddings.ts               # Embedding 生成
-│   │   └── attachment-parser.ts        # 附件解析（PDF/图片 → 文字提取）
-│   ├── auth/                           # GitHub / Authing / 微信认证
-│   ├── db/
-│   │   ├── schema.ts                   # Drizzle ORM Schema
-│   │   └── index.ts                    # DB 连接（SQLite / D1 fallback）
-│   ├── pdf/
-│   │   ├── text-extractor.ts           # pdfjs-dist 文字块提取
-│   │   ├── mineru-extractor.ts         # MinerU 客户端封装
-│   │   ├── module-detector.ts          # 模块检测
-│   │   ├── image-extractor.ts          # PDF 图片提取
-│   │   └── page-renderer.ts            # Canvas 页面渲染
-│   ├── editor/
-│   │   └── html-parser.ts              # 模块 HTML 解析
-│   ├── api/
-│   │   ├── resume.ts                   # 简历 CRUD API 客户端
-│   │   └── templates.ts                # 模版 API 客户端
-│   ├── validators/
-│   │   └── resume.schema.ts            # 简历数据 Zod Schema（含 highlights 字段）
-│   ├── extract.ts                      # 内容提取入口
-│   └── utils.ts                        # 通用工具
-└── types/
-    └── mineru-open-sdk.d.ts
+apps/
+├── server/                                # Hono 后端（全部 API）
+│   ├── src/
+│   │   ├── index.ts                       # 入口（端口 8787）
+│   │   ├── app.ts                         # 路由挂载（/api/*）
+│   │   ├── env.ts                         # 手动加载 .env / .env.local
+│   │   ├── db/
+│   │   │   ├── schema.ts                  # Drizzle ORM Schema
+│   │   │   └── index.ts                   # getDb()（SQLite / D1 fallback + MIGRATIONS）
+│   │   ├── routes/
+│   │   │   ├── health.ts                  # 健康检查
+│   │   │   ├── auth.ts                    # 登录（GitHub / Authing / 微信）
+│   │   │   ├── chat.ts                    # 对话 SSE + 历史/消息/开场白/提取/附件解析
+│   │   │   ├── ai.ts                      # AI 分析/润色/摘要/改进/解析
+│   │   │   ├── pdf.ts                     # PDF 工具（合并/拆分/旋转/OCR）
+│   │   │   ├── templates.ts               # 模版 CRUD + fill 填充（核心）+ MinerU
+│   │   │   ├── admin.ts                   # 管理 API（日志/用户）
+│   │   │   ├── applications.ts            # 投递记录 CRUD
+│   │   │   ├── resume.ts                  # 简历 CRUD + render-skills
+│   │   │   └── analysis.ts                # AI 简历分析结果
+│   │   └── lib/
+│   │       ├── ai/
+│   │       │   ├── index.ts               # AI Agent 入口（createAgent 工厂）
+│   │       │   ├── graph.ts               # LangGraph StateGraph（router → worker ↔ tools）
+│   │       │   ├── tools.ts               # 工具注册（pushForm/extractResume/retrieveKnowledge）
+│   │       │   ├── prompts.ts             # 系统提示词 + 提取提示词 + 开场白
+│   │       │   ├── knowledge.ts           # RAG 知识库
+│   │       │   ├── vectorstore.ts         # 自研向量存储（Embedding + 相似度）
+│   │       │   ├── embeddings.ts          # Embedding 生成
+│   │       │   └── attachment-parser.ts   # 附件解析（PDF/图片 → 文字）
+│   │       ├── auth/                      # oidc / github / wechat / admin / utils / types
+│   │       ├── logging/request-logger.ts  # 请求日志
+│   │       ├── rate-limit.ts              # 内存速率限制
+│   │       ├── resume.schema.ts           # 简历 zod schema（服务端）
+│   │       ├── skills-html.ts             # 技能分类渲染
+│   │       └── theme-utils.ts             # 主题工具
+│   └── public/
+│       ├── NotoSansSC-Regular.otf         # CJK 字体（PDF 填充必需）
+│       ├── pdf.worker.mjs                 # pdfjs worker
+│       └── uploads/templates/             # 上传的模版 PDF
+├── web/                                   # Next.js 客户端（页面 + UI）
+│   └── src/
+│       ├── app/
+│       │   ├── page.tsx                   # 首页（营销落地页）
+│       │   ├── layout.tsx                 # 根布局
+│       │   ├── chat/
+│       │   │   ├── layout.tsx             # 对话侧边栏（conversation 列表持久）
+│       │   │   ├── page.tsx               # 新对话页
+│       │   │   ├── [id]/page.tsx          # 已有对话页（路由隔离）
+│       │   │   └── loading.tsx            # 路由切换 loading
+│       │   ├── m/chat/                    # 移动端对话页
+│       │   ├── resume/{new,list,preview}/ # 简历编辑器/列表/预览
+│       │   ├── applications/              # 投递记录页
+│       │   └── login/                     # 登录页
+│       ├── proxy.ts                       # middleware（移动端 UA 分流）
+│       ├── components/
+│       │   ├── chat/                      # ChatContent/ChatHeader/ChatMessages/ChatInput/FormCard/ResumePreviewPanel/EditResumeForm/mobile
+│       │   ├── preview/                   # PDF 预览 + 点击定位
+│       │   ├── resume/                    # TemplateResume 统一渲染
+│       │   └── templates/                 # 模版注册表 + classic 模版
+│       ├── stores/                        # chat-store / editor-store（Zustand）
+│       ├── hooks/                         # use-auth / use-device
+│       └── lib/
+│           ├── ai/prompts.ts              # 前端引用提示词常量
+│           ├── api/                       # resume / templates API 客户端
+│           ├── editor/html-parser.ts      # 文字块 ↔ HTML 互转
+│           ├── pdf/                       # pdfjs 提取/MinerU/图片提取/模块识别/页面渲染
+│           ├── utils/                     # sse / uuid / merge-data
+│           └── validators/resume.schema.ts # 简历 zod schema（前端）
+├── admin/                                 # Next.js 管理后台（端口 3001）
+│   └── src/app/logs/                      # 请求日志查看
+├── shared/                                # 共享包 @resume/shared
+│   └── src/
+│       ├── schemas/resume.ts              # 简历 zod schema
+│       ├── utils/uuid.ts                  # crypto.randomUUID 封装
+│       └── utils/merge-data.ts            # 多来源 ResumeData 合并
+├── ui/                                    # 共享 UI 包 @resume/ui
+│   └── src/
+│       ├── components/                    # button/card/dialog/input/select/tabs/... + app-header
+│       ├── hooks/use-auth.ts              # 认证 hook
+│       ├── lib/utils.ts                   # cn() 等工具
+│       └── index.ts
+└── config/                                # 共享配置 @resume/config
+    ├── tsconfig.base.json
+    ├── tsconfig.next.json
+    └── tsconfig.node.json
 ```
 
 ## 常见问题
 
 **Q: `pnpm dev` 报 Cloudflare API 错误？**
-A: 不影响使用。那是 wrangler 后台尝试连 Cloudflare 远程代理，本地不需要。忽略即可。
+A: 不影响使用。那是 `@opennextjs/cloudflare` 在 `next dev` 时尝试连 Cloudflare 远程代理，本地不需要。忽略即可。
+
+**Q: 前端请求 API 404？**
+A: 确认 `apps/server` 已启动（`pnpm dev` 会并行启动，端口 8787），且 `apps/web/next.config.ts` 的 `rewrites()` 目标 `API_ORIGIN` 正确。
+
+**Q: AI 回复不流式、等接口跑完才一次性显示？**
+A: 检查 `apps/web/next.config.ts` 是否保持 `compress: false`。Next 的 gzip 压缩会缓冲 SSE 流，导致前端无法逐 token 渲染。
 
 **Q: 上传 PDF 后预览不了？**
 A: 确认 `pnpm dev` 而非 `wrangler dev`。API 路由用 302 重定向到 `/uploads/templates/{id}.pdf`。
 
 **Q: PDF 填充报 "请先下载 CJK 字体"？**
-A: 执行 `curl -L -o public/NotoSansSC-Regular.otf https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf`
+A: 执行 `curl -L -o apps/server/public/NotoSansSC-Regular.otf https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf`
 
 **Q: 文字替换后位置偏移？**
 A: 检查 fill API 是否做了 `pageHeight - y` 翻转——text-extractor 传过来的 y 已经是 PDF 原生坐标，不需要再翻转。
 
 **Q: 如何新增一个 UI 组件？**
-A: `pnpm dlx shadcn@latest add <component-name>`，然后用 `@/components/ui` 导入。
+A: 在 `packages/ui/src/components/` 添加组件并从 `packages/ui/src/index.ts` 导出，前端用 `@resume/ui` 导入。shadcn 生成：`pnpm --filter @resume/ui dlx shadcn@latest add <component-name>`。
 
 **Q: 如何切换 AI 模型？**
-A: 修改 `.env.local` 中的 `OPENAI_BASE_URL` 和 `AI_MODEL`。
+A: 修改 `apps/server/.env.local` 中的 `OPENAI_BASE_URL` 和 `AI_MODEL`。
 
 **Q: 如何添加新的对话工具（tool）？**
-A: 在 `src/lib/ai/tools.ts` 中注册新的 LangGraph tool，然后在前端 `ChatMessages.tsx` 中添加对应的事件监听和处理逻辑。
+A: 在 `apps/server/src/lib/ai/tools.ts` 中注册新的 LangGraph tool，然后在前端 `apps/web/src/components/chat/ChatMessages.tsx` 中添加对应的事件监听和处理逻辑。
 
 **Q: 简历打印第二页背景是白的？**
 A: `ResumePreviewPanel.tsx` 的 `beforeprint` 处理器会注入 `position: fixed` 背景层 + `globals.css` 的 `@media print` 规则中 `body::before` 也会铺满每页。如果还是不生效，检查打印对话框是否勾选「背景图形」。
