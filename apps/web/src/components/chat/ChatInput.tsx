@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 import { useChatStore, type ResumeData } from "@/stores/chat-store";
 import { Button } from "@resume/ui";
 import { Textarea } from "@resume/ui";
@@ -196,7 +197,8 @@ export function ChatInput() {
           console.warn("[ChatInput] SSE buffer truncated to prevent overflow");
         }
         const lines = buffer.split("\n");
-        buffer = "";
+        // 最后一行可能是不完整的 JSON，保留到下一 chunk 再拼接，避免损坏
+        buffer = lines.pop() ?? "";
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
@@ -207,7 +209,11 @@ export function ChatInput() {
               const sameConv = useChatStore.getState().conversationId === effectiveConvId;
               // 服务端返回了 conversationId → 更新追踪变量，后续事件才能通过 sameConv 校验
               if (parsed.conversationId) effectiveConvId = parsed.conversationId;
-              if (sameConv && typeof parsed.content === "string" && useChatStore.getState().isStreaming) appendToLastMessage(parsed.content);
+              if (sameConv && typeof parsed.content === "string" && useChatStore.getState().isStreaming) {
+                // React 18/19 会把异步 SSE 循环里的连续 store 更新批处理，导致流式内容直到结束才一次性渲染；
+                // flushSync 强制每个 token 立即同步提交，实现逐字渲染。
+                flushSync(() => appendToLastMessage(parsed.content));
+              }
               if (sameConv) {
                 if (parsed.conversationId && !conversationId) {
                   setConversationId(parsed.conversationId);
@@ -232,8 +238,8 @@ export function ChatInput() {
                   setShowPreview(true);
                 }
               }
-            } catch { buffer += line + "\n"; }
-          } else if (line.trim()) { buffer += line + "\n"; }
+            } catch { /* 单行 JSON 损坏则丢弃，避免污染 buffer */ }
+          }
         }
       }
     } catch (err) {
