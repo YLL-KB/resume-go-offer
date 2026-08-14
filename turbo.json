@@ -3,7 +3,10 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "dist/**"]
+      "outputs": [".next/**"]
+    },
+    "@resume/server#build": {
+      "outputs": []
     },
     "dev": {
       "persistent": true,

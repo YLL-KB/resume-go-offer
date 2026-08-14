@@ -14,7 +14,7 @@ node_modules/
 /coverage
 
 # next.js
-/.next/
+.next/
 /out/
 
 # production
@@ -42,13 +42,16 @@ yarn-error.log*
 next-env.d.ts
 
 # OpenNext
-/.open-next
+.open-next
+
+# turbo
+.turbo/
 
 # local SQLite
 .db/
 
 # filled PDF output
-public/filled/
+**/public/filled/
 
 # wrangler files
 .wrangler
