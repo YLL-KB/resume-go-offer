@@ -1,0 +1,7 @@
+{
+  "extends": "@resume/config/tsconfig.node.json",
+  "compilerOptions": {
+    "rootDir": "./src"
+  },
+  "include": ["src"]
+}
