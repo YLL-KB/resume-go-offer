@@ -46,10 +46,7 @@ export async function getAuthUserId(request: Request): Promise<AuthUserId> {
   return { userId: getAnonymousId(request), isAnonymous: true };
 }
 
-/** 在响应头中设置 anon_id cookie（仅对匿名用户调用） */
-export function setAnonymousCookie(headers: Headers, anonId: string) {
-  headers.append(
-    "Set-Cookie",
-    `${ANON_COOKIE}=${anonId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 365}`,
-  );
+/** 生成 anon_id cookie 字符串（仅对匿名用户调用） */
+export function buildAnonymousCookie(anonId: string): string {
+  return `${ANON_COOKIE}=${anonId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 365}`;
 }
