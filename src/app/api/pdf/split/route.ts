@@ -9,6 +9,7 @@
  *   提取单页 → url；提取多页 → urls[]
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { PDFDocument } from "pdf-lib";
 import fs from "fs";
 import path from "path";
@@ -33,18 +34,18 @@ function parsePages(input: number[] | string, totalPages: number): number[] {
   return result.filter(p => p >= 1 && p <= totalPages);
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestLog(async (req: NextRequest) => {
   try {
     const { file, pages } = await req.json() as { file: string; pages: number[] | string };
     if (!file) return NextResponse.json({ error: "缺少 file 参数" }, { status: 400 });
     if (!pages) return NextResponse.json({ error: "缺少 pages 参数" }, { status: 400 });
 
-    const filePath = path.resolve(process.cwd(), "public", file.replace(/^\//, ""));
+    const filePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public", file.replace(/^\//, ""));
     if (!fs.existsSync(filePath)) {
       return NextResponse.json({ error: "文件不存在" }, { status: 404 });
     }
 
-    const srcDoc = await PDFDocument.load(fs.readFileSync(filePath));
+    const srcDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ filePath));
     const totalPages = srcDoc.getPageCount();
     const pageNums = parsePages(pages, totalPages);
 
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "页码超出范围" }, { status: 400 });
     }
 
-    const outDir = path.resolve(process.cwd(), "public/split");
+    const outDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public/split");
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
     // 每组连续页码合为一个 PDF
@@ -72,4 +73,4 @@ export async function POST(req: NextRequest) {
     console.error("PDF split error:", err);
     return NextResponse.json({ error: "拆分失败" }, { status: 500 });
   }
-}
+});

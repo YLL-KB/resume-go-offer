@@ -9,6 +9,12 @@ import { Label } from "@/components/ui/label";
 import { X, Plus, Send } from "lucide-react";
 import { randomUUID } from "@/lib/utils/uuid";
 
+function stripId<T extends { id?: string }>(entry: T): Omit<T, "id"> {
+  const { id: _, ...rest } = entry;
+  void _;
+  return rest;
+}
+
 // ── 表单类型 ──
 
 export type FormType = "basic" | "education" | "experience" | "project" | "skills" | "summary";
@@ -104,7 +110,7 @@ function EducationForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, un
     const allEntries = school.trim()
       ? [...entries, { id: randomUUID(), school: school.trim(), degree: degree.trim(), major: major.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]
       : entries;
-    onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
+    onSubmit({ entries: allEntries.map(stripId) });
   };
 
   return (
@@ -112,7 +118,7 @@ function EducationForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, un
       {/* 已添加的条目 */}
       {entries.length > 0 && (
         <div className="space-y-1.5">
-          {entries.map((entry, i) => (
+          {entries.map((entry) => (
             <div key={entry.id} className="flex items-center justify-between rounded-lg border bg-background px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <span className="font-medium">{entry.school}</span>
@@ -197,14 +203,14 @@ function ExperienceForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, u
     const allEntries = company.trim()
       ? [...entries, { id: randomUUID(), company: company.trim(), title: title.trim(), startDate: startDate.trim(), endDate: endDate.trim(), description: description.trim() }]
       : entries;
-    onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
+    onSubmit({ entries: allEntries.map(stripId) });
   };
 
   return (
     <div className="space-y-3">
       {entries.length > 0 && (
         <div className="space-y-1.5">
-          {entries.map((entry, i) => (
+          {entries.map((entry) => (
             <div key={entry.id} className="flex items-start justify-between rounded-lg border bg-background px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{entry.company}{entry.title ? ` · ${entry.title}` : ""}</div>
@@ -265,16 +271,18 @@ function ExperienceForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, u
 // ── 项目经验（支持多条）──
 
 function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unknown>) => void; onCancel: () => void }) {
-  const [entries, setEntries] = useState<Array<{ id: string; name: string; techStack: string; description: string; url: string }>>([]);
+  const [entries, setEntries] = useState<Array<{ id: string; name: string; techStack: string; description: string; url: string; startDate: string; endDate: string }>>([]);
   const [name, setName] = useState("");
   const [techStack, setTechStack] = useState("");
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const addEntry = () => {
     if (!name.trim()) return;
-    setEntries([...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim() }]);
-    setName(""); setTechStack(""); setDescription(""); setUrl("");
+    setEntries([...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]);
+    setName(""); setTechStack(""); setDescription(""); setUrl(""); setStartDate(""); setEndDate("");
   };
 
   const removeEntry = (id: string) => {
@@ -283,9 +291,9 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
 
   const handleSubmit = () => {
     const allEntries = name.trim()
-      ? [...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim() }]
+      ? [...entries, { id: randomUUID(), name: name.trim(), techStack: techStack.trim(), description: description.trim(), url: url.trim(), startDate: startDate.trim(), endDate: endDate.trim() }]
       : entries;
-    onSubmit({ entries: allEntries.map(({ id, ...e }) => e) });
+    onSubmit({ entries: allEntries.map(stripId) });
   };
 
   return (
@@ -296,6 +304,9 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
             <div key={entry.id} className="flex items-start justify-between rounded-lg border bg-background px-3 py-2 text-sm">
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{entry.name}{entry.techStack ? ` · ${entry.techStack}` : ""}</div>
+                {(entry.startDate || entry.endDate) && (
+                  <div className="text-xs text-muted-foreground">{entry.startDate} ~ {entry.endDate}</div>
+                )}
                 {entry.description && <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{entry.description}</div>}
                 {entry.url && <div className="text-xs text-primary/70 mt-0.5 truncate">{entry.url}</div>}
               </div>
@@ -319,6 +330,14 @@ function ProjectForm({ onSubmit, onCancel }: { onSubmit: (d: Record<string, unkn
           <div>
             <Label className="text-[11px]">技术栈</Label>
             <Input value={techStack} onChange={(e) => setTechStack(e.target.value)} placeholder="React, TypeScript, Node.js" className="mt-0.5 h-8 text-sm" />
+          </div>
+          <div>
+            <Label className="text-[11px]">开始时间</Label>
+            <Input value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="2023.06" className="mt-0.5 h-8 text-sm" />
+          </div>
+          <div>
+            <Label className="text-[11px]">结束时间</Label>
+            <Input value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="2024.03" className="mt-0.5 h-8 text-sm" />
           </div>
           <div className="col-span-2">
             <Label className="text-[11px]">项目链接</Label>
@@ -420,8 +439,8 @@ export function FormCard({ type, onSubmit, onCancel }: FormCardProps) {
   };
 
   return (
-    <div className="rounded-xl border-2 border-primary/20 bg-primary/5 p-4">
-      <p className="mb-3 text-xs font-medium text-primary">{FORM_LABELS[type]}</p>
+    <div className="rounded-xl border border-gray-200/60 bg-white/70 backdrop-blur-xl p-4">
+      <p className="mb-3 text-xs font-medium text-emerald-600">{FORM_LABELS[type]}</p>
       {type === "basic" && <BasicForm onSubmit={handleSubmit} onCancel={onCancel} />}
       {type === "education" && <EducationForm onSubmit={handleSubmit} onCancel={onCancel} />}
       {type === "experience" && <ExperienceForm onSubmit={handleSubmit} onCancel={onCancel} />}

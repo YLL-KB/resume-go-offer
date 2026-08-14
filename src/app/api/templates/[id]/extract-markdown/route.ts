@@ -8,6 +8,7 @@
  *   ?source=analysis 从分析暂存目录读取 (public/uploads/analysis/)
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import fs from "fs";
 import path from "path";
 
@@ -22,7 +23,7 @@ async function enrichWithLayout(
   if (!apiKey) return contentList; // 无 key，跳过
 
   try {
-    const pdfBuffer = fs.readFileSync(pdfPath);
+    const pdfBuffer = fs.readFileSync(/* turbopackIgnore: true */ pdfPath);
     const base64Pdf = pdfBuffer.toString("base64");
 
     const systemPrompt = `你是一个专业的文档布局分析工具。分析这页PDF的布局结构。
@@ -101,16 +102,14 @@ async function enrichWithLayout(
 }
 
 // ── 主路由 ──
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const GET = withRequestLog(async (req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   try {
     const { id } = await params;
     const url = new URL(req.url);
     const isAnalysis = url.searchParams.get("source") === "analysis";
     const dir = isAnalysis ? "public/uploads/analysis" : "public/uploads/templates";
-    const pdfPath = path.resolve(process.cwd(), dir, `${id}.pdf`);
+    const pdfPath = path.resolve(/* turbopackIgnore: true */ process.cwd(), dir, `${id}.pdf`);
     if (!fs.existsSync(pdfPath)) {
       return NextResponse.json({ error: isAnalysis ? "分析文件不存在或已过期" : "模版文件不存在" }, { status: 404 });
     }
@@ -176,4 +175,4 @@ export async function GET(
     console.error("提取失败:", err);
     return NextResponse.json({ error: "提取失败" }, { status: 500 });
   }
-}
+});

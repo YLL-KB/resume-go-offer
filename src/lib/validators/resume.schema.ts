@@ -50,6 +50,8 @@ export const projectSchema = z.object({
   description: z.string().optional().default(""),
   url: z.string().optional().default(""),
   techStack: z.string().optional().default(""),
+  startDate: z.string().optional().default(""),
+  endDate: z.string().optional().default(""),
   highlights: z.array(z.string()).optional().default([]),
 });
 
@@ -66,6 +68,7 @@ export const resumeDataSchema = z.object({
   projects: z.array(projectSchema).optional().default([]),
   skills: z.array(z.string()).optional().default([]),
   highlights: z.array(z.string()).optional().default([]),
+  categorizedSkills: z.record(z.string(), z.array(z.string())).optional().default({}),
 }).passthrough(); // 放行 editedModules / deletedModules 等额外字段
 
 export type ResumeData = z.infer<typeof resumeDataSchema> & {
@@ -93,4 +96,5 @@ export const DEFAULT_RESUME_DATA: ResumeData = {
   projects: [],
   skills: [],
   highlights: [],
+  categorizedSkills: {},
 };

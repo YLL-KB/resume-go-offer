@@ -8,25 +8,20 @@
  */
 
 import { NextRequest } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai, openai } from "@/lib/ai";
-import { SYSTEM_PROMPT } from "@/lib/ai/prompts";
+import { SYSTEM_PROMPT, GREETING_NEW_USER } from "@/lib/ai/prompts";
 import { getDb } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
-import { getUser } from "@/lib/auth";
-import { eq, asc } from "drizzle-orm";
+import { getAuthUserId, ANON_COOKIE } from "@/lib/auth/utils";
+import { checkRateLimit, getRateLimitKey } from "@/lib/rate-limit";
+import { eq, asc, and } from "drizzle-orm";
 import { streamAgent } from "@/lib/ai/graph";
 
 // 环境变量控制：启用 LangGraph Agent 模式
 const USE_LANGGRAPH = process.env.LANGGRAPH_ENABLED === "true";
 
-// 匿名用户 ID（未登录时使用）
-function getAnonymousId(request: NextRequest): string {
-  const ip = request.headers.get("x-forwarded-for") ?? "unknown";
-  const ua = request.headers.get("user-agent") ?? "";
-  return "anon-" + Buffer.from(ip + ua).toString("base64").slice(0, 32);
-}
-
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   // ── 解析请求 ──
   let body: { conversationId?: string; message: string };
   try {
@@ -51,8 +46,23 @@ export async function POST(request: NextRequest) {
     const now = new Date().toISOString();
 
     // ── 确定用户 ID ──
-    const authUser = await getUser(request);
-    const userId = authUser?.id ?? getAnonymousId(request);
+    const { userId, isAnonymous } = await getAuthUserId(request);
+
+    // ── 速率限制 ──
+    const rlKey = getRateLimitKey(request);
+    const rl = checkRateLimit(rlKey, isAnonymous ? 10 : 30);
+    if (!rl.allowed) {
+      return new Response(
+        JSON.stringify({ error: "请求过于频繁，请稍后再试" }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            "Retry-After": String(rl.retryAfter ?? 60),
+          },
+        },
+      );
+    }
 
     // ── 获取或创建对话 ──
     let convId = conversationId;
@@ -60,10 +70,25 @@ export async function POST(request: NextRequest) {
       const existing = await db
         .select()
         .from(conversations)
-        .where(eq(conversations.id, convId))
+        .where(and(eq(conversations.id, convId), eq(conversations.userId, userId)))
         .limit(1);
       if (existing.length === 0) {
         convId = undefined;
+      }
+    }
+
+    // 匿名用户限制：最多 5 个对话
+    if (!convId && isAnonymous) {
+      const rows = await (db as ReturnType<typeof getDb>)
+        .select()
+        .from(conversations)
+        .where(eq(conversations.userId, userId))
+        .limit(5);
+      if (rows.length >= Number(process.env.ANON_LIMIT || 5)) {
+        return new Response(
+          JSON.stringify({ error: "limit_reached", message: "未登录用户最多创建5个对话，请登录后继续使用" }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        );
       }
     }
 
@@ -75,6 +100,14 @@ export async function POST(request: NextRequest) {
         title: "新对话",
         createdAt: now,
         updatedAt: now,
+      });
+      // 新对话预存欢迎语，后续加载历史时直接展示
+      await db.insert(messages).values({
+        id: crypto.randomUUID(),
+        conversationId: convId,
+        role: "assistant",
+        content: GREETING_NEW_USER,
+        createdAt: now,
       });
     } else {
       await db
@@ -91,9 +124,10 @@ export async function POST(request: NextRequest) {
       .orderBy(asc(messages.createdAt));
 
     // ── 拼接 messages ──
-    const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
-      { role: "system", content: SYSTEM_PROMPT },
-    ];
+    // LangGraph 模式下不插入 system prompt（Router/Worker 各自管理自己的提示词）
+    const chatMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = USE_LANGGRAPH
+      ? []
+      : [{ role: "system", content: SYSTEM_PROMPT }];
     for (const msg of history.slice(-30)) {
       if (msg.role === "user" || msg.role === "assistant") {
         chatMessages.push({ role: msg.role, content: msg.content });
@@ -101,8 +135,8 @@ export async function POST(request: NextRequest) {
     }
     chatMessages.push({ role: "user", content: message.trim() });
 
-    // ── 保存用户消息 ──
-    await db.insert(messages).values({
+    // ── 保存用户消息（并行，不阻塞 AI 调用）──
+    const userMsgSaved = db.insert(messages).values({
       id: crypto.randomUUID(),
       conversationId: convId,
       role: "user",
@@ -113,14 +147,27 @@ export async function POST(request: NextRequest) {
     // ── 调用 AI 流式输出（LangGraph Agent 或 原始 Chat）──
     const encoder = new TextEncoder();
     let fullReply = "";
+    let currentRunId: string | null = null;
+    let runText = ""; // 当前 invoke 已实时推送的文本（用于保存去重：工具调用轮次的文本丢弃）
+
+    let aborted = false;
+    let saved = false;
 
     const readable = new ReadableStream({
       async start(controller) {
         const send = (data: Record<string, unknown>) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          if (aborted) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+          } catch {
+            aborted = true; // 客户端断开，停止推送但继续生成以保存到 DB
+          }
         };
 
         try {
+          // 确保用户消息已落库再开始（通常 AI 调用 TTFB 更长，此处几乎零等待）
+          await userMsgSaved;
+
           if (USE_LANGGRAPH) {
             // ── LangGraph Agent 模式 ──
             const agentInput = chatMessages.filter(
@@ -131,27 +178,47 @@ export async function POST(request: NextRequest) {
             for await (const event of streamAgent({ messages: agentInput })) {
               switch (event.event) {
                 case "on_chat_model_stream": {
+                  // 跳过 Router 节点的内部输出，只处理 Worker 内容
+                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
+                  // 用 run_id 区分不同轮次的 invoke（工具调用循环会产生多次 invoke）
+                  const runId = (event as { run_id?: string }).run_id;
+                  if (runId && runId !== currentRunId) {
+                    currentRunId = runId;
+                    runText = "";
+                  }
                   const content = event.data?.chunk?.content;
                   if (content) {
-                    fullReply += content;
+                    // 跳过开头的空白字符，避免空白气泡闪现
+                    if (!fullReply && !runText && !content.trim()) break;
+                    runText += content;
                     send({ content, conversationId: convId });
                   }
                   break;
                 }
                 case "on_chat_model_end": {
-                  // 检查 tool_calls
-                  const toolCalls = event.data?.output?.tool_calls;
+                  // 跳过 Router 节点的内部事件
+                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
+                  const output = event.data?.output;
+                  const toolCalls = output?.tool_calls;
                   if (toolCalls && toolCalls.length > 0) {
+                    // 本轮只是发起工具调用，其开场白不纳入保存；前端收到 tool_call 后也会清空已推送的开场白
+                    runText = "";
                     for (const tc of toolCalls) {
                       send({
                         tool_call: { name: tc.name, args: tc.args },
                         conversationId: convId,
                       });
                     }
+                  } else if (runText) {
+                    // 最终答复（无 tool_calls）：文本已实时流式推送，这里仅纳入 fullReply 用于落库
+                    fullReply += runText;
+                    runText = "";
                   }
                   break;
                 }
                 case "on_tool_end": {
+                  // 跳过 Router 节点的工具事件（Router 不使用工具，防御性检查）
+                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
                   if (event.name === "extractResume") {
                     const raw = event.data?.output;
                     if (typeof raw === "string") {
@@ -174,14 +241,57 @@ export async function POST(request: NextRequest) {
             for await (const chunk of stream) {
               const content = chunk.choices[0]?.delta?.content;
               if (content) {
+                // 跳过开头的空白字符，避免空白气泡闪现
+                if (!fullReply && !content.trim()) continue;
                 fullReply += content;
                 send({ content, conversationId: convId });
               }
             }
           }
 
-          // ── 保存 AI 回复 ──
+          // ── 保存 AI 回复与生成标题并行 ──
           if (fullReply) {
+            const savePromise = db.insert(messages).values({
+              id: crypto.randomUUID(),
+              conversationId: convId!,
+              role: "assistant",
+              content: fullReply,
+              createdAt: new Date().toISOString(),
+            }).then(() => { saved = true; });
+
+            let titlePromise: Promise<unknown> = Promise.resolve();
+            if (history.length === 0) {
+              titlePromise = openai.chat.completions.create({
+                model: process.env.AI_MODEL ?? "gpt-4o-mini",
+                temperature: 0.3,
+                max_tokens: 30,
+                messages: [
+                  { role: "system", content: "根据用户和AI的第一轮对话，生成一个简短的对话标题（8字以内）。只返回标题文本。" },
+                  { role: "user", content: `用户: ${message.trim()}\nAI: ${fullReply.slice(0, 200)}` },
+                ],
+              }).then(async (titleRes) => {
+                const title = titleRes.choices[0]?.message?.content?.trim()?.replace(/["「」""]/g, "") ?? "新对话";
+                await db.update(conversations).set({ title: title.slice(0, 20) }).where(eq(conversations.id, convId!));
+                send({ title: title.slice(0, 20) });
+              }).catch(() => { /* 标题生成失败不影响对话 */ });
+            }
+
+            await Promise.all([savePromise.catch((e: unknown) => console.error("Failed to save AI reply:", e)), titlePromise]);
+          }
+
+          try {
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          } catch {
+            // 客户端已断开，无需推送 [DONE]
+          }
+          controller.close();
+        } catch (err) {
+          if (!aborted) {
+            console.error("Stream error:", err);
+            send({ error: "AI 回复出错，请重试" });
+          }
+          // 即使流中断，也把已生成的部分回复落库，避免整条丢失（已保存过则跳过）
+          if (fullReply && !saved) {
             try {
               await db.insert(messages).values({
                 id: crypto.randomUUID(),
@@ -190,46 +300,30 @@ export async function POST(request: NextRequest) {
                 content: fullReply,
                 createdAt: new Date().toISOString(),
               });
-            } catch (saveErr) {
-              console.error("Failed to save AI reply:", saveErr);
-            }
-
-            // 第一条回复后自动生成对话标题
-            if (history.length === 0) {
-              try {
-                const titleRes = await openai.chat.completions.create({
-                  model: process.env.AI_MODEL ?? "gpt-4o-mini",
-                  temperature: 0.3,
-                  max_tokens: 30,
-                  messages: [
-                    { role: "system", content: "根据用户和AI的第一轮对话，生成一个简短的对话标题（8字以内）。只返回标题文本。" },
-                    { role: "user", content: `用户: ${message.trim()}\nAI: ${fullReply.slice(0, 200)}` },
-                  ],
-                });
-                const title = titleRes.choices[0]?.message?.content?.trim()?.replace(/["「」""]/g, "") ?? "新对话";
-                await db.update(conversations).set({ title: title.slice(0, 20) }).where(eq(conversations.id, convId!));
-                send({ title: title.slice(0, 20) });
-              } catch { /* 标题生成失败不影响对话 */ }
+              saved = true;
+            } catch (e) {
+              console.error("Failed to save partial AI reply:", e);
             }
           }
-
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
-        } catch (err) {
-          console.error("Stream error:", err);
-          send({ error: "AI 回复出错，请重试" });
           controller.close();
         }
       },
-    });
-
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+      cancel() {
+        aborted = true;
       },
     });
+
+    const headers: Record<string, string> = {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    };
+    // 匿名用户：种持久化 Cookie，换 IP 不会丢对话
+    if (isAnonymous) {
+      headers["Set-Cookie"] = `${ANON_COOKIE}=${userId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=31536000`;
+    }
+
+    return new Response(readable, { headers });
   } catch (err) {
     console.error("Chat API error:", err);
     return new Response(
@@ -237,4 +331,4 @@ export async function POST(request: NextRequest) {
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
-}
+});

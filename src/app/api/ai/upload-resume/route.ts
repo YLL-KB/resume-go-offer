@@ -6,19 +6,20 @@
  * Response: { id: string, url: string }
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 export const runtime = "nodejs";
 
-const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "analysis");
+const UPLOAD_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "analysis");
 const MAX_AGE_MS = 30 * 60 * 1000; // 30 分钟自动清理
 
 // 清理过期文件（每次上传时触发）
 async function cleanup() {
   try {
-    const files = await fs.readdir(UPLOAD_DIR);
+    const files = await fs.readdir(/* turbopackIgnore: true */ UPLOAD_DIR);
     const now = Date.now();
     for (const f of files) {
       const p = path.join(UPLOAD_DIR, f);
@@ -30,7 +31,7 @@ async function cleanup() {
   } catch { /* dir 不存在 */ }
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -59,4 +60,4 @@ export async function POST(request: NextRequest) {
     console.error("Upload resume error:", err);
     return NextResponse.json({ error: "上传失败" }, { status: 500 });
   }
-}
+});

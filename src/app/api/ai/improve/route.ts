@@ -7,9 +7,10 @@
  * Response: { improved: string }  或  text/plain 流
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai, streamToResponse } from "@/lib/ai";
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const { text, context } = await request.json() as { text: string; context?: string };
 
@@ -31,4 +32,4 @@ export async function POST(request: NextRequest) {
     console.error("AI improve error:", err);
     return NextResponse.json({ error: "润色失败，请稍后再试" }, { status: 500 });
   }
-}
+});

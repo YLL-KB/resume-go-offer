@@ -6,9 +6,10 @@
  * Response: { summary: string }
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai } from "@/lib/ai";
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const profile = await request.json() as {
       name?: string;
@@ -23,4 +24,4 @@ export async function POST(request: NextRequest) {
     console.error("AI generate summary error:", err);
     return NextResponse.json({ error: "生成失败，请稍后再试" }, { status: 500 });
   }
-}
+});

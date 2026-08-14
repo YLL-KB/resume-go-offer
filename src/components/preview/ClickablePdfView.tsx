@@ -7,6 +7,7 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import type { BlockTextData } from "@/lib/editor/html-parser";
 import type { ImageBlock } from "@/lib/pdf/image-extractor";
 import type { Module } from "@/lib/pdf/module-detector";
@@ -110,9 +111,9 @@ function PageWithOverlays({
         }
 
         return (
-          <button key={mod.id} type="button"
+          <Button key={mod.id} variant="ghost"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onModuleClick(mod.id); }}
-            className={cn("absolute z-10 text-left transition-colors border border-dashed rounded-sm",
+            className={cn("absolute z-10 text-left transition-colors border border-dashed rounded-sm h-auto p-0",
               isDeleted ? "bg-white/90 border-destructive/30" :
               isActive ? "bg-primary/10 border-primary ring-1 ring-primary" :
               hasEdit ? "bg-amber-500/5 border-amber-400/40 hover:bg-amber-500/10" :
@@ -149,7 +150,7 @@ function PageWithOverlays({
                 >{text}</div>
               );
             })}
-          </button>
+          </Button>
         );
       })}
     </div>

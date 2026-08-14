@@ -3,23 +3,22 @@
  * 直接从文件系统读取分析暂存 PDF，兼容生产模式静态文件不更新。
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const GET = withRequestLog(async (_request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   const { id: rawId } = await params;
   const id = rawId.endsWith(".pdf") ? rawId.slice(0, -4) : rawId;
-  const pdfPath = path.join(process.cwd(), "public", "uploads", "analysis", `${id}.pdf`);
+  const pdfPath = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "analysis", `${id}.pdf`);
 
   let fileBuffer: Buffer;
   try {
-    fileBuffer = await fs.readFile(pdfPath);
+    fileBuffer = await fs.readFile(/* turbopackIgnore: true */ pdfPath);
   } catch {
     return NextResponse.json({ error: "分析文件不存在或已过期" }, { status: 404 });
   }
@@ -33,4 +32,4 @@ export async function GET(
       "Content-Disposition": "inline",
     },
   });
-}
+});

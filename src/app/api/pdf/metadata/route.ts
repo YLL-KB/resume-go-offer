@@ -6,24 +6,25 @@
  * Response: { pageCount, pages: [{ width, height }], fileSize, title, author, creator }
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { PDFDocument } from "pdf-lib";
 import fs from "fs";
 import path from "path";
 
 export const runtime = "nodejs";
 
-export async function POST(req: NextRequest) {
+export const POST = withRequestLog(async (req: NextRequest) => {
   try {
     const { file } = await req.json() as { file: string };
     if (!file) return NextResponse.json({ error: "缺少 file 参数" }, { status: 400 });
 
-    const filePath = path.resolve(process.cwd(), "public", file.replace(/^\//, ""));
+    const filePath = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public", file.replace(/^\//, ""));
     if (!fs.existsSync(filePath)) {
       return NextResponse.json({ error: "文件不存在" }, { status: 404 });
     }
 
     const stat = fs.statSync(filePath);
-    const pdfDoc = await PDFDocument.load(fs.readFileSync(filePath));
+    const pdfDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ filePath));
 
     const pages = pdfDoc.getPages().map((page, i) => {
       const { width, height } = page.getSize();
@@ -42,4 +43,4 @@ export async function POST(req: NextRequest) {
     console.error("PDF metadata error:", err);
     return NextResponse.json({ error: "读取失败" }, { status: 500 });
   }
-}
+});

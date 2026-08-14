@@ -14,6 +14,9 @@ export interface User {
   wechatOpenid?: string | null;
   /** Authing 支付宝登录特有 */
   alipayUserId?: string | null;
+  /** GitHub OAuth 特有 */
+  githubId?: string | null;
+  githubLogin?: string | null;
 }
 
 export interface Session {

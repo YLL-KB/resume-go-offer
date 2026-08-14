@@ -121,11 +121,24 @@
   * {
     @apply border-border outline-ring/50;
 	}
+  /* overflow-x: clip 比 hidden 更严格：不创建滚动容器，iOS 键盘弹出时不会触发横向滚动 */
+  html, body {
+    overflow-x: clip;
+    overflow-y: auto;
+    max-width: 100dvw;
+  }
   body {
     @apply bg-background text-foreground;
-	}
+  }
   html {
     @apply font-sans;
+  }
+
+  /* 仅触摸设备：阻止橡皮筋效果 */
+  @media (pointer: coarse) {
+    html, body {
+      overscroll-behavior: none;
+    }
   }
 }
 
@@ -139,7 +152,7 @@
       print-color-adjust: exact !important;
     }
     /* 背景色填充由 ResumePreviewPanel beforeprint 中的 JS 动态处理：
-       测量内容高度 → 计算页数 → padding-bottom 撑到整页倍数 */
+       测量内容高度 → print-root min-height 匹配内容 → html background 覆盖全部页面 */
   }
 }
 
@@ -275,6 +288,22 @@
 .md-content a {
   color: var(--primary);
   text-decoration: underline;
+}
+
+/* 流式输出光标：标记 AI 仍在生成（输出中途变慢时提示用户未卡死） */
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  background: #10b981;
+  border-radius: 1px;
+  animation: streaming-cursor-blink 1s step-end infinite;
+}
+@keyframes streaming-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 

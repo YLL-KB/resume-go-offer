@@ -42,7 +42,11 @@
 	 */
 	"vars": {
 		"AUTHING_APP_ID": "6a4f3e289a0ee980079eaa1a",
-		"NEXT_PUBLIC_APP_URL": "http://www.resumeoffer.cn"
+		"AUTHING_ISSUER": "https://5hgvyboz.authing.cn",
+		"WECHAT_APP_ID": "wx5e22a7704ae30f90",
+		"NEXT_PUBLIC_APP_URL": "https://www.resumeoffer.cn",
+		"LANGGRAPH_ENABLED": "true",
+			"GITHUB_CLIENT_ID": "Ov23liDRXY3JgKEubRCt"
 	},
 	"d1_databases": [
 		{

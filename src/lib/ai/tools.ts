@@ -6,6 +6,7 @@
  */
 
 import { tool } from "@langchain/core/tools";
+import type { BaseMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { embedText } from "./embeddings";
 import { vectorStore } from "./vectorstore";
@@ -14,6 +15,21 @@ const FORM_LABELS: Record<string, string> = {
   basic: "基本信息", education: "教育经历", experience: "工作经历",
   project: "项目经验", skills: "技能标签", summary: "个人总结",
 };
+
+// 从 LangChain BaseMessage.content 提取纯文本（可能是 string 或 content block 数组）
+function msgContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((c) => {
+        if (typeof c === "string") return c;
+        if (c && typeof c === "object" && "text" in c) return String((c as { text: unknown }).text);
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
 
 // ── pushForm: 推送表单卡片 ──
 
@@ -39,12 +55,18 @@ export const pushFormTool = tool(
 
 export const extractResumeTool = tool(
   async (_args, config) => {
-    // 从 config 中读取消息历史
-    const messages = (config.configurable?.messages as Array<{ role: string; content: string }>) ?? [];
+    // LangGraph ToolNode 通过 config.state 传入图状态（而非 config.configurable）
+    const state = (config as unknown as { state?: { messages?: BaseMessage[] } }).state;
+    const msgs = state?.messages ?? [];
 
-    const conversationText = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => `[${m.role === "user" ? "用户" : "顾问"}]: ${m.content}`)
+    const conversationText = msgs
+      .map((m) => {
+        const type = m.getType?.() ?? "";
+        if (type === "human") return `[用户]: ${msgContent(m.content)}`;
+        if (type === "ai") return `[顾问]: ${msgContent(m.content)}`;
+        return "";
+      })
+      .filter(Boolean)
       .join("\n\n");
 
     // 复用现有的提取逻辑
@@ -122,5 +144,21 @@ export const searchKnowledgeTool = tool(
 
 export const AGENT_TOOLS = [pushFormTool, extractResumeTool, suggestOptimizationTool, searchKnowledgeTool];
 
+/** 按模式获取工具子集，减少无关工具干扰 */
+export function getToolsForMode(mode: string) {
+  switch (mode) {
+    case "chatting":
+      return [searchKnowledgeTool];
+    case "collecting":
+      return [pushFormTool, searchKnowledgeTool, suggestOptimizationTool];
+    case "advising":
+      return [suggestOptimizationTool, searchKnowledgeTool];
+    case "extracting":
+      return [extractResumeTool, pushFormTool, suggestOptimizationTool, searchKnowledgeTool];
+    default:
+      return AGENT_TOOLS;
+  }
+}
+
 // 导出类型给前端用
-export type AgentToolName = "pushForm" | "extractResume" | "suggestOptimization";
+export type AgentToolName = "pushForm" | "extractResume" | "suggestOptimization" | "searchKnowledge";

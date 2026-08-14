@@ -7,6 +7,7 @@
  * Part C: 自定义页（复制模版底版 + 涂白 + 渲染）
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { PDFDocument, rgb } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import fs from "fs";
@@ -18,8 +19,8 @@ export const runtime = "nodejs";
 let _fontBytes: ArrayBuffer | null = null;
 async function getCjkFont(): Promise<ArrayBuffer> {
   if (_fontBytes) return _fontBytes;
-  const p = path.resolve(process.cwd(), "public", "NotoSansSC-Regular.otf");
-  if (fs.existsSync(p)) { _fontBytes = fs.readFileSync(p).buffer; return _fontBytes!; }
+  const p = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public", "NotoSansSC-Regular.otf");
+  if (fs.existsSync(p)) { _fontBytes = fs.readFileSync(/* turbopackIgnore: true */ p).buffer; return _fontBytes!; }
   throw new Error("请先下载 CJK 字体");
 }
 
@@ -121,17 +122,17 @@ function whiteOut(page: ReturnType<PDFDocument["getPages"]>[0], b: { x: number; 
 }
 
 // ═══════════════════════════════════════════════════════
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withRequestLog(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const { id } = await params;
     const body = await req.json() as { strayEdits?: EditItem[]; moduleEdits?: ModuleEdit[]; customPages?: CustomPageItem[]; source?: string };
     const { strayEdits = [], moduleEdits = [], customPages = [], source } = body;
 
     const pdfDir = source === "analysis" ? "public/uploads/analysis" : "public/uploads/templates";
-    const pdfPath = path.resolve(process.cwd(), pdfDir, `${id}.pdf`);
+    const pdfPath = path.resolve(/* turbopackIgnore: true */ process.cwd(), pdfDir, `${id}.pdf`);
     if (!fs.existsSync(pdfPath)) return NextResponse.json({ error: source === "analysis" ? "分析文件不存在或已过期" : "模版不存在" }, { status: 404 });
 
-    const pdfDoc = await PDFDocument.load(fs.readFileSync(pdfPath));
+    const pdfDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ pdfPath));
     pdfDoc.registerFontkit(fontkit);
     const fontBytes = await getCjkFont();
     const font = await pdfDoc.embedFont(fontBytes);
@@ -201,7 +202,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // ═══ Part C: 自定义页 ═══
     if (customPages.length) {
-      const templateDoc = await PDFDocument.load(fs.readFileSync(pdfPath));
+      const templateDoc = await PDFDocument.load(fs.readFileSync(/* turbopackIgnore: true */ pdfPath));
       const page1Blocks = moduleEdits.filter(m => m.page === 1).flatMap(m => m.blocks);
 
       for (const cp of customPages) {
@@ -233,7 +234,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // 保存
     const filledBytes = await pdfDoc.save();
-    const filledDir = path.resolve(process.cwd(), "public/filled");
+    const filledDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), "public/filled");
     if (!fs.existsSync(filledDir)) fs.mkdirSync(filledDir, { recursive: true });
     const filledPath = path.join(filledDir, `${id}.pdf`);
     fs.writeFileSync(filledPath, filledBytes);
@@ -243,4 +244,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     console.error("PDF fill error:", err);
     return NextResponse.json({ error: "填充失败" }, { status: 500 });
   }
-}
+});

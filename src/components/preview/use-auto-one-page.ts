@@ -11,7 +11,7 @@ export const A4_WIDTH_MM = 210;
 export const A4_HEIGHT_PX = Math.round(A4_HEIGHT_MM * MM_TO_PX); // ≈ 1123
 export const A4_WIDTH_PX = Math.round(A4_WIDTH_MM * MM_TO_PX);   // ≈ 794
 
-/** Default padding inside the A4 paper (matches TemplateClassic p-8). */
+/** Default padding inside the A4 paper (matches TemplateResume p-[2cm]). */
 export const PAGE_PADDING_PX = 32;
 
 /** Max scale-down for auto-one-page before we give up. */

@@ -5,9 +5,10 @@
  */
 
 import { NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { clearSessionCookie } from "@/lib/auth/oidc";
 
-export async function GET() {
+export const GET = withRequestLog(async () => {
   const host = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const response = NextResponse.redirect(new URL("/", host));
 
@@ -20,4 +21,4 @@ export async function GET() {
   );
 
   return response;
-}
+});

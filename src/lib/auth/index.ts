@@ -31,17 +31,30 @@ export type { User, Session } from "./types";
 export async function getUser(request: Request) {
   // 从 auth_user cookie 读取（由 callback 写入）
   const cookieHeader = request.headers.get("Cookie");
-  if (!cookieHeader) return null;
-
-  const cookies = parseCookies(cookieHeader);
+  const cookies = cookieHeader ? parseCookies(cookieHeader) : {};
   const raw = cookies["auth_user"];
-  if (!raw) return null;
 
-  try {
-    return JSON.parse(decodeURIComponent(raw));
-  } catch {
-    return null;
+  if (raw) {
+    try {
+      return JSON.parse(decodeURIComponent(raw));
+    } catch {
+      return null;
+    }
   }
+
+  // 本地开发：无 auth_user cookie 时返回 mock 用户，免登录
+  if (process.env.NODE_ENV === "development") {
+    return {
+      id: "dev-user-001",
+      name: "Dev User",
+      email: "dev@localhost",
+      avatarUrl: null,
+      githubId: "00000000",
+      githubLogin: "dev",
+    };
+  }
+
+  return null;
 }
 
 /**

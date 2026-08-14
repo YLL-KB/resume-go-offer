@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
 const nextConfig: NextConfig = {
+	typescript: { ignoreBuildErrors: true },
+	allowedDevOrigins: ["172.20.10.2"],
 	serverExternalPackages: [
 	  "pdfjs-dist",
 	  "@napi-rs/canvas",

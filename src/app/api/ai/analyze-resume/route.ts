@@ -6,9 +6,10 @@
  * Query: ?stream=true  启用流式输出
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai, streamToResponse } from "@/lib/ai";
 
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const { content } = await request.json() as { content: string };
 
@@ -31,4 +32,4 @@ export async function POST(request: NextRequest) {
     console.error("AI analyze error:", err);
     return NextResponse.json({ error: "分析失败，请稍后再试" }, { status: 500 });
   }
-}
+});

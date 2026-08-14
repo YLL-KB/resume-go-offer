@@ -13,89 +13,62 @@
 
 ---
 
-## 两层编辑模型
+## 编辑模型（当前形态）
 
-编辑器分为两个层级，对应两种不同的编辑自由度：
+编辑器入口在 `src/app/resume/new/ResumeNewContent.tsx`。左侧用 `react-pdf` 渲染原 PDF 预览，右侧是「文字块编辑」列表：PDF 里的每一个文字块对应一个 `<textarea>`，直接改文字内容；每个块还能标记「删除」（导出时涂白不写字，即"抹掉"）。
 
-### Layer 1：模版页 — 逐块原位编辑
+这是**逐块原位编辑**——保留模版的设计感（字体、颜色、位置、对齐），只改文字内容，不改坐标。
 
-**定位**：保留模版的设计感（字体、颜色、位置、对齐），只改文字内容。
+### 文字块数据模型
 
-**数据模型**：从 PDF 中提取的 `RichTextBlock[]`，每个 block 包含：
+基础字段 `TextBlock` 定义于 `src/components/preview/ClickablePdfView.tsx`，`RichTextBlock` 在 `src/lib/pdf/text-extractor.ts` 上扩展字号/字体/颜色：
 
 ```typescript
-interface RichTextBlock {
-  globalIndex: number;   // 全局唯一序号
-  page: number;          // 所在页
-  x: number;             // PDF 原生 x 坐标（从左）
-  y: number;             // PDF 原生 y 坐标（从底）
-  width: number;         // 文字块宽度
-  height: number;        // 文字块高度
-  text: string;          // 原文
-  fontSize: number;      // 字号
-  fontName: string;      // 字体名
-  color: string;         // 颜色 (hex)
+// src/components/preview/ClickablePdfView.tsx
+interface TextBlock {
+  x: number; y: number; width: number; height: number;
+  text: string; page: number; globalIndex: number; pageHeight: number;
+}
+
+// src/lib/pdf/text-extractor.ts
+interface RichTextBlock extends TextBlock {
+  fontSize: number;  // 字号
+  fontName: string;  // 字体名
+  color: string;     // 颜色 (hex)
+  cssFontFamily: string; // 映射到 CSS 字体族
+  items: RichTextItem[]; // 该行内每个字符项
 }
 ```
 
-**提取原理** (`src/lib/pdf/text-extractor.ts`)：
+> 为什么用 textarea 而不是富文本：模版页上每个文字块是独立排版的（不同字号、字体、颜色），拆开编辑反而更精确。富文本编辑器适合连续排版，不适合这种"分散文字块"场景。
+
+### 已移除的部分（不要误以为还在用）
+
+- **自定义页（Layer 2）**：数据模型 `CustomPage` 与 `fill` API 的 Part C 渲染逻辑仍保留，但前端已无编辑入口（`editor-store` 里的 `addCustomPage` 未被调用，`customPages` 恒为空，Part C 实际不执行）。
+- **MinerU 模块编辑 / 图片编辑**：`editor-store.ts` 里仍残留 `mdModules`、`editedModules`、`templateImages`、`editedImages` 等字段和 action，但 `ResumeNewContent.tsx` 已完全不用（它用组件本地 `useState` 管理 `blocks`/`edits`/`deletedBlocks`）。这些是遗留死代码。
+
+---
+
+## 文字提取原理
+
+`src/lib/pdf/text-extractor.ts` 用 **pdfjs-dist** 在浏览器端解析 PDF（不依赖服务端，离线可用、即时）：
 
 ```
 PDF 文本对象 (TextItem)
   │  transform: [a, b, c, d, e, f]
-  │  fontSize = |d|  (scaleY)
-  │  x = e           (translateX)
-  │  y = f           (translateY, PDF bottom-left origin)
+  │  fontSize = |transform[3]|  (scaleY)
+  │  x = transform[4]           (translateX)
+  │  y = transform[5]           (translateY, PDF bottom-left origin)
   │  height = 字符高度
-  │
   ▼
-按行合并：同 y 坐标 (±1px) + 同字体 = 一行
-  │
+按行合并：同 y 坐标 + 同字体脚本 + 同字体名 = 一行
+  │  groupKey = `${yKey}|${fontScript}|${fontName}`
+  │  （同行不同字体如「个人简历」黑体 +「Personal resume」Times 不会合并）
   ▼
 RichTextBlock { x=行最左, y=行基线, width=行宽+16, height=行高+6, ... }
 ```
 
-**编辑交互**：
-- 每个 block 对应一个 `<textarea>`，编辑替换原文
-- 可删除 block（导出时涂白不写字，即"抹掉"）
-- 导出时 block 坐标原样传给服务端，pdf-lib 在相同位置覆盖
-
-**为什么用 textarea 而不是富文本**：模版页上的每个文字块是独立排版的（不同字号、不同字体、不同颜色），拆开编辑反而更精确。富文本编辑器适合连续排版，不适合这种"分散文字块"的场景。
-
-### Layer 2：自定义页 — 自由排版编辑
-
-**定位**：当简历内容超过一页时，在保留模版视觉风格的前提下，新增页面自由填写内容。
-
-**数据模型**：
-
-```typescript
-interface CustomPage {
-  id: string;        // "custom-0", "custom-1" ...
-  markdown: string;  // TipTap 输出的 HTML
-}
-```
-
-**为什么用富文本（TipTap）而不是继续逐块编辑**：
-- 自定义页没有预置文字块，无法也无必要逐块放置
-- 用户需要连续排版（段落、标题、列表），富文本编辑器天然适合
-- 导出时按 A4 排版规则自动计算 y 坐标，从上到下流式渲染
-
-**底版继承**：自定义页不是纯白纸，而是**复制模版第一页 → 涂白所有文字块**，保留模版的边框、线条、图标等装饰元素：
-
-```
-模版第一页                         自定义页底版
-┌────────────────────┐            ┌────────────────────┐
-│ ╔══════════════╗   │            │ ╔══════════════╗   │
-│ ║  詹密简历     ║   │  复制+涂白  │ ║              ║   │
-│ ║  前端工程师   ║   │  ───────►  │ ║              ║   │
-│ ╚══════════════╝   │            │ ╚══════════════╝   │
-│ ─────────────────  │            │ ─────────────────  │
-│ 工作经历           │            │                    │
-│ • XX公司...        │            │   ← 用户内容渲染    │
-│ • YY公司...        │            │     在此区域        │
-│                    │            │                    │
-└────────────────────┘            └────────────────────┘
-```
+输出 `RichTextBlock[]`，按 PDF y 降序（物理从上到下）、同 y 按 x 升序（从左到右）排序。
 
 ---
 
@@ -119,188 +92,123 @@ interface CustomPage {
 
 | 环节 | 坐标系 | 说明 |
 |---|---|---|
-| `text-extractor.ts` 提取 | PDF 原生 (bottom-left) | `tx[5]` 直接取自 PDF transform |
+| `text-extractor.ts` 提取 | PDF 原生 (bottom-left) | `transform[5]` 直接取自 PDF transform |
 | `ResumeNewContent.tsx` 编辑 | 不涉及坐标 | 只编辑文字，不改坐标 |
 | `fill/route.ts` 接收 edits | PDF 原生 (bottom-left) | **注意：不需要二次翻转** |
-| `fill/route.ts` 渲染自定义页 | PDF 原生 (bottom-left) | 从上到下计算 y，每次减去行高 |
 
 **常见 Bug**：早期版本在 fill API 中做了 `pdfY = pageHeight - e.y - e.h` 的翻转，但 `text-extractor.ts` 传过来的 y 已经是 PDF 原生坐标（从底部算），导致文字被画到了页面底部。修复方案是直接使用 `e.y`，不做翻转。
-
-### 自定义页的 y 计算
-
-```
-第一页文字块中 y 最大的块（物理位置最高）
-  ↓
-yStart = topBlock.y + topBlock.h + 12  // 文字区域下方留白
-  ↓
-逐行画文字，每行:
-  y -= line.fontSize * 1.6            // 行高 = 字号 × 1.6
-  if (y < 50) → 新建页, y = 792      // 触底自动分页
-```
 
 ---
 
 ## PDF 填充管线
 
-`POST /api/templates/[id]/fill` 是整个系统的核心接口，分三步执行：
+`POST /api/templates/[id]/fill`（`src/app/api/templates/[id]/fill/route.ts`）是核心接口，用 **pdf-lib + @pdf-lib/fontkit** 嵌入 CJK 字体（`public/NotoSansSC-Regular.otf`）后回填。请求体分三部分：
 
-### Step 1：模版页文字替换
+```typescript
+{
+  strayEdits: EditItem[];    // Part A：逐块原位编辑
+  moduleEdits: ModuleEdit[]; // Part B：模块末尾追加（当前前端未发送）
+  customPages: CustomPageItem[]; // Part C：自定义页（当前前端无入口）
+  source?: string;           // "analysis" 时从 analysis 目录读 PDF，否则 templates
+}
+```
+
+当前前端只发送 `strayEdits`（+ 空 `customPages`）。
+
+### Part A：文字块原位替换（唯一在用的路径）
+
+`EditItem { page, x, y, w, h, fontSize, text, color }`。
 
 ```
 对每个 EditItem:
   ┌─────────────────────┐
   │ 画白色矩形覆盖原文     │  x: e.x-4, y: e.y-descender,
-  │ (Pass 1, 先画所有)   │  w: max(原宽, 新文宽)+8, h: 原高+descender+8
+  │ (Pass A1, 先画所有)  │  w: e.w+8, h: e.h+descender+8
   └─────────────────────┘
            │
            ▼
   ┌─────────────────────┐
   │ 画新文字              │  x: e.x+1, y: e.y (基线)
-  │ (Pass 2, 在所有遮罩上) │  size: e.fontSize, font: NotoSansSC
+  │ (Pass A2, 在所有遮罩上) │  size: e.fontSize, font: NotoSansSC
   └─────────────────────┘
 ```
 
-**为什么两遍渲染**：如果边遮罩边写字，后面的遮罩可能盖住前面已写的文字。
+- **两遍渲染**：如果边遮罩边写字，后面的遮罩可能盖住前面已写的文字，所以先涂白所有、再统一画字。
+- **descender 处理**：中文和拉丁字母的下沉部分（g/j/p/q/y 的尾巴）在基线下方。白色矩形向下扩展 `fontSize × 0.3`（至少 6pt）才能完全覆盖。
+- **删除块**：前端把 `text` 置空字符串，Part A2 跳过绘制，效果等于"抹掉"。
 
-**descender 处理**：中文和拉丁字母的下沉部分（g, j, p, q, y 的尾巴、部分中文笔画）在基线下方。白色矩形需要向下扩展 `fontSize × 0.3`（至少 6pt）才能完全覆盖。
+### 风格继承（titleSize / bodySize / dominantColor）
 
-### Step 2：自定义页生成
+从提交的 edits 里提取（`fill/route.ts` 的 `median`/`mostCommon`）：
 
-```
-if (customPages.length > 0):
-  加载模版 PDF → templateDoc
-
-  for each customPage:
-    ┌──────────────────────────┐
-    │ copyPages(templateDoc, 0) │  复制模版第一页
-    │ pdfDoc.addPage(copied)    │  加入输出文档
-    └──────────────────────────┘
-              │
-              ▼
-    ┌──────────────────────────┐
-    │ 涂白所有 page1Blocks      │  遍历 templateBlocks，
-    │                          │  逐个画白色矩形覆盖
-    └──────────────────────────┘
-              │
-              ▼
-    ┌──────────────────────────┐
-    │ htmlToTextLines()         │  解析 TipTap 输出的 HTML
-    │ → TextLine[]              │  提取标题/列表/段落结构
-    └──────────────────────────┘
-              │
-              ▼
-    ┌──────────────────────────┐
-    │ 从文字区域下方开始排版      │  y 从 topBlock.y+topBlock.h+12 开始
-    │ 超出页面 → addPage() 续页  │  续页为纯白 A4
-    └──────────────────────────┘
+```typescript
+dominantColor = mostCommon(allColors)                 || "#333333"
+titleSize     = median(allSizes.filter(s => s >= 16)) || 18
+bodySize      = median(allSizes.filter(s => s < 16))  || 11
 ```
 
-### Step 3：合并输出
+### 输出
 
 ```
-pdfDoc.save() → Buffer
-  │
-  ▼
-public/filled/{id}.pdf  (每次覆盖写入)
-  │
-  ▼
-返回 URL: /filled/{id}.pdf?t=timestamp  (防缓存)
+pdfDoc.save() → Buffer → public/filled/{id}.pdf（每次覆盖写入）
+  → 返回 URL: /filled/{id}.pdf?t=timestamp（防缓存）
 ```
 
 ---
 
 ## HTML → PDF 文本解析
 
-TipTap 富文本编辑器输出 HTML，填充 API 需要将其转为可绘制的文本行。
-
-### 解析流程
+自定义页内容（`CustomPage.markdown`，HTML 片段）在 fill API 中通过 `parseHtmlToLines()`（`fill/route.ts`）转为可绘制的文本行。
 
 ```
-输入 HTML (TipTap 输出):
+输入 HTML 片段:
   <h2>项目经验</h2>
   <p>负责XX系统架构设计</p>
-  <ul>
-    <li><p>带领5人团队</p></li>
-    <li><p>性能优化30%</p></li>
-  </ul>
+  <ul><li>带领5人团队</li></ul>
 
-      ↓ htmlToTextLines()
+      ↓ parseHtmlToLines(html, titleSize, bodySize)
 
-解码实体:   &amp; → &, &nbsp; → 空格, etc.
+先解码实体: &amp;→&, &lt;→<, &nbsp;→空格, &ldquo;→“ ...
       ↓
-标签转换:
-  <h2>  → \n[H2]        (标题标记，与文字同行)
-  </h2> → (移除)
-  <li>  → \n[LI]        (列表标记)
-  </p>  → \n            (段落换行)
-  <p>   → (移除)
-  <ul>  → \n            (列表容器换行)
+按块分割: 正则匹配 <h1>~<h6> / <p> / <li> / <ul>|<ol>
       ↓
-剥离剩余标签:  <strong>, <em>, <span> 等全部移除
+逐块识别:
+  <h1>~<h6> → bold 标题，字号 = titleSize + 偏移（h1=+6, h2=+4, h3=+0 ...）
+  <p>      → 正文，字号 = bodySize
+  <li>     → "• 内容"，indent=18，字号 = bodySize
       ↓
-按 \n 分割，逐行识别标记:
-  [H1] → fontSize=titleSize+4, bold, indent=0
-  [H2] → fontSize=titleSize,   bold, indent=0
-  [H3] → fontSize=titleSize-2, bold, indent=0
-  [LI] → fontSize=bodySize,    indent=18  (缩进)
-  其他  → fontSize=bodySize,   indent=0
+内联处理: collectInline() 提取 <span style="color:..."> 的颜色，剥离其余标签
       ↓
-输出 TextLine[]
+输出 TextLine[]（text / fontSize / indent / spaceBefore / spaceAfter / bold / color）
 ```
 
-### 风格继承
-
-自定义页的文字风格从模版第一页提取：
-
-```typescript
-// 颜色：取所有文字块中出现次数最多的颜色
-dominantColor = mostCommon(blocks.map(b => b.color)) || "#333333"
-
-// 标题字号：取 fontSize ≥ 16 的中位数
-titleSize = median(blocks.filter(b => b.fontSize >= 16).map(b => b.fontSize)) || 18
-
-// 正文字号：取 fontSize < 16 的中位数
-bodySize = median(blocks.filter(b => b.fontSize < 16).map(b => b.fontSize)) || 11
-```
+> 注意：当前 `parseHtmlToLines` 只在 Part B（`moduleEdits`）和 Part C（`customPages`）中调用，而这两条路径前端都未接通，所以它是"后端就绪、前端未用"的代码。
 
 ---
 
 ## 状态管理
 
-编辑器状态集中在 Zustand store (`src/stores/editor-store.ts`)：
+编辑器状态集中在 `src/stores/editor-store.ts`（Zustand）。
+
+**当前实际在用的字段**（`ResumeNewContent.tsx` 订阅）：
 
 ```
-EditorState
-├── 模版标识
-│   ├── templateId
-│   └── pdfUrl
-│
-├── Markdown 提取（MinerU 管线，预留）
-│   ├── markdown, markdownSource
-│   ├── mdModules, activeModuleId
-│   ├── editedModules, deletedModules
-│   └── parsing
-│
-├── 图片
-│   ├── templateImages
-│   ├── editedImages
-│   └── deletedImages
-│
-├── 自定义页
-│   ├── customPages: CustomPage[]
-│   ├── addCustomPage()
-│   ├── removeCustomPage()
-│   └── updateCustomPage()
-│
-└── 持久化
-    ├── resumeData, resumeId
-    └── saving, saved
+parsing / saving / saved / resumeId     — 解析、保存状态
+customPages                             — 自定义页（当前恒为空）
+aiAnalysis                              — AI 分析结果（评分/优点/不足/建议）
 ```
 
-**为什么图片和自定义页放在 store 而不是组件 state**：
-- 切换模版时需要重置所有这些状态
-- 保存草稿时需要完整序列化
-- 未来接入 MinerU 管线时会增加更多交叉依赖
+**组件本地 state**（不在 store，`ResumeNewContent.tsx`）：
+
+```
+blocks: RichTextBlock[]        — 提取出的文字块
+edits: Record<number,string>   — globalIndex → 编辑后的文字
+deletedBlocks: Set<number>     — 标记删除的块
+```
+
+**遗留死字段**（store 里定义但无人订阅）：`markdown`、`mdModules`、`activeModuleId`、`editedModules`、`deletedModules`、`moduleContents`、`templateImages`、`editedImages`、`deletedImages` 及对应 action。这些对应已移除的 MinerU 模块编辑和图片编辑功能，清理时可一并删除。
+
+**持久化**：`persist` 中间件只把 `aiAnalysis` 序列化到 sessionStorage（`partialize`），其余为运行时内存态。
 
 ---
 
@@ -317,49 +225,19 @@ EditorState
 
 ### 2. 为什么文字提取用 pdfjs-dist 而不是 MinerU？
 
-这是两条完全不同的技术路线，核心矛盾在于"要不要保留模版的排版设计"。
-
-| 维度 | pdfjs-dist（当前方案） | MinerU + Markdown |
-|------|----------------------|-------------------|
+| 维度 | pdfjs-dist（当前方案） | MinerU |
+|------|----------------------|--------|
 | 运行位置 | 客户端浏览器 | 服务端 API |
-| 外部依赖 | 零 | 需要 MinerU token（或用免费 Flash 模式） |
+| 外部依赖 | 零 | 需要 MinerU token（或免费 Flash 模式） |
 | 提取精度 | 精确到每个字符的坐标、字号、颜色 | 语义理解好，但丢失精确坐标 |
-| 编辑方式 | 逐块 textarea，原位替换 | 按模块富文本编辑，自由排版 |
+| 编辑方式 | 逐块 textarea，原位替换 | 按模块富文本编辑，重新排版 |
 | PDF 回填 | pdf-lib 同位置覆盖，布局完全保留 | 需要重新排版，无法完美还原原布局 |
 | 离线可用 | ✅ | ❌ |
-| 速度 | 即时（本地解析） | 有网络延迟（API 调用） |
-| Flow 排版 | ❌ 文字必须适配原位置 | ✅ 内容可自由增删、重排 |
 
-**核心矛盾：**
+核心矛盾：模版的本质是精心设计的固定布局。pdfjs-dist 是"保留布局，只改文字"（尊重模版设计）；MinerU 是"提取语义，重新排版"（抛弃模版设计）。简历场景的核心需求是"用别人设计好的排版填自己的内容"，所以选 pdfjs-dist。
 
-```
-模版的本质 = 精心设计的固定布局
+> MinerU 代码仍存在（`src/lib/pdf/mineru-extractor.ts` + `src/app/api/templates/[id]/extract-markdown/route.ts`），但当前编辑器前端直接走 pdfjs-dist，不再调用 MinerU。
 
-pdfjs-dist → "保留布局，只改文字"    → 尊重模版设计
-MinerU    → "提取语义，重新排版"    → 抛弃模版设计
-```
-
-如果用户上传模版是为了它的排版设计（字体层级、留白、对齐、装饰），pdfjs-dist 是正确的——原位置替换保留所有这些。
-
-如果用户只是想要一个"好看的简历框架"，不在意精确排版，那 MinerU 更灵活——提取内容 → 随便改 → 套个模版重新渲染。
-
-**结论：**
-
-当前方案（pdfjs-dist）更适合简历场景，因为核心需求是"用别人设计好的排版填自己的内容"，不是"提取内容后自由排版"。
-
-**两者可以互补：** MinerU 用来做**语义标注**——识别每个文字块是"姓名"还是"工作经历标题"，辅助自动填表；但填充回 PDF 还是用 pdfjs-dist 的坐标方案。
-
-**当前 MinerU 代码状态：** `mineru-extractor.ts`、`extract.ts`、`extract-markdown/route.ts` 已实现，但 `extractMarkdown()` / `parseMarkdownModules()` 零引用未接通。store 中预留的 `markdown` / `mdModules` 字段也一直空着。
-
-### 3. 为什么自定义页用 TipTap 而不是 Milkdown？
-
-虽然 `@milkdown/*` 包已安装（原计划用于 MinerU 管线的 Markdown 编辑），但 TipTap 有以下优势：
-- 已在本项目中稳定运行（`RichTextEditor.tsx`）
-- 输出 HTML 更容易在服务端解析
-- 中文支持开箱即用
-
-Milkdown 更适合纯 Markdown 编辑场景，后续接通 MinerU 管线时可能会切换。
-
-### 4. 为什么不支持拖拽移动文字块？
+### 3. 为什么不支持拖拽移动文字块？
 
 文字块的位置由 PDF 模版决定，原位编辑 + 删除已覆盖核心需求。拖拽移动需要引入 Canvas 交互层，复杂度高且与"尊重模版设计"的理念矛盾。如果用户需要调整布局，应该修改原始模版文件后重新上传。

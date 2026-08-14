@@ -6,15 +6,17 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { getAuthUserId } from "@/lib/auth/utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // 允许此路由处理 multipart/form-data
-export async function POST(request: NextRequest) {
+export const POST = withRequestLog(async (request: NextRequest) => {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -43,12 +45,18 @@ export async function POST(request: NextRequest) {
     const id = crypto.randomUUID();
 
     // 保存 PDF 文件
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "templates");
+    const uploadDir = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "templates");
     await fs.mkdir(uploadDir, { recursive: true });
 
     const pdfPath = path.join(uploadDir, `${id}.pdf`);
     const buffer = Buffer.from(await file.arrayBuffer());
     await fs.writeFile(pdfPath, buffer);
+
+    // 鉴权：仅登录用户可以上传
+    const { userId, isAnonymous } = await getAuthUserId(request);
+    if (isAnonymous) {
+      return NextResponse.json({ error: "请先登录后再上传模版" }, { status: 401 });
+    }
 
     // 保存元数据
     const customName = formData.get("name")?.toString().trim();
@@ -60,6 +68,7 @@ export async function POST(request: NextRequest) {
       size: file.size,
       layout: layoutField,
       uploadedAt: new Date().toISOString(),
+      uploadedBy: userId,
     };
     await fs.writeFile(
       path.join(uploadDir, `${id}.meta.json`),
@@ -82,4 +91,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
+});

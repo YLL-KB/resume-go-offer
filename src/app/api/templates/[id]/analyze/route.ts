@@ -3,6 +3,7 @@
  * 读取 PDF 模版文字，用 AI 识别模块结构。
  */
 import { NextRequest, NextResponse } from "next/server";
+import { withRequestLog } from "@/lib/logging/request-logger";
 import { ai } from "@/lib/ai";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -10,20 +11,18 @@ import path from "node:path";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(
-  _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export const POST = withRequestLog(async (_request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },) => {
   const { id } = await params;
-  const pdfPath = path.join(process.cwd(), "public", "uploads", "templates", `${id}.pdf`);
+  const pdfPath = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "templates", `${id}.pdf`);
 
-  try { await fs.access(pdfPath); } catch {
+  try { await fs.access(/* turbopackIgnore: true */ pdfPath); } catch {
     return NextResponse.json({ error: "模版文件不存在" }, { status: 404 });
   }
 
   try {
     // 从 PDF raw text 中提取中文内容
-    const buffer = await fs.readFile(pdfPath);
+    const buffer = await fs.readFile(/* turbopackIgnore: true */ pdfPath);
     const raw = buffer.toString("utf-8").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ");
     const textMatches = raw.match(/\(([^)]*)\)/g) || [];
     const chunks = textMatches
@@ -48,9 +47,9 @@ export async function POST(
     const analysis = await ai.analyzeTemplate(text);
 
     // 缓存到 meta.json
-    const metaPath = path.join(process.cwd(), "public", "uploads", "templates", `${id}.meta.json`);
+    const metaPath = path.join(/* turbopackIgnore: true */ process.cwd(), "public", "uploads", "templates", `${id}.meta.json`);
     try {
-      const raw = await fs.readFile(metaPath, "utf-8");
+      const raw = await fs.readFile(/* turbopackIgnore: true */ metaPath, "utf-8");
       const meta = JSON.parse(raw);
       meta.analysis = analysis;
       await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
@@ -61,4 +60,4 @@ export async function POST(
     console.error("Template analysis error:", err);
     return NextResponse.json({ error: "分析失败", detail: String(err) }, { status: 500 });
   }
-}
+});
