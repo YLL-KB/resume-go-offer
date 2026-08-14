@@ -112,7 +112,10 @@ pm2 save
 | `WECHAT_APP_ID` / `WECHAT_APP_SECRET` | - | 微信开放平台登录 | - |
 | `NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_AUTH_TOKEN` | - | Sentry 错误监控 | - |
 | `MINERU_TOKEN` | - | MinerU 高精度 PDF 解析，未设则用 Flash 模式 | 无（Flash 模式） |
-| `LANGCHAIN_API_KEY` / `LANGCHAIN_TRACING_V2` | - | LangSmith 调试追踪 | - |
+| `LANGCHAIN_API_KEY` | - | LangSmith API Key（开发调试追踪） | - |
+| `LANGCHAIN_TRACING_V2` | - | 开启 LangSmith 自动追踪（`true` 启用） | - |
+| `LANGCHAIN_PROJECT` | - | LangSmith 项目名（如 `resume-go-offer-dev`） | - |
+| `LANGCHAIN_TRACING_SAMPLING_RATE` | - | 生产采样比例 0~1（如 `0.05`=5%，排查样本池用） | 全量 |
 
 ## 运行环境要求
 
