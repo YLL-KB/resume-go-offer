@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Loader2, ShieldOff, Users, Activity } from "lucide-react";
+import { Loader2, ShieldOff, Users, Activity, Workflow } from "lucide-react";
 import { Button } from "@resume/ui";
 import { useAuth } from "@resume/ui";
 import { cn } from "@resume/ui";
@@ -54,6 +54,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const navItems = [
     { href: "/", label: "用户管理", icon: Users },
     { href: "/logs", label: "请求监控", icon: Activity },
+    { href: "/traces", label: "AI Traces", icon: Workflow },
   ];
 
   return (

@@ -34,6 +34,8 @@ interface LogEntry {
   method: string;
   path: string;
   queryParams: string;
+  requestBody: string | null;
+  responseBody: string | null;
   userId: string | null;
   ip: string;
   statusCode: number;
@@ -443,6 +445,22 @@ export default function AdminLogsPage() {
                                   <div className="md:col-span-3">
                                     <span className="text-red-500">Error:</span>{" "}
                                     <span className="text-red-600 font-mono">{log.errorMessage}</span>
+                                  </div>
+                                )}
+                                {log.requestBody && (
+                                  <div className="md:col-span-3">
+                                    <div className="text-slate-400 mb-1">请求体（参数）:</div>
+                                    <pre className="whitespace-pre-wrap break-all bg-white border border-slate-200 rounded-md p-2 font-mono text-slate-700 max-h-40 overflow-auto">
+                                      {log.requestBody}
+                                    </pre>
+                                  </div>
+                                )}
+                                {log.responseBody && (
+                                  <div className="md:col-span-3">
+                                    <div className="text-slate-400 mb-1">返回内容:</div>
+                                    <pre className="whitespace-pre-wrap break-all bg-white border border-slate-200 rounded-md p-2 font-mono text-slate-700 max-h-40 overflow-auto">
+                                      {log.responseBody}
+                                    </pre>
                                   </div>
                                 )}
                               </div>

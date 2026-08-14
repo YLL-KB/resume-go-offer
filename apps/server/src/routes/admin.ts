@@ -4,9 +4,9 @@
 
 import { Hono } from "hono";
 import { getDb } from "../db";
-import { requestLogs, users, conversations, messages, resumes, applications } from "../db/schema";
+import { requestLogs, users, conversations, messages, resumes, applications, aiTraces, aiSpans, aiEvents } from "../db/schema";
 import { getAdminUser } from "../lib/auth/admin";
-import { and, gte, lte, desc, like, eq } from "drizzle-orm";
+import { and, gte, lte, desc, asc, like, eq } from "drizzle-orm";
 
 export const adminRoutes = new Hono();
 
@@ -298,5 +298,131 @@ adminRoutes.get("/users/:id/conversations", async (c) => {
   } catch (err) {
     console.error("Admin conversations error:", err);
     return c.json({ error: "获取对话列表失败" }, 500);
+  }
+});
+
+// ── GET /api/admin/traces ──
+adminRoutes.get("/traces", async (c) => {
+  const admin = await getAdminUser(c.req.raw);
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  try {
+    const db = getDb();
+
+    const page = Math.max(1, parseInt(c.req.query("page") ?? "1", 10));
+    const pageSize = Math.min(Math.max(1, parseInt(c.req.query("pageSize") ?? "50", 10)), 200);
+
+    const statusFilter = c.req.query("status") ?? undefined;
+    const conversationIdFilter = c.req.query("conversationId") ?? undefined;
+    const startDate = c.req.query("startDate") ?? undefined;
+    const endDate = c.req.query("endDate") ?? undefined;
+
+    const conditions = [];
+    if (statusFilter) conditions.push(eq(aiTraces.status, statusFilter));
+    if (conversationIdFilter) conditions.push(eq(aiTraces.conversationId, conversationIdFilter));
+    if (startDate) conditions.push(gte(aiTraces.timestamp, startDate));
+    if (endDate) conditions.push(lte(aiTraces.timestamp, endDate));
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const allRows = await db
+      .select()
+      .from(aiTraces)
+      .where(where)
+      .orderBy(desc(aiTraces.timestamp))
+      .all();
+
+    const total = allRows.length;
+    const offset = (page - 1) * pageSize;
+    const rows = allRows.slice(offset, offset + pageSize);
+
+    return c.json({ traces: rows, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
+  } catch (err) {
+    console.error("[admin/traces]", err);
+    return c.json({ error: "获取 trace 列表失败" }, 500);
+  }
+});
+
+// ── GET /api/admin/traces/:id ──
+adminRoutes.get("/traces/:id", async (c) => {
+  const admin = await getAdminUser(c.req.raw);
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  const id = c.req.param("id");
+
+  try {
+    const db = getDb();
+
+    const [trace] = await db.select().from(aiTraces).where(eq(aiTraces.id, id)).limit(1).all();
+    if (!trace) return c.json({ error: "trace 不存在" }, 404);
+
+    const spans = await db
+      .select()
+      .from(aiSpans)
+      .where(eq(aiSpans.traceId, id))
+      .orderBy(asc(aiSpans.timestamp))
+      .all();
+
+    const events = await db
+      .select()
+      .from(aiEvents)
+      .where(eq(aiEvents.traceId, id))
+      .orderBy(asc(aiEvents.timestamp))
+      .all();
+
+    return c.json({ trace, spans, events });
+  } catch (err) {
+    console.error("[admin/traces/detail]", err);
+    return c.json({ error: "获取 trace 详情失败" }, 500);
+  }
+});
+
+// ── GET /api/admin/degradations/stats ──
+adminRoutes.get("/degradations/stats", async (c) => {
+  const admin = await getAdminUser(c.req.raw);
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  try {
+    const db = getDb();
+
+    const endDate = c.req.query("endDate") ?? new Date().toISOString();
+    const startDate =
+      c.req.query("startDate") ??
+      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const range = and(
+      gte(aiEvents.timestamp, startDate),
+      lte(aiEvents.timestamp, endDate),
+    );
+
+    const events = await db
+      .select()
+      .from(aiEvents)
+      .where(and(eq(aiEvents.type, "degradation"), range))
+      .all();
+
+    // 按降级类型聚合
+    const nameMap = new Map<string, number>();
+    for (const e of events) {
+      nameMap.set(e.name, (nameMap.get(e.name) ?? 0) + 1);
+    }
+    const byName = [...nameMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+
+    // 按天聚合
+    const dayMap = new Map<string, number>();
+    for (const e of events) {
+      const day = e.timestamp.substring(0, 10);
+      dayMap.set(day, (dayMap.get(day) ?? 0) + 1);
+    }
+    const overTime = [...dayMap.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, count]) => ({ date, count }));
+
+    return c.json({ total: events.length, byName, overTime });
+  } catch (err) {
+    console.error("[admin/degradations/stats]", err);
+    return c.json({ error: "获取降级统计失败" }, 500);
   }
 });

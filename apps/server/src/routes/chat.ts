@@ -3,7 +3,7 @@
  */
 
 import { Hono } from "hono";
-import { ai, openai } from "../lib/ai";
+import { ai, openai, DEFAULT_MODEL } from "../lib/ai";
 import { SYSTEM_PROMPT, GREETING_NEW_USER } from "../lib/ai/prompts";
 import { getDb } from "../db";
 import { conversations, messages } from "../db/schema";
@@ -11,6 +11,9 @@ import { getAuthUserId, buildAnonymousCookie, ANON_COOKIE } from "../lib/auth/ut
 import { checkRateLimit, getRateLimitKey } from "../lib/rate-limit";
 import { eq, asc, and, desc } from "drizzle-orm";
 import { streamAgent } from "../lib/ai/graph";
+import { TraceCollector } from "../lib/observability/collector";
+import { runWithTrace } from "../lib/observability/context";
+import { persistTraceFireAndForget } from "../lib/observability/persist";
 
 export const chatRoutes = new Hono();
 
@@ -32,6 +35,29 @@ function extractTextContent(content: unknown): string {
       .join("");
   }
   return "";
+}
+
+// 从 LangChain model end 事件的 output 提取 token usage（兼容 usage_metadata / response_metadata）
+function extractTokenUsage(output: unknown): { input: number; output: number; total: number } | null {
+  if (!output || typeof output !== "object") return null;
+  const o = output as Record<string, unknown>;
+
+  const usageMeta = o.usage_metadata as Record<string, unknown> | undefined;
+  if (usageMeta) {
+    const input = Number(usageMeta.input_tokens ?? 0);
+    const outputTokens = Number(usageMeta.output_tokens ?? 0);
+    return { input, output: outputTokens, total: Number(usageMeta.total_tokens ?? input + outputTokens) };
+  }
+
+  const respMeta = o.response_metadata as Record<string, unknown> | undefined;
+  const tokenUsage = respMeta?.tokenUsage as Record<string, unknown> | undefined;
+  if (tokenUsage) {
+    const input = Number(tokenUsage.prompt_tokens ?? 0);
+    const outputTokens = Number(tokenUsage.completion_tokens ?? 0);
+    return { input, output: outputTokens, total: Number(tokenUsage.total_tokens ?? input + outputTokens) };
+  }
+
+  return null;
 }
 
 // ── POST /api/chat ──
@@ -125,6 +151,12 @@ chatRoutes.post("/", async (c) => {
         .where(eq(conversations.id, convId));
     }
 
+    const collector = new TraceCollector({
+      conversationId: convId,
+      userId,
+      input: message.trim(),
+    });
+
     const history = await db
       .select()
       .from(messages)
@@ -168,124 +200,228 @@ chatRoutes.post("/", async (c) => {
           }
         };
 
+        const chainStarts = new Map<string, { node: string; ts: number }>();
+        const modelStarts = new Map<string, { model: string; node?: string; ts: number }>();
+        const toolStarts = new Map<string, { name: string; ts: number }>();
+
         try {
-          await userMsgSaved;
+          await runWithTrace(collector, async () => {
+            await userMsgSaved;
 
-          if (USE_LANGGRAPH) {
-            const agentInput = chatMessages.filter(
-              (m): m is { role: "user" | "assistant" | "system"; content: string } =>
-                m.role === "user" || m.role === "assistant" || m.role === "system",
-            );
+            if (USE_LANGGRAPH) {
+              const agentInput = chatMessages.filter(
+                (m): m is { role: "user" | "assistant" | "system"; content: string } =>
+                  m.role === "user" || m.role === "assistant" || m.role === "system",
+              );
 
-            for await (const event of streamAgent({ messages: agentInput })) {
-              switch (event.event) {
-                case "on_chat_model_stream": {
-                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
-                  const runId = (event as { run_id?: string }).run_id;
-                  if (runId && runId !== currentRunId) {
-                    currentRunId = runId;
-                    runText = "";
-                  }
-                  const content = event.data?.chunk?.content;
-                  if (content) {
-                    if (!fullReply && !runText && !content.trim()) break;
-                    runText += content;
-                    send({ content, conversationId: convId });
-                  }
-                  break;
-                }
-                case "on_chat_model_end": {
-                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
-                  const output = event.data?.output;
-                  const toolCalls = output?.tool_calls;
-                  if (toolCalls && toolCalls.length > 0) {
-                    runText = "";
-                    for (const tc of toolCalls) {
-                      send({
-                        tool_call: { name: tc.name, args: tc.args },
-                        conversationId: convId,
-                      });
+              for await (const event of streamAgent({ messages: agentInput })) {
+                const runId = (event as { run_id?: string }).run_id;
+                const meta = (event as unknown as { metadata?: { langgraph_node?: string; ls_model_name?: string } }).metadata;
+
+                switch (event.event) {
+                  case "on_chain_start": {
+                    const name = event.name;
+                    if (runId && (name === "router" || name === "worker" || name === "tools")) {
+                      chainStarts.set(runId, { node: name, ts: Date.now() });
                     }
-                  } else if (runText) {
-                    fullReply += runText;
-                    runText = "";
-                  } else {
-                    // workerNode 用 model.invoke()（非流式），不会触发 on_chat_model_stream，
-                    // 这里从完整输出兜底提取 Worker 的文本回复
-                    const text = extractTextContent(output?.content);
-                    if (text) {
-                      fullReply += text;
-                      send({ content: text, conversationId: convId });
-                    }
+                    break;
                   }
-                  break;
-                }
-                case "on_tool_end": {
-                  if ((event as unknown as { metadata?: { langgraph_node?: string } }).metadata?.langgraph_node === "router") break;
-                  if (event.name === "extractResume") {
-                    const raw = event.data?.output;
-                    if (typeof raw === "string") {
-                      try {
-                        const parsed = JSON.parse(raw);
-                        send({ resumeData: parsed, conversationId: convId });
-                      } catch {
-                        send({ error: "简历数据解析失败" });
+                  case "on_chain_end": {
+                    if (runId) {
+                      const start = chainStarts.get(runId);
+                      if (start) {
+                        collector.addSpan({
+                          type: "node",
+                          name: start.node,
+                          node: start.node,
+                          durationMs: Date.now() - start.ts,
+                          status: "success",
+                        });
+                        chainStarts.delete(runId);
                       }
                     }
+                    if (event.name === "router") {
+                      const out = event.data?.output as { mode?: string } | undefined;
+                      if (out?.mode) collector.mode = out.mode;
+                    }
+                    break;
                   }
-                  break;
+                  case "on_chat_model_start": {
+                    const model = meta?.ls_model_name ?? "unknown";
+                    if (runId) {
+                      modelStarts.set(runId, { model, node: meta?.langgraph_node, ts: Date.now() });
+                    }
+                    // 记录 Worker 实际模型（Router 只是分类，非主回复模型）
+                    if (!collector.model || meta?.langgraph_node === "worker") {
+                      collector.model = model;
+                    }
+                    break;
+                  }
+                  case "on_chat_model_stream": {
+                    if (meta?.langgraph_node === "router") break;
+                    if (runId && runId !== currentRunId) {
+                      currentRunId = runId;
+                      runText = "";
+                    }
+                    const content = event.data?.chunk?.content;
+                    if (content) {
+                      if (!fullReply && !runText && !content.trim()) break;
+                      runText += content;
+                      send({ content, conversationId: convId });
+                    }
+                    break;
+                  }
+                  case "on_chat_model_end": {
+                    const node = meta?.langgraph_node;
+                    const output = event.data?.output;
+                    const usage = extractTokenUsage(output);
+                    if (runId) {
+                      const start = modelStarts.get(runId);
+                      if (start) {
+                        collector.addSpan({
+                          type: "model",
+                          name: start.node ?? "model",
+                          node: start.node,
+                          model: start.model,
+                          tokens: usage?.total ?? 0,
+                          durationMs: Date.now() - start.ts,
+                          status: "success",
+                        });
+                        modelStarts.delete(runId);
+                      }
+                    }
+                    if (usage) collector.totalTokens += usage.total;
+                    if (node === "router") break;
+                    const toolCalls = output?.tool_calls;
+                    if (toolCalls && toolCalls.length > 0) {
+                      runText = "";
+                      for (const tc of toolCalls) {
+                        send({
+                          tool_call: { name: tc.name, args: tc.args },
+                          conversationId: convId,
+                        });
+                      }
+                    } else if (runText) {
+                      fullReply += runText;
+                      runText = "";
+                    } else {
+                      // workerNode 用 model.invoke()（非流式），不会触发 on_chat_model_stream，
+                      // 这里从完整输出兜底提取 Worker 的文本回复
+                      const text = extractTextContent(output?.content);
+                      if (text) {
+                        fullReply += text;
+                        send({ content: text, conversationId: convId });
+                      }
+                    }
+                    break;
+                  }
+                  case "on_tool_start": {
+                    if (runId) toolStarts.set(runId, { name: event.name, ts: Date.now() });
+                    break;
+                  }
+                  case "on_tool_end": {
+                    if (runId) {
+                      const start = toolStarts.get(runId);
+                      if (start) {
+                        collector.addSpan({
+                          type: "tool",
+                          name: start.name,
+                          durationMs: Date.now() - start.ts,
+                          status: "success",
+                        });
+                        toolStarts.delete(runId);
+                      }
+                    }
+                    if (meta?.langgraph_node === "router") break;
+                    if (event.name === "extractResume") {
+                      const raw = event.data?.output;
+                      if (typeof raw === "string") {
+                        try {
+                          const parsed = JSON.parse(raw);
+                          send({ resumeData: parsed, conversationId: convId });
+                        } catch {
+                          send({ error: "简历数据解析失败" });
+                        }
+                      }
+                    }
+                    break;
+                  }
+                  case "on_llm_error":
+                  case "on_tool_error":
+                  case "on_chain_error": {
+                    const errData = (event as unknown as { data?: { error?: unknown } }).data?.error;
+                    const msg =
+                      errData instanceof Error ? errData.message
+                      : typeof errData === "string" ? errData
+                      : JSON.stringify(errData ?? "unknown error");
+                    collector.addEvent({ type: "error", name: event.event, detail: { node: event.name, error: msg } });
+                    if (/timeout|timed out|ETIMEDOUT|ECONNRESET/i.test(msg)) {
+                      collector.addEvent({ type: "degradation", name: "llm_timeout", detail: { node: event.name } });
+                    }
+                    break;
+                  }
                 }
               }
-            }
-          } else {
-            const stream = await ai.chat(chatMessages);
+            } else {
+              const t0 = Date.now();
+              const stream = await ai.chat(chatMessages);
+              collector.model = DEFAULT_MODEL;
 
-            for await (const chunk of stream) {
-              const content = chunk.choices[0]?.delta?.content;
-              if (content) {
-                if (!fullReply && !content.trim()) continue;
-                fullReply += content;
-                send({ content, conversationId: convId });
+              for await (const chunk of stream) {
+                const content = chunk.choices[0]?.delta?.content;
+                if (content) {
+                  if (!fullReply && !content.trim()) continue;
+                  fullReply += content;
+                  send({ content, conversationId: convId });
+                }
               }
-            }
-          }
-
-          if (fullReply) {
-            const savePromise = db.insert(messages).values({
-              id: crypto.randomUUID(),
-              conversationId: convId!,
-              role: "assistant",
-              content: fullReply,
-              createdAt: new Date().toISOString(),
-            }).then(() => { saved = true; });
-
-            let titlePromise: Promise<unknown> = Promise.resolve();
-            if (history.length === 0) {
-              titlePromise = openai.chat.completions.create({
-                model: process.env.AI_MODEL ?? "gpt-4o-mini",
-                temperature: 0.3,
-                max_tokens: 30,
-                messages: [
-                  { role: "system", content: "根据用户和AI的第一轮对话，生成一个简短的对话标题（8字以内）。只返回标题文本。" },
-                  { role: "user", content: `用户: ${message.trim()}\nAI: ${fullReply.slice(0, 200)}` },
-                ],
-              }).then(async (titleRes) => {
-                const title = titleRes.choices[0]?.message?.content?.trim()?.replace(/["「」""]/g, "") ?? "新对话";
-                await db.update(conversations).set({ title: title.slice(0, 20) }).where(eq(conversations.id, convId!));
-                send({ title: title.slice(0, 20) });
-              }).catch(() => { /* 标题生成失败不影响对话 */ });
+              collector.addSpan({
+                type: "model",
+                name: "ai.chat",
+                model: DEFAULT_MODEL,
+                durationMs: Date.now() - t0,
+                status: "success",
+              });
             }
 
-            await Promise.all([savePromise.catch((e: unknown) => console.error("Failed to save AI reply:", e)), titlePromise]);
-          }
+            if (fullReply) {
+              const savePromise = db.insert(messages).values({
+                id: crypto.randomUUID(),
+                conversationId: convId!,
+                role: "assistant",
+                content: fullReply,
+                createdAt: new Date().toISOString(),
+              }).then(() => { saved = true; });
+
+              let titlePromise: Promise<unknown> = Promise.resolve();
+              if (history.length === 0) {
+                titlePromise = openai.chat.completions.create({
+                  model: process.env.AI_MODEL ?? "gpt-4o-mini",
+                  temperature: 0.3,
+                  max_tokens: 30,
+                  messages: [
+                    { role: "system", content: "根据用户和AI的第一轮对话，生成一个简短的对话标题（8字以内）。只返回标题文本。" },
+                    { role: "user", content: `用户: ${message.trim()}\nAI: ${fullReply.slice(0, 200)}` },
+                  ],
+                }).then(async (titleRes) => {
+                  const title = titleRes.choices[0]?.message?.content?.trim()?.replace(/["「」""]/g, "") ?? "新对话";
+                  await db.update(conversations).set({ title: title.slice(0, 20) }).where(eq(conversations.id, convId!));
+                  send({ title: title.slice(0, 20) });
+                }).catch(() => { /* 标题生成失败不影响对话 */ });
+              }
+
+              await Promise.all([savePromise.catch((e: unknown) => console.error("Failed to save AI reply:", e)), titlePromise]);
+            }
+          });
 
           try {
             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
           } catch {
-            // 客户端已断开，无需推送 [DONE]
+            // 客户端已断开，controller 已关闭，无需处理
           }
-          controller.close();
         } catch (err) {
+          collector.errorMessage = err instanceof Error ? err.message : "Unknown error";
           if (!aborted) {
             console.error("Stream error:", err);
             send({ error: "AI 回复出错，请重试" });
@@ -304,7 +440,14 @@ chatRoutes.post("/", async (c) => {
               console.error("Failed to save partial AI reply:", e);
             }
           }
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // controller 已关闭，忽略
+          }
+        } finally {
+          collector.output = fullReply;
+          persistTraceFireAndForget(collector);
         }
       },
       cancel() {
