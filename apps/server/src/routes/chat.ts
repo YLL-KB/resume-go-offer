@@ -17,6 +17,23 @@ export const chatRoutes = new Hono();
 // 环境变量控制：启用 LangGraph Agent 模式
 const USE_LANGGRAPH = process.env.LANGGRAPH_ENABLED === "true";
 
+// 从 LangChain AIMessage.content 提取纯文本（可能是 string 或 content block 数组）
+function extractTextContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (typeof part === "object" && part !== null && "text" in part) {
+          return String((part as { text: unknown }).text);
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
 // ── POST /api/chat ──
 chatRoutes.post("/", async (c) => {
   let body: { conversationId?: string; message: string };
@@ -192,6 +209,14 @@ chatRoutes.post("/", async (c) => {
                   } else if (runText) {
                     fullReply += runText;
                     runText = "";
+                  } else {
+                    // workerNode 用 model.invoke()（非流式），不会触发 on_chat_model_stream，
+                    // 这里从完整输出兜底提取 Worker 的文本回复
+                    const text = extractTextContent(output?.content);
+                    if (text) {
+                      fullReply += text;
+                      send({ content: text, conversationId: convId });
+                    }
                   }
                   break;
                 }
@@ -431,61 +456,17 @@ chatRoutes.delete("/messages/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-// ── GET/POST /api/chat/greeting ──
-const GREETING_PROMPT = `你是一位拥有10年经验的资深大厂HR兼金牌职业规划师，也是用户的简历顾问。
-现在用户刚刚打开对话，请生成一段温暖、专业、热情的开场白来欢迎用户。
-
-要求：
-- 每次的措辞、语气、结构都要有变化，不能千篇一律
-- 控制在60-120字之间
-- 提到你可以帮用户做简历优化、职业规划、投递建议等
-- 用自然的语气，不要太机械或模板化`;
-
-async function generateGreeting(db: ReturnType<typeof getDb>, userId: string, isAnonymous: boolean): Promise<{ body: Record<string, unknown>; status: number; anonCookie?: string }> {
-  if (isAnonymous) {
-    const rows = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.userId, userId))
-      .limit(5);
-    if (rows.length >= Number(process.env.ANON_LIMIT || 5)) {
-      return {
-        body: { error: "limit_reached", message: "未登录用户最多创建5个对话，请登录后继续使用" },
-        status: 403,
-      };
-    }
-  }
-
-  const aiResponse = await ai.chat([
-    { role: "system", content: GREETING_PROMPT },
-    { role: "user", content: "请生成一段开场白" },
-  ]);
-
-  let greeting = "";
-  const stream = aiResponse as AsyncIterable<{ choices: Array<{ delta: { content?: string } }> }>;
-  for await (const chunk of stream) {
-    greeting += chunk.choices[0]?.delta?.content ?? "";
-  }
-
-  return {
-    body: { greeting },
-    status: 200,
-    anonCookie: isAnonymous ? buildAnonymousCookie(userId) : undefined,
-  };
-}
-
+// ── GET /api/chat/greeting ──（静态开场白，不再实时生成）
 chatRoutes.get("/greeting", async (c) => {
-  try {
-    const db = getDb();
-    const { userId, isAnonymous } = await getAuthUserId(c.req.raw);
-    const { body, status, anonCookie } = await generateGreeting(db, userId, isAnonymous);
-    return c.json(body, status as 200 | 403, anonCookie ? { "Set-Cookie": anonCookie } : undefined);
-  } catch (err) {
-    console.error("Greeting API error:", err);
-    return c.json({ error: "生成开场白失败" }, 500);
-  }
+  const { userId, isAnonymous } = await getAuthUserId(c.req.raw);
+  return c.json(
+    { greeting: GREETING_NEW_USER },
+    200,
+    isAnonymous ? { "Set-Cookie": buildAnonymousCookie(userId) } : undefined,
+  );
 });
 
+// ── POST /api/chat/greeting ──（创建对话并写入静态开场白）
 chatRoutes.post("/greeting", async (c) => {
   try {
     const db = getDb();
@@ -515,34 +496,22 @@ chatRoutes.post("/greeting", async (c) => {
       updatedAt: now,
     });
 
-    const aiResponse = await ai.chat([
-      { role: "system", content: GREETING_PROMPT },
-      { role: "user", content: "请生成一段开场白" },
-    ]);
-
-    let greeting = "";
-    const stream = aiResponse as AsyncIterable<{ choices: Array<{ delta: { content?: string } }> }>;
-    for await (const chunk of stream) {
-      greeting += chunk.choices[0]?.delta?.content ?? "";
-    }
-
-    const messageId = crypto.randomUUID();
     await db.insert(messages).values({
-      id: messageId,
+      id: crypto.randomUUID(),
       conversationId,
       role: "assistant",
-      content: greeting,
+      content: GREETING_NEW_USER,
       createdAt: now,
     });
 
     return c.json(
-      { conversationId, greeting },
+      { conversationId, greeting: GREETING_NEW_USER },
       200,
       isAnonymous ? { "Set-Cookie": buildAnonymousCookie(userId) } : undefined,
     );
   } catch (err) {
     console.error("Greeting API error:", err);
-    return c.json({ error: "生成开场白失败" }, 500);
+    return c.json({ error: "创建对话失败" }, 500);
   }
 });
 

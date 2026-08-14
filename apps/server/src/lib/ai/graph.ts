@@ -10,7 +10,7 @@
 import { StateGraph, Annotation, MessagesAnnotation } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
-import { AIMessage, SystemMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
+import { AIMessage, AIMessageChunk, SystemMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import { AGENT_TOOLS, getToolsForMode } from "./tools";
 import { ROUTER_PROMPT, WORKER_PROMPTS } from "./prompts";
 import { RESUME_KNOWLEDGE_BASE } from "./knowledge";
@@ -87,7 +87,7 @@ function getRouterModel() {
   return new ChatOpenAI({
     model: process.env.ROUTER_MODEL ?? "glm-4-flash",
     temperature: 0.1,
-    maxTokens: 64,
+    maxTokens: 48,
     apiKey: process.env.OPENAI_API_KEY,
     configuration: {
       baseURL: process.env.OPENAI_BASE_URL,
@@ -116,6 +116,7 @@ function getWorkerModel(mode?: string) {
 // ── Router 节点 ──
 
 async function routerNode(state: GraphStateType): Promise<Partial<GraphStateType>> {
+  const t0 = Date.now();
   const model = getRouterModel();
 
   // 只取最近 5 条消息给 Router
@@ -126,6 +127,7 @@ async function routerNode(state: GraphStateType): Promise<Partial<GraphStateType
     new SystemMessage(ROUTER_PROMPT),
     ...recentMsgs,
   ]);
+  console.log(`[Router] invoke 耗时 ${Date.now() - t0}ms`);
 
   const content = typeof response.content === "string"
     ? response.content
@@ -202,10 +204,18 @@ async function workerNode(state: GraphStateType): Promise<Partial<GraphStateType
 
   console.log(`[Worker] mode=${mode}  tools=${tools.map(t => t.name).join(",")}  prompt=${fullPrompt.length}chars`);
 
-  const response = await model.invoke(msgs);
+  // 用 stream() 触发 on_chat_model_stream 事件，实现 token 级流式输出；
+  // 手动合并 chunk 得到完整消息（含 tool_calls）返回给图。
+  const wt0 = Date.now();
+  let response: AIMessageChunk | null = null;
+  const stream = await model.stream(msgs);
+  for await (const chunk of stream as AsyncIterable<AIMessageChunk>) {
+    response = response ? response.concat(chunk) : chunk;
+  }
+  console.log(`[Worker] stream 耗时 ${Date.now() - wt0}ms  chars=${typeof response?.content === "string" ? response.content.length : 0}`);
 
   return {
-    messages: [response],
+    messages: [response ?? new AIMessage({ content: "" })],
     iterationCount: 1,
     formsPushed: [...pushed],
   };
