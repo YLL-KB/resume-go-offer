@@ -13,10 +13,11 @@ import { requestLogger } from "./lib/logging/request-logger";
 
 const app = new Hono();
 
-app.route("/", health);
+app.route("/health", health);
 
 const api = new Hono();
 api.use("*", requestLogger);
+api.route("/health", health);
 api.route("/auth", auth);
 api.route("/chat", chatRoutes);
 api.route("/ai", aiRoutes);
