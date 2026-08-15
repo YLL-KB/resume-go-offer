@@ -136,6 +136,14 @@ DATABASE_DIR=/opt/resume-go-offer/.db
 
 `/health`（挂在根）与 `/api/health`（统一 API 前缀）**都可访问**。生产域名经 Nginx 只把 `/api/*` 反代到 server，所以**生产健康检查用 `/api/health`**；`/health` 仅供 server 内网直连（`127.0.0.1:8787/health`）。
 
+### 6. 管理后台通过 /admin 路径访问
+
+admin 是独立 Next 应用，配置了 `basePath: "/admin"`，生产通过 Nginx `location /admin` 反代到 3001（**保留路径、proxy_pass 无尾斜杠**），复用主域名 cookie 登录态。访问地址：**`https://www.resumeoffer.cn/admin`**。
+
+- `apps/admin/next.config.ts` 的 `basePath: "/admin"` 让路由/静态资源带前缀（`/admin/logs`、`/admin/_next/...`）
+- `apps/admin/.env.local` 需设 `NEXT_PUBLIC_WEB_URL=https://www.resumeoffer.cn`（未登录跳转登录页用）
+- admin 前端 fetch 用绝对路径 `/api/*`，走主域名 `location /` → web rewrites → server，**不经过 admin 自己的 3001**（鉴权 cookie 在主域名下共享）
+
 ## 环境变量
 
 环境变量分两处（各 app 独立加载）：
