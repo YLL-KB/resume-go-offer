@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const API_ORIGIN = process.env.API_ORIGIN ?? "http://localhost:8787";
 
 const nextConfig: NextConfig = {
+	basePath: "/admin",
 	typescript: { ignoreBuildErrors: true },
 	transpilePackages: ["@resume/ui"],
 	async rewrites() {
