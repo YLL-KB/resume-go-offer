@@ -87,6 +87,55 @@ pm2 save
 
 本机跑 `./deploy.sh` 即可，脚本会完成 push/pull、依赖安装、构建、进程重载全流程。
 
+## 部署注意事项（monorepo 迁移踩坑记录）
+
+以下几条是「旧单体 → monorepo」迁移时踩过的坑，均已修复，留作后续部署排查参考。
+
+### 1. PM2 执行 pnpm bin shim 必须用 /bin/sh
+
+`ecosystem.config.cjs` 里 `script` 指向 `node_modules/.bin/tsx` / `.bin/next`，这些是 pnpm 生成的 **shell 脚本**（`#!/bin/sh`），不是 Node 脚本。PM2 默认用 `node` 解释器执行，会报：
+
+```
+SyntaxError: missing ) after argument list
+```
+
+因此每个进程都必须显式声明 `interpreter: "/bin/sh"`（`ecosystem.config.cjs` 已配置，勿删）。
+
+### 2. 环境变量需拆分到各 app 目录
+
+旧单体时代 `.env.local` 在仓库根目录；monorepo 拆分后加载位置变了：
+
+- 后端 `apps/server/src/env.ts` 从 `process.cwd()`（即 `apps/server/`）加载 `.env` / `.env.local`
+- 前端 Next.js 从各自 app 目录（`apps/web/`）加载
+
+**首次迁移必须把根目录的 `.env.local` 拆分到 `apps/server/.env.local` 和 `apps/web/.env.local`**。否则后端报 `[AI] OPENAI_API_KEY 未配置` 直接启动失败，前端缺 `NEXT_PUBLIC_*`。`deploy.sh` 排除 `.env.local` 不覆盖，所以迁移动作需手动做一次。
+
+### 3. DATABASE_DIR 必须指向持久化目录
+
+`getDb()` 默认用 `process.cwd()/.db`。server 进程的 cwd 是 `apps/server`，不加 `DATABASE_DIR` 时会新建 `apps/server/.db` 空库，**读不到根 `.db/` 里的历史数据**（用户、对话、简历）。
+
+生产须在 `apps/server/.env.local` 里设置：
+
+```
+DATABASE_DIR=/opt/resume-go-offer/.db
+```
+
+指向旧的持久化库，避免数据「看起来丢了」。
+
+### 4. 表结构是懒加载的（MIGRATIONS 在首次 getDb 时执行）
+
+`apps/server/src/db/index.ts` 的 `MIGRATIONS` 在 `getDb()` **首次被调用时**执行，而不是 server 启动时。所以：
+
+- 部署后新表（如 `ai_traces`）不会立刻出现在 SQLite 里
+- 要等第一个真正触发数据库访问的请求（聊天、查日志等）才会建表
+- 健康检查 `/health` 不访问数据库，不会触发
+
+判断是否已建表：`sqlite3 <db> '.tables'`。
+
+### 5. 健康检查双路径
+
+`/health`（挂在根）与 `/api/health`（统一 API 前缀）**都可访问**。生产域名经 Nginx 只把 `/api/*` 反代到 server，所以**生产健康检查用 `/api/health`**；`/health` 仅供 server 内网直连（`127.0.0.1:8787/health`）。
+
 ## 环境变量
 
 环境变量分两处（各 app 独立加载）：
