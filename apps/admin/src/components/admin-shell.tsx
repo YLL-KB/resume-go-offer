@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Loader2, ShieldOff, Users, Activity, Workflow } from "lucide-react";
+import { Loader2, ShieldOff, ShieldCheck, Users, Activity, Workflow } from "lucide-react";
 import { Button } from "@resume/ui";
 import { useAuth } from "@resume/ui";
 import { cn } from "@resume/ui";
@@ -15,6 +15,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoading } = useAuth();
   const pathname = usePathname();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -22,9 +23,21 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       window.location.href = `${WEB_URL}/login`;
       return;
     }
-    fetch("/api/admin/users")
-      .then((res) => setIsAdmin(res.ok))
-      .catch(() => setIsAdmin(false));
+    fetch("/api/admin/me")
+      .then(async (res) => {
+        if (!res.ok) {
+          setIsAdmin(false);
+          setPermissions([]);
+          return;
+        }
+        const data = (await res.json()) as { permissions?: string[] };
+        setIsAdmin(true);
+        setPermissions(data.permissions ?? []);
+      })
+      .catch(() => {
+        setIsAdmin(false);
+        setPermissions([]);
+      });
   }, [isSignedIn, isLoading]);
 
   if (isLoading || isAdmin === null) {
@@ -51,11 +64,14 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const hasPerm = (key: string) => permissions.includes("*") || permissions.includes(key);
+
   const navItems = [
-    { href: "/", label: "用户管理", icon: Users },
-    { href: "/logs", label: "请求监控", icon: Activity },
-    { href: "/traces", label: "AI Traces", icon: Workflow },
-  ];
+    { href: "/", label: "用户管理", icon: Users, perm: "" },
+    { href: "/logs", label: "请求监控", icon: Activity, perm: "admin.logs" },
+    { href: "/traces", label: "AI Traces", icon: Workflow, perm: "admin.traces" },
+    { href: "/permissions", label: "权限管理", icon: ShieldCheck, perm: "admin.permissions" },
+  ].filter((item) => item.perm === "" || hasPerm(item.perm));
 
   return (
     <div className="min-h-screen bg-slate-50">

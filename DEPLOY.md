@@ -144,6 +144,15 @@ admin 是独立 Next 应用，配置了 `basePath: "/admin"`，生产通过 Ngin
 - `apps/admin/.env.local` 需设 `NEXT_PUBLIC_WEB_URL=https://www.resumeoffer.cn`（未登录跳转登录页用）
 - admin 前端 fetch 用绝对路径 `/api/*`，走主域名 `location /` → web rewrites → server，**不经过 admin 自己的 3001**（鉴权 cookie 在主域名下共享）
 
+### 7. 后台权限（角色 + 套餐）
+
+后台鉴权已从单一 `ADMIN_GITHUB_IDS` 白名单升级为「细粒度 RBAC」：
+
+- **超级管理员**：`ADMIN_GITHUB_IDS` 命中者拥有全部权限（`*`），作为 bootstrap 防止锁死，保留不动。
+- **数据库角色**：`roles` / `user_roles` 表存后台角色与用户授权，后台「权限管理」页可增删角色、按页面勾选权限点（`admin.users` / `admin.logs` / `admin.traces` / `admin.permissions`）。
+- **套餐（收费地基）**：`plans` / `user_plans` 表存套餐与功能项（entitlement），本期未接支付，后续接微信/支付宝时权限层已就绪。
+- 四张表随 `MIGRATIONS` 自动建表，并内置种子角色 `super_admin` / `admin` / `viewer` 与套餐 `free`（`INSERT OR IGNORE` 幂等，首次 `getDb()` 时写入）。
+
 ## 环境变量
 
 环境变量分两处（各 app 独立加载）：
@@ -214,7 +223,7 @@ curl -L -o apps/server/public/NotoSansSC-Regular.otf \
 ## 数据库说明
 
 - **生产（VPS）**：本地 SQLite（`better-sqlite3`），数据文件在 `apps/server/.db/local.db`（由 `DATABASE_DIR` 覆盖）。启动时通过 `apps/server/src/db/index.ts` 里的 `MIGRATIONS` 数组自动建表，**无需手动执行 migration**。
-- **开发（本机）**：同样是 SQLite 自动建表；若走 Cloudflare 上下文则回退到 D1（`getDb()` 内部自动判断）。
+- **开发（本机）**：同样是 SQLite（`better-sqlite3`）自动建表，数据在 `apps/server/.db/local.db`。
 
 > 旧文档中「`npx wrangler d1 execute ... --local`」的初始化方式已废弃，数据库表结构现在由代码内 `MIGRATIONS` 数组维护，随启动自动同步。
 

@@ -8,7 +8,7 @@
 - **前端：** `apps/web` — Next.js 16 App Router + React 19，端口 3000
 - **后台：** `apps/admin` — Next.js 16，端口 3001
 - **共享：** `packages/shared`（zod schema + 工具）、`packages/ui`（shadcn/ui）、`packages/config`（tsconfig）
-- **数据库：** SQLite (better-sqlite3) 本地开发 / Cloudflare D1（`getDb()` 自动切换）
+- **数据库：** SQLite (better-sqlite3) + Drizzle ORM（`getDb()` 自动建表/迁移，无 D1）
 - **AI Agent：** LangGraph + LangChain（OpenAI 兼容 SDK）
 - **包管理：** `pnpm`
 - **开发命令：** `pnpm dev`（并行启动 web:3000 + server:8787 + admin:3001）
@@ -128,7 +128,9 @@ ChatInput（用户输入）
 - `apps/web/src/stores/chat-store.ts` — 对话状态管理（Zustand）：消息流、流式输出、引用、表单、简历数据
 - `apps/web/src/components/chat/ChatContent.tsx` — 聊天主体组件（接受 conversationId prop，路由隔离核心）
 - `apps/web/src/components/chat/ChatMessages.tsx` — 消息列表 + 单条气泡（Markdown 渲染、表单卡片、引用弹窗）
-- `apps/web/src/components/chat/ChatInput.tsx` — 输入框（SSE 流接收、引用拼接、表单事件监听、附件上传）
+- `apps/web/src/components/chat/ChatInput.tsx` — 输入框（SSE 流接收、引用拼接、表单事件监听、多附件上传）
+- `apps/web/src/components/chat/AttachmentBar.tsx` — 附件栏（多附件 chips 只展示「附了什么」、多选上传、链接粘贴入口）
+- `apps/web/src/components/chat/use-attachments.ts` — 多附件状态管理（**发送时才解析**模型：附件仅保留本地 File/URL 引用，点发送时随 multipart 提交 /api/chat，服务端在流式开始前并行解析并拼装消息）
 - `apps/web/src/components/chat/FormCard.tsx` — 6 种结构化表单（basic / education / experience / project / skills / summary）
 - `apps/web/src/components/chat/ResumePreviewPanel.tsx` — 简历预览面板（模板切换、打印导出、背景色注入）
 
@@ -145,6 +147,34 @@ AI 输出 tool_call: { name: "pushForm", args: { type: "experience" } }
 - 系统提示词约 190 行，覆盖：核心信念、文案优化铁律（禁用词/强动词库）、STAR 追问法则、个人标签提炼、对话节奏
 - 提取提示词约 100 行，以 JSON 格式输出完整简历数据，含 company 去括号规范化、project 数量校验、语言铁律
 - 开场白：两套（新用户 / 已有简历用户）
+
+**简历提取引擎（三组并行 + 增量省略 + 失败回退）：**
+- 提取拆成 `core`（basic/education/skills/summary/highlights/categorizedSkills）、`experience`、`projects` 三组**并行**调用（`ai/index.ts` 的 `extractResumeParallel` / `extractSectionOnce`），wall-time ≈ 最重一组，实测全量提取从分钟级降到 ~4s
+- **增量模式**：已有"完整"简历数据（`isRichResumeData`：summary 非空或 experience/projects 有 description/highlights）时，各组改用**差异检测提示词** `buildIncrementalExtractPrompt`（`prompts.ts`），只输出新增/修改的字段，全部无变化输出 `{}`（实测 ~1.2s）。⚠️ 不要把这个省略指令拼进全量提示词——130 行"必须完整输出"的铁律会压过它，模型会无视省略
+- 稀疏数据（仅表单）仍走全量分块提示词 `buildSectionExtractPrompt`（复用全量铁律，只换输出 schema）
+- 合并语义：省略字段由客户端 `setResumeData` 浅合并 + `mergeArrayItems` 保留；任一分组最终失败 → 回退单次全量提取 `extractFullSingle`（正确性优先）
+- resumeData 随 `/api/chat` 请求体上送 → GraphState.resumeData → `extractResumeTool` 增量提取；`/api/chat/extract` 直接透传
+
+**聊天 ↔ 「我的简历」联动：**
+- 前端每次提取合并完成后调用 `syncResumeToLibrary()`（`components/chat/sync-resume.ts`）→ `POST /api/chat/resume`：对话已关联简历（`conversations.resumeId`）则**更新数据并版本 +1**，否则**新建**（标题取「姓名+的简历」或对话标题）并回填 resumeId；无实质内容的空数据不同步
+- 四个同步接入点：ChatInput 的 SSE resumeData 事件（工具路径）+ handleExtract（提取按钮）、ChatMessages 的 form-done 与 [FORM:done] 自动提取
+- 反向引用：「我的简历」卡片「对话」按钮 → `/chat?resumeId=xxx`：ChatContent 预载简历（setResumeData + 预览面板）+ `triggerQuickSend` 把简历文本（`lib/utils/resume-text.ts` 的 `resumeDataToText`，前缀 `[用户上传了简历文件]` 复用 router/提取规则）发给 AI 求优化
+- 注意：服务端 `resume.schema.ts` 的 `education.gpa` 允许 null（提取结果缺省输出 null）
+
+**Token 用量记账（只记账不拦截，收费窗口预留）：**
+- `apps/server/src/lib/billing/pricing.ts` — 模型价格快照（元/1M tokens，可 `PRICE_JSON` 环境变量覆盖）；`ledger.ts` — `recordUsage()` 统一埋点 + `getGlobalUsage`/`getUsageSummary` 聚合 + `assertUsageAllowed()` 未来额度检查钩子（当前恒放行）
+- 账本表 `token_usage`：userId / model / provider(platform|byok) / source / input&output tokens / cost_cents / 单价快照。userId 优先级：显式参数 → `runWithUsage` ALS 上下文 → trace collector → 不记
+- 埋点覆盖：聊天图 router/worker（SSE 事件 usage_metadata）、ai.chat 回退与标题（`stream_options.include_usage` 最后一个 chunk 取 usage）、提取三组（tracedCompletion + core 流）、embedding、附件解析、ai.ts / templates.ts 全部 AI 路由（`aiRoutes.use("*")` 中间件注入用户上下文）
+- admin 报表：`GET /api/admin/usage`（admin.logs 权限）+ 后台首页 UsageCard；`GET /api/admin/users` 每用户带 `usage30d`（tokens/costCents/calls，一次分组查询避免 N+1）；BYOK 流量 cost 记 0
+- 用户端自服务：`GET /api/user/usage?days=30`（`routes/usage.ts`，`getUserUsageDetail` 返回 platform/byok 分开 + bySource 细分）→ 聊天页头部仪表盘按钮 `UsageDialog`（不进管理页即可看自己用量）
+
+**用户自带 API（BYOK，1..N 条自定义 API）：**
+- 模块：`apps/server/src/lib/billing/byok.ts`（AES-256-GCM 加密、掩码、客户端工厂、连接测试）+ `routes/byok.ts`（`/api/user/ai-config` GET/PUT/DELETE + `/test`，按 API id 操作）；表 `user_ai_apis`（每用户 1..N 条，scopes 为 JSON 多选，api_key_enc 密文，密钥只进不出，上限 10 条）
+- 环节（scopes）：`chat`（主对话/标题/润色分析解析/模板分析，对应平台 AI_MODEL+openai 客户端）、`extract`（提取引擎/附件文字解析，对应 AI_EXTRACT_*）、`vision`（岗位截图识别，对应 glm-4v）；**同一环节多条 API 时最早创建的生效**，未配置的环节回落平台 key；**router 分类与 embedding 恒走平台 key**（免费/低价基础设施，避免 json_object 兼容性与 embedding 能力差异问题）
+- 主密钥 `BYOK_MASTER_KEY`（64 位 hex，生产必填；开发缺省用进程内临时密钥，重启后已存配置失效）
+- 路由注入：`ai/index.ts` 的 `runWithAIConfig(RuntimeAiConfigs)` ALS 上下文 + `currentChatClient()/currentChatModel()/currentExtractClient()/currentExtractModel()/currentVisionConfig()`；聊天 worker 另走 `GraphState.aiConfig`（chat scope）。`getUserAiConfigs(userId)` 负责按环节解析生效配置，调用方无需关心列表结构
+- 前端：聊天页头部齿轮按钮 → `ModelSettingsDialog`（**动态列表 + 「添加 API」**，每条卡片：名称/预设/baseUrl/模型/Key/用途多选/测试/删除，子组件 `ApiConfigCard`）；用量弹窗 `UsageDialog` 展示 byModel/bySource
+- 账本：BYOK 流量 `provider=byok`、`cost_cents=0`（用户已向自己的供应商付费）
 
 **Streaming 格式：**
 ```
@@ -206,6 +236,14 @@ data: [DONE]
 | `/login` | 登录 | GitHub / Authing / 微信 |
 
 管理后台是独立 Next 应用 `apps/admin`（端口 3001），查看请求日志（`/logs`）。
+
+### 后台权限体系（RBAC）
+
+- **数据模型**：`roles`（内置 super_admin/admin/viewer + 自定义角色，permissions 为权限点 JSON 数组）、`user_roles`（用户↔角色）、`plans`/`user_plans`（套餐，收费地基）
+- **权限点白名单**：`lib/auth/permissions.ts` 的 `ADMIN_PERMISSIONS`（admin.users/admin.logs/admin.traces/admin.permissions）为唯一事实源；角色 CRUD 经 `sanitizePermissions` 校验，**禁止授予通配 `*`**（仅内置 super_admin 持有）
+- **防提权**：`admin.ts` 的 `assertRoleGrantsAllowed`——非超级管理员禁止授予含 `*` 或 `admin.permissions` 的角色；内置角色的 permissions 锁定不可修改（`permissions.ts` PUT /roles/:id）
+- **添加人员**：权限管理页「用户授权」Tab（`apps/admin/src/app/permissions/user-grant.tsx`）支持**预建人员**（POST /api/admin/users 按 GitHub 用户名占位 + 分配角色/套餐），对方首次 GitHub 登录时 `auth.ts` callback 按 `githubLogin + githubId IS NULL` 命中并关联，权限即时生效；用户列表支持 `?q=` 搜索，预建用户标记 `pendingLogin`
+- **超级管理员 bootstrap**：env `ADMIN_GITHUB_IDS` 白名单（dev mock githubId `00000000`）恒有通配权限，防止锁死
 
 ---
 
@@ -273,7 +311,7 @@ fill API 自定义页    → 从上到下排版，y 递减，触底自动分页
 
 ### 数据库 vs 本地文件
 
-- **用户数据和简历内容** → 数据库（SQLite `apps/server/.db/local.db` 或 D1），表：users / conversations / messages / resumes / applications / request_logs
+- **用户数据和简历内容** → 数据库（SQLite `apps/server/.db/local.db`，WAL 模式），表：users / conversations / messages / resumes / applications / request_logs / ai_traces / ai_spans / ai_events / roles / user_roles / plans / user_plans / token_usage / user_ai_apis
 - **模版文件** → 本地文件系统 `apps/server/public/uploads/templates/`
 - 原因：数据库不适合存储大文件，PDF 作为静态资源更高效
 
@@ -316,7 +354,7 @@ apps/
 │   │   ├── env.ts                         # 手动加载 .env / .env.local
 │   │   ├── db/
 │   │   │   ├── schema.ts                  # Drizzle ORM Schema
-│   │   │   └── index.ts                   # getDb()（SQLite / D1 fallback + MIGRATIONS）
+│   │   │   └── index.ts                   # getDb()（better-sqlite3 + MIGRATIONS 自动建表/迁移）
 │   │   ├── routes/
 │   │   │   ├── health.ts                  # 健康检查
 │   │   │   ├── auth.ts                    # 登录（GitHub / Authing / 微信）
@@ -324,9 +362,12 @@ apps/
 │   │   │   ├── ai.ts                      # AI 分析/润色/摘要/改进/解析
 │   │   │   ├── pdf.ts                     # PDF 工具（合并/拆分/旋转/OCR）
 │   │   │   ├── templates.ts               # 模版 CRUD + fill 填充（核心）+ MinerU
-│   │   │   ├── admin.ts                   # 管理 API（日志/用户）
+│   │   │   ├── admin.ts                   # 管理 API（日志/用户/traces/usage/授权）
+│   │   │   ├── permissions.ts             # RBAC 权限（角色/套餐 CRUD + meta 目录）
 │   │   │   ├── applications.ts            # 投递记录 CRUD
 │   │   │   ├── resume.ts                  # 简历 CRUD + render-skills
+│   │   │   ├── byok.ts                    # 用户自带 API Key（BYOK）+ 连接测试
+│   │   │   ├── usage.ts                   # 用户用量查询（platform/byok 拆分）
 │   │   │   └── analysis.ts                # AI 简历分析结果
 │   │   └── lib/
 │   │       ├── ai/
@@ -338,7 +379,9 @@ apps/
 │   │       │   ├── vectorstore.ts         # 自研向量存储（Embedding + 相似度）
 │   │       │   ├── embeddings.ts          # Embedding 生成
 │   │       │   └── attachment-parser.ts   # 附件解析（PDF/图片 → 文字）
-│   │       ├── auth/                      # oidc / github / wechat / admin / utils / types
+│   │       ├── auth/                      # oidc / github / wechat / admin / permissions / utils / types
+│   │       ├── billing/                   # pricing（价格快照）/ ledger（用量账本）/ byok（密钥加密）
+│   │       ├── observability/             # AI trace 收集器（collector/context/persist）
 │   │       ├── logging/request-logger.ts  # 请求日志
 │   │       ├── rate-limit.ts              # 内存速率限制
 │   │       ├── resume.schema.ts           # 简历 zod schema（服务端）
@@ -378,7 +421,17 @@ apps/
 │           ├── utils/                     # sse / uuid / merge-data
 │           └── validators/resume.schema.ts # 简历 zod schema（前端）
 ├── admin/                                 # Next.js 管理后台（端口 3001）
-│   └── src/app/logs/                      # 请求日志查看
+│   └── src/
+│       ├── app/
+│       │   ├── page.tsx                   # 用户管理（含角色/套餐授权）
+│       │   ├── logs/page.tsx              # 请求日志监控
+│       │   ├── traces/                    # AI Traces（列表 + 详情回放）
+│       │   └── permissions/               # 权限管理（角色/套餐 + 用户授权 user-grant）
+│       └── components/
+│           ├── admin-shell.tsx            # 后台布局 + 按权限过滤导航
+│           ├── admin-header.tsx           # 顶部栏
+│           ├── usage-card.tsx             # 用量报表卡片
+│           └── traces/trace-detail.tsx    # Trace 详情
 ├── shared/                                # 共享包 @resume/shared
 │   └── src/
 │       ├── schemas/resume.ts              # 简历 zod schema

@@ -88,6 +88,8 @@ async function buildLogEntry(
 async function readRequestBody(req: Request): Promise<string | null> {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "DELETE") return null;
   const ct = req.headers.get("content-type") ?? "";
+  // 跳过 multipart 文件上传：body 是二进制文件，text() 会产生超大字符串浪费内存
+  if (ct.includes("multipart/form-data")) return null;
   if (!/json|text|form|urlencoded/i.test(ct)) return null;
   try {
     const text = await req.clone().text();

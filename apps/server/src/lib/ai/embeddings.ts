@@ -11,6 +11,7 @@
  */
 
 import { openai } from "./index";
+import { recordUsage } from "../billing/ledger";
 
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "embedding-3";
 const EMBEDDING_DIMENSIONS = 2048;
@@ -22,6 +23,12 @@ export async function embedText(text: string): Promise<number[]> {
     model: EMBEDDING_MODEL,
     input: text.slice(0, 3072), // embedding-3 单条上限 3072 tokens，粗略按字符截断
     dimensions: EMBEDDING_DIMENSIONS,
+  });
+  recordUsage({
+    model: EMBEDDING_MODEL,
+    inputTokens: res.usage?.prompt_tokens ?? 0,
+    outputTokens: 0,
+    source: "embedding",
   });
   return res.data[0]?.embedding ?? [];
 }
@@ -36,6 +43,12 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
       model: EMBEDDING_MODEL,
       input: batch,
       dimensions: EMBEDDING_DIMENSIONS,
+    });
+    recordUsage({
+      model: EMBEDDING_MODEL,
+      inputTokens: res.usage?.prompt_tokens ?? 0,
+      outputTokens: 0,
+      source: "embedding",
     });
     for (const item of res.data) {
       allVectors.push(item.embedding ?? []);

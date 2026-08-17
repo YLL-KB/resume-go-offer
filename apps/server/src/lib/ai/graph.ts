@@ -57,6 +57,18 @@ const GraphState = Annotation.Root({
     default: () => [],
   }),
 
+  // 客户端当前简历数据（extractResume 工具做增量提取用）
+  resumeData: Annotation<Record<string, unknown> | undefined>({
+    reducer: (_, update) => update,
+    default: () => undefined,
+  }),
+
+  // BYOK：用户自带 API 配置（主对话 worker 走用户 key，无配置回落平台）
+  aiConfig: Annotation<{ baseUrl: string; apiKey: string; model: string } | undefined>({
+    reducer: (_, update) => update,
+    default: () => undefined,
+  }),
+
   // Router 分类结果
   mode: Annotation<"chatting" | "collecting" | "advising" | "extracting">({
     reducer: (_, update) => update,
@@ -144,7 +156,21 @@ function getRouterModel() {
   });
 }
 
-function getWorkerModel(mode?: string) {
+function getWorkerModel(mode?: string, userCfg?: { baseUrl: string; apiKey: string; model: string }) {
+  // BYOK：用户配置了自己的 API 时，主对话模型走用户 key（router 仍留平台侧分类）
+  if (userCfg) {
+    return new ChatOpenAI({
+      model: userCfg.model,
+      temperature: 0.7,
+      maxTokens: 4096,
+      timeout: 90_000,
+      apiKey: userCfg.apiKey,
+      configuration: {
+        baseURL: userCfg.baseUrl,
+      },
+    });
+  }
+
   // chatting/collecting 是高频模式，用快模型；advising/extracting 用质量模型
   const needsQuality = mode === "advising" || mode === "extracting";
   const model = needsQuality
@@ -259,7 +285,7 @@ async function workerNode(state: GraphStateType): Promise<Partial<GraphStateType
   }
 
   const tools = getToolsForMode(mode);
-  const model = getWorkerModel(mode).bindTools(tools);
+  const model = getWorkerModel(mode, state.aiConfig).bindTools(tools);
 
   // 替换旧 system message，确保 worker 总用对应当前 mode 的提示词
   const msgs = [...(state.messages ?? [])];
@@ -331,6 +357,10 @@ export { agentGraph };
 
 export interface RunAgentInput {
   messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+  /** 客户端当前简历数据，供 extractResume 工具增量提取 */
+  resumeData?: Record<string, unknown>;
+  /** BYOK：用户自带 API 配置（主对话 worker 走用户 key） */
+  aiConfig?: { baseUrl: string; apiKey: string; model: string };
 }
 
 // ── 将对话历史转换为 LangChain 消息 ──
@@ -357,6 +387,8 @@ function toLangChainMessages(
 export async function runAgent(input: RunAgentInput) {
   const initialState = {
     messages: toLangChainMessages(input.messages),
+    resumeData: input.resumeData,
+    aiConfig: input.aiConfig,
   };
 
   return agentGraph.stream(initialState);
@@ -368,6 +400,8 @@ export async function runAgent(input: RunAgentInput) {
 export async function* streamAgent(input: RunAgentInput) {
   const initialState = {
     messages: toLangChainMessages(input.messages),
+    resumeData: input.resumeData,
+    aiConfig: input.aiConfig,
   };
 
   const eventStream = agentGraph.streamEvents(initialState, {

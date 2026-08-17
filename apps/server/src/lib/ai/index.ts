@@ -10,7 +10,9 @@
  */
 
 import OpenAI from "openai";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getTraceCollector, recordDegradation } from "../observability/context";
+import { recordUsage } from "../billing/ledger";
 
 function checkApiKey(key: string | undefined, name: string): string {
   if (!key || key === "sk-placeholder") {
@@ -41,24 +43,100 @@ export const DEFAULT_MODEL = process.env.AI_MODEL ?? "gpt-4o-mini";
 /** 结构化提取等非聊天任务可用更快模型，默认复用 DEFAULT_MODEL */
 export const EXTRACT_MODEL = process.env.AI_EXTRACT_MODEL ?? DEFAULT_MODEL;
 
+// ── BYOK 配置注入：路由层 runWithAIConfig 包一层，深处调用按 scope 自动切用户客户端 ──
+
+export interface RuntimeAiConfig {
+  baseUrl: string;
+  apiKey: string;
+  /** 用户配置的模型（作为默认模型使用） */
+  model: string;
+}
+
+export interface RuntimeAiConfigs {
+  chat?: RuntimeAiConfig;
+  extract?: RuntimeAiConfig;
+  vision?: RuntimeAiConfig;
+}
+
+const aiConfigStorage = new AsyncLocalStorage<RuntimeAiConfigs>();
+
+/** 在用户 AI 配置上下文中执行（无配置时传 null 即走平台 key） */
+export function runWithAIConfig<T>(cfgs: RuntimeAiConfigs | null, fn: () => T): T {
+  if (cfgs && Object.keys(cfgs).length > 0) return aiConfigStorage.run(cfgs, fn);
+  return fn();
+}
+
+export function getRuntimeAiConfigs(): RuntimeAiConfigs | null {
+  return aiConfigStorage.getStore() ?? null;
+}
+
+const userClientCache = new Map<string, OpenAI>();
+
+function userClient(cfg: RuntimeAiConfig): OpenAI {
+  const key = `${cfg.baseUrl}|${cfg.apiKey.slice(-6)}`;
+  let client = userClientCache.get(key);
+  if (!client) {
+    client = new OpenAI({ apiKey: cfg.apiKey, baseURL: cfg.baseUrl });
+    userClientCache.set(key, client);
+  }
+  return client;
+}
+
+/** 当前请求的 chat 客户端：有用户 chat 配置用用户的，否则平台 key */
+export function currentChatClient(): OpenAI {
+  const cfg = aiConfigStorage.getStore()?.chat;
+  return cfg ? userClient(cfg) : openai;
+}
+
+/** 当前请求的 chat 模型：有用户 chat 配置用用户配置的模型 */
+export function currentChatModel(): string {
+  return aiConfigStorage.getStore()?.chat?.model ?? DEFAULT_MODEL;
+}
+
+/** 当前请求的提取客户端/模型（提取引擎与附件解析共用） */
+export function currentExtractClient(): OpenAI {
+  const cfg = aiConfigStorage.getStore()?.extract;
+  return cfg ? userClient(cfg) : extractClient;
+}
+
+export function currentExtractModel(): string {
+  return aiConfigStorage.getStore()?.extract?.model ?? EXTRACT_MODEL;
+}
+
+/** 当前请求的视觉配置（图片识别）：用户 vision 配置优先，否则平台 glm-4v */
+export function currentVisionConfig(): RuntimeAiConfig | null {
+  return aiConfigStorage.getStore()?.vision ?? null;
+}
+
 /** 外部 AI 调用的兜底超时，防止上游 API 卡死导致流式对话挂起 */
 const AI_TIMEOUT_MS = 90_000;
 
 /**
  * 直连 SDK 调用的统一观测封装：对非流式 chat.completions.create 计时、
- * 记录 model/token/耗时到当前 trace（若在聊天图的 collector 上下文内）。
- * 不在 trace 上下文时（独立路由调用）自动 no-op，零副作用。
+ * 记录 model/token/耗时到当前 trace（若在聊天图的 collector 上下文内），
+ * 并把 token 用量写入计费账本（userId 来自 usageCtx / runWithUsage 上下文 / collector）。
+ * 不在 trace 上下文时（独立路由调用）观测自动 no-op，记账照常。
  */
 async function tracedCompletion(
   client: OpenAI,
   params: OpenAI.ChatCompletionCreateParamsNonStreaming,
   name: string,
   createOptions?: { signal?: AbortSignal },
+  usageCtx?: { userId?: string; conversationId?: string; source?: string; provider?: "platform" | "byok" },
 ): Promise<OpenAI.ChatCompletion> {
   const collector = getTraceCollector();
   const t0 = Date.now();
   try {
     const res = await client.chat.completions.create(params, createOptions);
+    recordUsage({
+      model: String(params.model),
+      inputTokens: res.usage?.prompt_tokens ?? 0,
+      outputTokens: res.usage?.completion_tokens ?? 0,
+      source: usageCtx?.source ?? name,
+      userId: usageCtx?.userId,
+      conversationId: usageCtx?.conversationId,
+      provider: usageCtx?.provider,
+    });
     if (collector) {
       collector.addSpan({
         type: "model",
@@ -155,9 +233,13 @@ export function safeJsonParse<T>(text: string): T | null {
 
 // ── 流式工具 ──
 
-/** 将 OpenAI stream 转为 ReadableStream<Uint8Array>，用于 API 路由响应 */
+/**
+ * 将 OpenAI stream 转为 ReadableStream<Uint8Array>，用于 API 路由响应。
+ * onUsage：流结束时（最后一个带 usage 的 chunk）回调，用于计费埋点。
+ */
 export function streamToResponse(
   stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
+  onUsage?: (usage: { prompt_tokens: number; completion_tokens: number }) => void,
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   return new ReadableStream({
@@ -166,6 +248,8 @@ export function streamToResponse(
         for await (const chunk of stream) {
           const content = chunk.choices[0]?.delta?.content;
           if (content) controller.enqueue(encoder.encode(content));
+          // include_usage 时最后一个 chunk 携带 usage
+          if (chunk.usage) onUsage?.(chunk.usage);
         }
       } catch (err) {
         console.error("Stream error:", err);
@@ -247,6 +331,163 @@ function smartTruncate(text: string, maxChars: number): string {
   return result.join("");
 }
 
+// ── 结构化提取引擎：三组并行 + 增量省略 + 失败回退 ──
+//
+// 把整份简历提取拆成 core（basic/education/skills/summary 等）、
+// experience、projects 三组并行调用。单次全量提取输出 ~8k token，
+// 拆组后 wall-time ≈ 最重一组的生成时间，通常提速 2 倍以上。
+// 已有一版「完整」简历时各组走差异检测提示词（只输出有变化的字段），
+// 前端/服务端合并逻辑对「省略字段」天然安全（保留已有值）。
+
+type ExtractSection = "core" | "experience" | "projects";
+const EXTRACT_SECTIONS: ExtractSection[] = ["core", "experience", "projects"];
+
+/**
+ * 判断已有简历数据是否"完整"（经历过一次完整提取）。
+ * 完整 → 增量差异提示词（只输出变化）；稀疏（仅表单数据）→ 全量提示词。
+ */
+function isRichResumeData(data?: Record<string, unknown> | null): boolean {
+  if (!data) return false;
+  const summary = data.summary;
+  if (typeof summary === "string" && summary.trim().length >= 10) return true;
+
+  const exp = Array.isArray(data.experience) ? data.experience : [];
+  const prj = Array.isArray(data.projects) ? data.projects : [];
+  return [...exp, ...prj].some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const o = item as Record<string, unknown>;
+    const desc = o.description;
+    const highlights = o.highlights;
+    return (typeof desc === "string" && desc.trim().length >= 20) ||
+      (Array.isArray(highlights) && highlights.length > 0);
+  });
+}
+
+/** 记账上下文（独立路由调用时显式传入用户身份；聊天图内可省略，走 collector） */
+export interface UsageContextLike {
+  userId?: string;
+  conversationId?: string;
+  provider?: "platform" | "byok";
+}
+
+/** 单组提取（含一次 JSON 解析失败重试），仍失败返回 null */
+async function extractSectionOnce(
+  section: ExtractSection,
+  conversationHistory: string,
+  resumeData: Record<string, unknown> | undefined,
+  usageCtx?: UsageContextLike,
+): Promise<Record<string, unknown> | null> {
+  const { buildSectionExtractPrompt, buildIncrementalExtractPrompt } = await import("./prompts");
+  const t0 = Date.now();
+  // 完整已有数据 → 差异检测提示词（增量）；否则全量分块提示词
+  const prompt = isRichResumeData(resumeData)
+    ? buildIncrementalExtractPrompt(conversationHistory, resumeData as Record<string, unknown>, section)
+    : buildSectionExtractPrompt(conversationHistory, resumeData, section);
+
+  const res = await tracedCompletion(currentExtractClient(), {
+    model: currentExtractModel(),
+    temperature: 0.3,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content: prompt }],
+  }, `extract-${section}`, { signal: AbortSignal.timeout(90_000) }, usageCtx);
+
+  const text = res.choices[0]?.message?.content?.trim() ?? "";
+  console.log(`[extract-${section}] ${((Date.now() - t0) / 1000).toFixed(1)}s  prompt=${prompt.length}chars  output=${text.length}chars`);
+
+  const parsed = safeJsonParse<Record<string, unknown>>(text);
+  if (parsed) return parsed;
+
+  recordDegradation(`extract_${section}_json_retry`);
+  const retry = await tracedCompletion(currentExtractClient(), {
+    model: currentExtractModel(),
+    temperature: 0.1,
+    max_tokens: 4096,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "user", content: prompt + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON。" },
+    ],
+  }, `extract-${section}-retry`, { signal: AbortSignal.timeout(90_000) }, usageCtx);
+  const retryText = retry.choices[0]?.message?.content?.trim() ?? "";
+  return safeJsonParse<Record<string, unknown>>(retryText);
+}
+
+/** 单次全量提取（并行分组失败时的回退，保证正确性优先） */
+async function extractFullSingle(
+  conversationHistory: string,
+  resumeData?: Record<string, unknown> | null,
+  usageCtx?: UsageContextLike,
+): Promise<Record<string, unknown> | null> {
+  const { buildExtractPrompt } = await import("./prompts");
+  const t0 = Date.now();
+
+  const truncated = smartTruncate(conversationHistory, 24000);
+  const prompt = buildExtractPrompt(truncated, resumeData);
+
+  console.log(`[extract-full] 模型=${currentExtractModel()}  prompt=${prompt.length}chars`);
+
+  const res = await tracedCompletion(currentExtractClient(), {
+    model: currentExtractModel(),
+    temperature: 0.3,
+    max_tokens: 8192,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content: prompt }],
+  }, "extractResume", { signal: AbortSignal.timeout(90_000) }, usageCtx);
+
+  const text = res.choices[0]?.message?.content?.trim() ?? "";
+  console.log(`[extract-full] AI 响应 ${((Date.now() - t0) / 1000).toFixed(1)}s  output=${text.length}chars`);
+
+  const parsed = safeJsonParse<Record<string, unknown>>(text);
+  if (parsed) return parsed;
+
+  console.warn(`[extract-full] JSON 解析失败，重试中...`);
+  recordDegradation("extract_json_retry");
+  const retry = await tracedCompletion(currentExtractClient(), {
+    model: currentExtractModel(),
+    temperature: 0.1,
+    max_tokens: 8192,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "user", content: prompt + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON，不要遗漏任何经历。" },
+    ],
+  }, "extractResume-retry", { signal: AbortSignal.timeout(90_000) }, usageCtx);
+  const retryText = retry.choices[0]?.message?.content?.trim() ?? "";
+  console.log(`[extract-full] 重试完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  return safeJsonParse<Record<string, unknown>>(retryText);
+}
+
+/** 三组并行提取 + 合并；任一组最终失败则整体回退单次全量提取 */
+async function extractResumeParallel(
+  conversationHistory: string,
+  resumeData?: Record<string, unknown> | null,
+  usageCtx?: UsageContextLike,
+): Promise<Record<string, unknown> | null> {
+  const t0 = Date.now();
+  const truncated = smartTruncate(conversationHistory, 24000);
+  const resume = resumeData ?? undefined;
+
+  const results = await Promise.all(
+    EXTRACT_SECTIONS.map((section) => extractSectionOnce(section, truncated, resume, usageCtx)),
+  );
+
+  const merged: Record<string, unknown> = {};
+  const failed: string[] = [];
+  EXTRACT_SECTIONS.forEach((section, i) => {
+    if (results[i]) Object.assign(merged, results[i] as Record<string, unknown>);
+    else failed.push(section);
+  });
+
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  console.log(`[extract] 并行提取 ${elapsed}s  ${EXTRACT_SECTIONS.map((s, i) => `${s}:${results[i] ? "ok" : "FAIL"}`).join(" ")}`);
+
+  if (failed.length > 0) {
+    recordDegradation("extract_parallel_partial", { failed });
+    console.warn(`[extract] 分组失败 [${failed.join(",")}]，回退单次全量提取`);
+    return extractFullSingle(conversationHistory, resumeData, usageCtx);
+  }
+  return merged;
+}
+
 export const ai = {
   /**
    * 对话聊天 — 流式返回
@@ -255,11 +496,12 @@ export const ai = {
    * @returns OpenAI stream
    */
   chat(messages: Array<{ role: "system" | "user" | "assistant"; content: string }>) {
-    return openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    return currentChatClient().chat.completions.create({
+      model: currentChatModel(),
       temperature: 0.7,
       max_tokens: 4096,
       stream: true,
+      stream_options: { include_usage: true }, // 计费埋点：最后一个 chunk 携带 usage
       messages,
     });
   },
@@ -267,109 +509,118 @@ export const ai = {
   /**
    * 从对话历史提取结构化简历数据
    *
+   * 三组并行（core/experience/projects）+ 增量省略（有已有数据时），
+   * 任一组失败自动回退单次全量提取。
+   *
    * @param conversationHistory - 对话记录文本
+   * @param resumeData - 当前已有简历数据（增量提取用）
    * @returns ResumeData JSON 对象
    */
-  async extractResumeData(conversationHistory: string, resumeData?: Record<string, unknown> | null): Promise<Record<string, unknown> | null> {
-    const { buildExtractPrompt } = await import("./prompts");
-    const t0 = Date.now();
-
-    // 智能截断：优先保留用户消息，从 AI 的长篇追问中截断
-    const truncated = smartTruncate(conversationHistory, 24000);
-    const prompt = buildExtractPrompt(truncated, resumeData);
-
-    console.log(`[extract] 模型=${EXTRACT_MODEL}  prompt=${prompt.length}chars  历史=${conversationHistory.length}chars`);
-
-    const res = await tracedCompletion(extractClient, {
-      model: EXTRACT_MODEL,
-      temperature: 0.3,
-      max_tokens: 8192,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "user", content: prompt },
-      ],
-    }, "extractResume", { signal: AbortSignal.timeout(90_000) });
-
-    const text = res.choices[0]?.message?.content?.trim() ?? "";
-    const t1 = Date.now();
-    console.log(`[extract] AI 响应 ${(t1 - t0) / 1000}s  output=${text.length}chars`);
-
-    const parsed = safeJsonParse<Record<string, unknown>>(text);
-    if (!parsed) {
-      console.warn(`[extract] JSON 解析失败，重试中...`);
-      recordDegradation("extract_json_retry");
-      const retry = await tracedCompletion(extractClient, {
-        model: EXTRACT_MODEL,
-        temperature: 0.1,
-        max_tokens: 8192,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "user", content: prompt + "\n\n注意：上次输出被截断了，请确保返回完整的 JSON，不要遗漏任何经历。" },
-        ],
-      }, "extractResume-retry", { signal: AbortSignal.timeout(90_000) });
-      const retryText = retry.choices[0]?.message?.content?.trim() ?? "";
-      const t2 = Date.now();
-      console.log(`[extract] 重试完成 ${((t2 - t0) / 1000).toFixed(1)}s`);
-      return safeJsonParse<Record<string, unknown>>(retryText);
-    }
-
-    console.log(`[extract] 总耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-    return parsed;
+  async extractResumeData(
+    conversationHistory: string,
+    resumeData?: Record<string, unknown> | null,
+    usageCtx?: UsageContextLike,
+  ): Promise<Record<string, unknown> | null> {
+    return extractResumeParallel(conversationHistory, resumeData, usageCtx);
   },
 
   /**
    * 流式提取简历数据 — 返回 SSE ReadableStream
-   * 前端可实时看到 AI 生成进度，不再干等 50s
+   *
+   * 三组并行：core 组走流式作为前端进度展示，experience/projects
+   * 组后台非流式并行执行；全部完成后合并发送 done。
+   * 任一组失败回退单次全量提取，保证结果完整。
    */
-  extractResumeDataStream(conversationHistory: string, resumeData?: Record<string, unknown> | null): ReadableStream<Uint8Array> {
+  extractResumeDataStream(
+    conversationHistory: string,
+    resumeData?: Record<string, unknown> | null,
+    usageCtx?: UsageContextLike,
+  ): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
     const truncated = smartTruncate(conversationHistory, 24000);
+    const resume = resumeData ?? undefined;
 
     return new ReadableStream({
       async start(controller) {
+        const send = (data: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        };
         const t0 = Date.now();
         try {
-          const { buildExtractPrompt } = await import("./prompts");
-          const prompt = buildExtractPrompt(truncated, resumeData);
-          console.log(`[extract-stream] 模型=${EXTRACT_MODEL}  prompt=${prompt.length}chars`);
+          const { buildSectionExtractPrompt, buildIncrementalExtractPrompt } = await import("./prompts");
 
-          const stream = await extractClient.chat.completions.create({
-            model: EXTRACT_MODEL,
+          // 完整已有数据 → 差异检测提示词（增量）；否则全量分块提示词
+          const corePrompt = isRichResumeData(resume)
+            ? buildIncrementalExtractPrompt(truncated, resume as Record<string, unknown>, "core")
+            : buildSectionExtractPrompt(truncated, resume, "core");
+          console.log(`[extract-stream] 模型=${currentExtractModel()}  并行三组提取  mode=${isRichResumeData(resume) ? "incremental" : "full"}  prompt=${corePrompt.length}chars`);
+
+          const coreStream = await extractClient.chat.completions.create({
+            model: currentExtractModel(),
             temperature: 0.3,
-            max_tokens: 8192,
+            max_tokens: 4096,
             stream: true as const,
-            messages: [{ role: "user", content: prompt }],
+            stream_options: { include_usage: true }, // 计费埋点：最后一个 chunk 携带 usage
+            messages: [{ role: "user", content: corePrompt }],
           }, { signal: AbortSignal.timeout(120_000) });
 
-          let full = "";
-          for await (const chunk of stream) {
+          // 另外两组与 core 流同时启动（后台非流式）
+          const expPromise = extractSectionOnce("experience", truncated, resume, usageCtx).catch(() => null);
+          const prjPromise = extractSectionOnce("projects", truncated, resume, usageCtx).catch(() => null);
+
+          let fullCore = "";
+          let coreUsage: { prompt_tokens: number; completion_tokens: number } | null = null;
+          for await (const chunk of coreStream) {
             const content = chunk.choices[0]?.delta?.content;
             if (content) {
-              full += content;
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ type: "chunk", content })}\n\n`),
-              );
+              fullCore += content;
+              send({ type: "chunk", content });
             }
+            if (chunk.usage) coreUsage = chunk.usage;
+          }
+          if (coreUsage) {
+            recordUsage({
+              model: currentExtractModel(),
+              inputTokens: coreUsage.prompt_tokens,
+              outputTokens: coreUsage.completion_tokens,
+              source: "extract",
+              userId: usageCtx?.userId,
+              conversationId: usageCtx?.conversationId,
+              provider: usageCtx?.provider,
+            });
           }
 
-          const parsed = safeJsonParse<Record<string, unknown>>(full.trim());
-          const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-          console.log(`[extract-stream] 完成 ${elapsed}s  output=${full.length}chars`);
+          const corePart = safeJsonParse<Record<string, unknown>>(fullCore.trim());
+          const [expPart, prjPart] = await Promise.all([expPromise, prjPromise]);
 
-          if (parsed) {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: "done", data: parsed })}\n\n`),
-            );
+          const parts: Array<[string, Record<string, unknown> | null]> = [
+            ["core", corePart],
+            ["experience", expPart],
+            ["projects", prjPart],
+          ];
+          const merged: Record<string, unknown> = {};
+          const failed: string[] = [];
+          for (const [name, part] of parts) {
+            if (part) Object.assign(merged, part);
+            else failed.push(name);
+          }
+
+          if (failed.length > 0) {
+            recordDegradation("extract_stream_partial", { failed });
+            console.warn(`[extract-stream] 分组失败 [${failed.join(",")}]，回退单次全量提取`);
+            const fallback = await extractFullSingle(conversationHistory, resumeData, usageCtx);
+            if (fallback) {
+              send({ type: "done", data: fallback });
+            } else {
+              send({ type: "error", message: "简历提取失败，请重试" });
+            }
           } else {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ type: "error", message: "JSON 解析失败，请重试" })}\n\n`),
-            );
+            send({ type: "done", data: merged });
           }
+          console.log(`[extract-stream] 完成 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
         } catch (err) {
           console.error(`[extract-stream] 失败:`, err instanceof Error ? err.message : err);
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: "error", message: err instanceof Error ? err.message : "提取失败" })}\n\n`),
-          );
+          send({ type: "error", message: err instanceof Error ? err.message : "提取失败" });
         } finally {
           controller.close();
         }
@@ -396,8 +647,8 @@ export const ai = {
       context ? `\n目标岗位/行业: ${context}` : "",
     ].join("\n");
 
-    const res = await tracedCompletion(openai, {
-      model: DEFAULT_MODEL,
+    const res = await tracedCompletion(currentChatClient(), {
+      model: currentChatModel(),
       temperature: 0.7,
       messages: [
         { role: "system", content: systemPrompt },
@@ -422,8 +673,8 @@ export const ai = {
     if (profile.skills?.length) parts.push(`技能: ${profile.skills.join("、")}`);
     if (profile.highlights?.length) parts.push(`亮点: ${profile.highlights.join("；")}`);
 
-    const res = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    const res = await tracedCompletion(currentChatClient(), {
+      model: currentChatModel(),
       temperature: 0.7,
       messages: [
         {
@@ -432,7 +683,7 @@ export const ai = {
         },
         { role: "user", content: parts.join("\n") },
       ],
-    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
+    }, "generateSummary", { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     return res.choices[0]?.message?.content?.trim() ?? "";
   },
@@ -447,8 +698,8 @@ export const ai = {
     suggestions: string[];
     score: number;
   }> {
-    const res = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    const res = await tracedCompletion(currentChatClient(), {
+      model: currentChatModel(),
       temperature: 0.4,
       max_tokens: 4096,
       messages: [
@@ -473,7 +724,7 @@ export const ai = {
         },
         { role: "user", content },
       ],
-    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
+    }, "analyzeResume", { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
     const parsed = safeJsonParse<{
@@ -530,8 +781,8 @@ export const ai = {
 原文「负责前端开发工作」→ 改写「主导前端架构设计与核心模块开发，带领3人团队完成项目从0到1交付」
 原文「使用React和TypeScript」→ 改写「基于React 18+TypeScript构建可复用组件库，组件复用率提升至85%」`;
 
-    const res = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    const res = await tracedCompletion(currentChatClient(), {
+      model: currentChatModel(),
       temperature: 0.6,
       max_tokens: 2048,
       messages: [
@@ -541,7 +792,7 @@ export const ai = {
           content: `问题：${target}\n\n完整简历原文：\n${resumeContent.slice(0, 3000)}`,
         },
       ],
-    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
+    }, "improveResumeSection", { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     return res.choices[0]?.message?.content?.trim() ?? "暂无优化建议";
   },
@@ -558,8 +809,8 @@ export const ai = {
       items?: { fields: { key: string; label: string; value: string }[] }[];
     }[];
   }> {
-    const res = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    const res = await tracedCompletion(currentChatClient(), {
+      model: currentChatModel(),
       temperature: 0.3,
       max_tokens: 4096,
       messages: [
@@ -601,7 +852,7 @@ export const ai = {
         },
         { role: "user", content },
       ],
-    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
+    }, "parseResume", { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const text = res.choices[0]?.message?.content?.trim() ?? "";
     const parsed = safeJsonParse<{
@@ -665,15 +916,15 @@ export const ai = {
   }
 }`;
 
-    const res = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    const res = await tracedCompletion(currentChatClient(), {
+      model: currentChatModel(),
       temperature: 0.1,
       max_tokens: 2000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `分析以下简历模板的文字内容，识别模块结构：\n\n${text.slice(0, 4000)}` },
       ],
-    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
+    }, "analyzeTemplate", { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const content = res.choices[0]?.message?.content?.trim() ?? "";
     const result = safeJsonParse<{
@@ -698,8 +949,8 @@ export const ai = {
    * 从简历 PDF 文本中提取标题和摘要
    */
   async summarizeTemplate(text: string): Promise<{ title: string; summary: string }> {
-    const res = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    const res = await tracedCompletion(currentChatClient(), {
+      model: currentChatModel(),
       temperature: 0.3,
       messages: [
         {
@@ -716,7 +967,7 @@ export const ai = {
         },
         { role: "user", content: `简历文本：\n${text.slice(0, 3000)}` },
       ],
-    }, { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
+    }, "summarizeTemplate", { signal: AbortSignal.timeout(AI_TIMEOUT_MS) });
 
     const content = res.choices[0]?.message?.content?.trim() ?? "";
     const parsed = safeJsonParse<{ title: string; summary: string }>(content);
@@ -738,10 +989,11 @@ export const ai = {
       context ? `\n目标岗位/行业: ${context}` : "",
     ].join("\n");
 
-    return openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    return currentChatClient().chat.completions.create({
+      model: currentChatModel(),
       temperature: 0.7,
       stream: true,
+      stream_options: { include_usage: true }, // 计费埋点：最后一个 chunk 携带 usage
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: text },
@@ -751,10 +1003,11 @@ export const ai = {
 
   /** 流式分析简历 */
   analyzeResumeStream(content: string) {
-    return openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    return currentChatClient().chat.completions.create({
+      model: currentChatModel(),
       temperature: 0.5,
       stream: true,
+      stream_options: { include_usage: true }, // 计费埋点：最后一个 chunk 携带 usage
       messages: [
         {
           role: "system",
@@ -783,8 +1036,8 @@ export const ai = {
   ): Promise<string | null> {
     const { buildSkillsHtmlPrompt } = await import("./prompts");
 
-    const res = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
+    const res = await currentChatClient().chat.completions.create({
+      model: currentChatModel(),
       temperature: 0.1,
       max_tokens: 2048,
       messages: [
@@ -816,8 +1069,8 @@ export const ai = {
           const prompt = buildSkillsHtmlPrompt(categorizedSkills, skillStyle);
           console.log(`[skills-render] Starting style ${skillStyle} — prompt ${prompt.length} chars`);
 
-          const stream = await openai.chat.completions.create({
-            model: DEFAULT_MODEL,
+          const stream = await currentChatClient().chat.completions.create({
+            model: currentChatModel(),
             temperature: 0.1,
             max_tokens: 2048,
             stream: true,

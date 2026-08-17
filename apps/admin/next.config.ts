@@ -11,6 +11,17 @@ const nextConfig: NextConfig = {
 			{
 				source: "/api/:path*",
 				destination: `${API_ORIGIN}/api/:path*`,
+				basePath: false,
+			},
+		];
+	},
+	async redirects() {
+		return [
+			{
+				source: "/",
+				destination: "/admin",
+				basePath: false,
+				permanent: false,
 			},
 		];
 	},

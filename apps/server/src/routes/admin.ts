@@ -3,16 +3,90 @@
  */
 
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { getDb } from "../db";
-import { requestLogs, users, conversations, messages, resumes, applications, aiTraces, aiSpans, aiEvents } from "../db/schema";
-import { getAdminUser } from "../lib/auth/admin";
-import { and, gte, lte, desc, asc, like, eq } from "drizzle-orm";
+import {
+  requestLogs,
+  users,
+  conversations,
+  messages,
+  resumes,
+  applications,
+  aiTraces,
+  aiSpans,
+  aiEvents,
+  roles,
+  userRoles,
+  plans,
+  userPlans,
+  tokenUsage,
+} from "../db/schema";
+import { getAdminUser, getAdminPermissions, requirePermission } from "../lib/auth/admin";
+import { WILDCARD } from "../lib/auth/permissions";
+import type { AdminUser } from "../lib/auth/admin";
+import { and, gte, lte, desc, asc, like, eq, inArray, sql } from "drizzle-orm";
 
 export const adminRoutes = new Hono();
 
+/** 校验指定权限点，通过则返回 AdminUser（供需要 admin.id 的路由用），否则 null */
+async function requireAdmin(c: Context, permission: string): Promise<AdminUser | null> {
+  const admin = await getAdminUser(c.req.raw);
+  if (!admin) return null;
+  if (!(await requirePermission(c.req.raw, permission))) return null;
+  return admin;
+}
+
+/** 授权校验错误：携带 HTTP 状态码 */
+class GrantError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * 防提权：校验待授予的角色列表是否超出操作者权限——
+ * 含通配 * 或 admin.permissions 的角色是权限边界，只有超级管理员才能授予。
+ */
+async function assertRoleGrantsAllowed(c: Context, roleIds: string[]): Promise<void> {
+  if (roleIds.length === 0) return;
+  const db = getDb();
+  const existing = await db
+    .select({ id: roles.id, label: roles.label, permissions: roles.permissions })
+    .from(roles)
+    .where(inArray(roles.id, roleIds))
+    .all();
+  if (existing.length !== roleIds.length) throw new GrantError("包含不存在的角色", 400);
+
+  const operatorPerms = await getAdminPermissions(c.req.raw);
+  const isSuper = operatorPerms?.has(WILDCARD) ?? false;
+  if (isSuper) return;
+
+  for (const r of existing) {
+    let perms: string[] = [];
+    try {
+      perms = JSON.parse(r.permissions);
+    } catch {
+      perms = [];
+    }
+    if (perms.includes(WILDCARD) || perms.includes("admin.permissions")) {
+      throw new GrantError(`无权授予角色「${r.label}」，请联系超级管理员`, 403);
+    }
+  }
+}
+
+// ── GET /api/admin/me ── 当前后台用户的权限点（前端导航/鉴权用）
+adminRoutes.get("/me", async (c) => {
+  const admin = await getAdminUser(c.req.raw);
+  if (!admin) return c.json({ error: "无权限" }, 403);
+  const permissions = await getAdminPermissions(c.req.raw);
+  return c.json({ id: admin.id, name: admin.name, permissions: permissions ? [...permissions] : [] });
+});
+
 // ── GET /api/admin/logs ──
 adminRoutes.get("/logs", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.logs");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   try {
@@ -59,7 +133,7 @@ adminRoutes.get("/logs", async (c) => {
 
 // ── DELETE /api/admin/logs ──
 adminRoutes.delete("/logs", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.logs");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   try {
@@ -88,7 +162,7 @@ adminRoutes.delete("/logs", async (c) => {
 
 // ── GET /api/admin/logs/stats ──
 adminRoutes.get("/logs/stats", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.logs");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   try {
@@ -183,22 +257,128 @@ adminRoutes.get("/logs/stats", async (c) => {
   }
 });
 
+// ── GET /api/admin/usage ── Token 用量报表（记账阶段，只读不拦截）
+adminRoutes.get("/usage", async (c) => {
+  const admin = await requireAdmin(c, "admin.logs");
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  try {
+    const { getGlobalUsage } = await import("../lib/billing/ledger");
+    const days = Math.max(1, Math.min(90, Number(c.req.query("days")) || 30));
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    const total = getGlobalUsage(since);
+
+    // Top 用户（按总 token 降序，JS 排序避免 SQL 别名问题）
+    const db = getDb();
+    const topUserRows = db
+      .select({
+        userId: tokenUsage.userId,
+        tokens: sql<number>`COALESCE(SUM(${sql.raw("input_tokens")} + ${sql.raw("output_tokens")}), 0)`,
+        costCents: sql<number>`COALESCE(SUM(cost_cents), 0)`,
+      })
+      .from(tokenUsage)
+      .where(gte(tokenUsage.createdAt, since))
+      .groupBy(tokenUsage.userId)
+      .all();
+
+    const topUsers = topUserRows
+      .map((r) => ({
+        userId: r.userId,
+        tokens: Number(r.tokens ?? 0),
+        costCents: Number(r.costCents ?? 0),
+      }))
+      .sort((a, b) => b.tokens - a.tokens)
+      .slice(0, 10);
+
+    return c.json({
+      days,
+      since,
+      total,
+      topUsers,
+    });
+  } catch (err) {
+    console.error("[admin/usage]", err);
+    return c.json({ error: "获取用量统计失败", detail: err instanceof Error ? err.message : String(err) }, 500);
+  }
+});
+
 // ── GET /api/admin/users ──
 adminRoutes.get("/users", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.users");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   try {
     const db = getDb();
     const allUsers = await db.select().from(users).orderBy(desc(users.createdAt)).all();
 
+    // 搜索（按名字 / GitHub 用户名 / 邮箱模糊匹配）
+    const q = c.req.query("q")?.trim().toLowerCase() ?? "";
+    const filtered = q
+      ? allUsers.filter((u) =>
+          [u.name, u.githubLogin, u.email].some((v) => v?.toLowerCase().includes(q)),
+        )
+      : allUsers;
+
+    // 30 天 token 用量（一次分组查询，避免 N+1）
+    const usageSince = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const usageRows = db
+      .select({
+        userId: tokenUsage.userId,
+        tokens: sql<number>`COALESCE(SUM(${sql.raw("input_tokens")} + ${sql.raw("output_tokens")}), 0)`,
+        costCents: sql<number>`COALESCE(SUM(cost_cents), 0)`,
+        calls: sql<number>`COUNT(*)`,
+      })
+      .from(tokenUsage)
+      .where(gte(tokenUsage.createdAt, usageSince))
+      .groupBy(tokenUsage.userId)
+      .all();
+    const usageMap = new Map(usageRows.map((r) => [r.userId, r]));
+
     const result = await Promise.all(
-      allUsers.map(async (u) => {
+      filtered.map(async (u) => {
         const rows = await db
           .select()
           .from(conversations)
           .where(eq(conversations.userId, u.id))
           .all();
+
+        // 角色（label 列表）
+        const roleLinks = await db
+          .select({ roleId: userRoles.roleId })
+          .from(userRoles)
+          .where(eq(userRoles.userId, u.id))
+          .all();
+        let roleLabels: string[] = [];
+        if (roleLinks.length > 0) {
+          const roleRows = await db
+            .select({ label: roles.label })
+            .from(roles)
+            .where(inArray(roles.id, roleLinks.map((r) => r.roleId)))
+            .all();
+          roleLabels = roleRows.map((r) => r.label);
+        }
+
+        // 套餐（label，无则 null）
+        const [planLink] = await db
+          .select()
+          .from(userPlans)
+          .where(eq(userPlans.userId, u.id))
+          .limit(1)
+          .all();
+        let planLabel: string | null = null;
+        if (planLink) {
+          const [planRow] = await db
+            .select({ label: plans.label })
+            .from(plans)
+            .where(eq(plans.id, planLink.planId))
+            .limit(1)
+            .all();
+          planLabel = planRow?.label ?? null;
+        }
+
+        const usage = usageMap.get(u.id);
+
         return {
           id: u.id,
           name: u.name,
@@ -207,6 +387,19 @@ adminRoutes.get("/users", async (c) => {
           githubLogin: u.githubLogin,
           createdAt: u.createdAt,
           conversationCount: rows.length,
+          roles: roleLabels,
+          roleIds: roleLinks.map((r) => r.roleId),
+          plan: planLabel,
+          planId: planLink?.planId ?? null,
+          isAnonymous: !u.githubId && !u.authingSub && !u.githubLogin,
+          pendingLogin: !u.githubId && !!u.githubLogin,
+          usage30d: usage
+            ? {
+                tokens: Number(usage.tokens ?? 0),
+                costCents: Number(usage.costCents ?? 0),
+                calls: Number(usage.calls ?? 0),
+              }
+            : { tokens: 0, costCents: 0, calls: 0 },
         };
       })
     );
@@ -218,9 +411,83 @@ adminRoutes.get("/users", async (c) => {
   }
 });
 
+// ── POST /api/admin/users ── 预建人员：按 GitHub 用户名占位，
+// 对方首次用 GitHub 登录时（auth callback 按 githubLogin 匹配）自动关联生效
+adminRoutes.post("/users", async (c) => {
+  const admin = await requireAdmin(c, "admin.permissions");
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  const body = await c.req.json().catch(() => null);
+  const githubLogin = String(body?.githubLogin ?? "").trim();
+  const name = body?.name != null ? String(body.name).trim() : "";
+  const roleIds = Array.isArray(body?.roleIds) ? body.roleIds.map(String).filter(Boolean) : [];
+  const planId = body?.planId != null && body.planId !== "" ? String(body.planId) : null;
+  const expiresAt = body?.expiresAt != null && body.expiresAt !== "" ? String(body.expiresAt) : null;
+
+  if (!githubLogin) return c.json({ error: "请输入 GitHub 用户名" }, 400);
+  if (!/^[a-zA-Z0-9-]{1,39}$/.test(githubLogin)) {
+    return c.json({ error: "GitHub 用户名格式不正确（仅字母、数字、连字符）" }, 400);
+  }
+
+  try {
+    await assertRoleGrantsAllowed(c, roleIds);
+  } catch (err) {
+    if (err instanceof GrantError) return c.json({ error: err.message }, err.status as 400 | 403);
+    throw err;
+  }
+
+  try {
+    const db = getDb();
+
+    // GitHub 用户名查重（含已登录用户与已预建人员）
+    const dup = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.githubLogin, githubLogin))
+      .all();
+    if (dup.length > 0) return c.json({ error: "该 GitHub 用户名已存在" }, 409);
+
+    if (planId) {
+      const [plan] = await db.select({ id: plans.id }).from(plans).where(eq(plans.id, planId)).limit(1).all();
+      if (!plan) return c.json({ error: "套餐不存在" }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const userId = crypto.randomUUID();
+    db.insert(users)
+      .values({
+        id: userId,
+        githubId: null,
+        githubLogin,
+        name: name || githubLogin,
+        email: null,
+        avatarUrl: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    for (const roleId of roleIds) {
+      db.insert(userRoles)
+        .values({ id: crypto.randomUUID(), userId, roleId, assignedBy: admin.id, createdAt: now })
+        .run();
+    }
+    if (planId) {
+      db.insert(userPlans)
+        .values({ id: crypto.randomUUID(), userId, planId, expiresAt, assignedBy: admin.id, createdAt: now })
+        .run();
+    }
+
+    return c.json({ ok: true, id: userId });
+  } catch (err) {
+    console.error("Admin create user error:", err);
+    return c.json({ error: "添加人员失败" }, 500);
+  }
+});
+
 // ── DELETE /api/admin/users/:id ──
 adminRoutes.delete("/users/:id", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.users");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   const id = c.req.param("id");
@@ -244,13 +511,15 @@ adminRoutes.delete("/users/:id", async (c) => {
       .where(eq(conversations.userId, id))
       .all();
 
-    // 级联删除：messages → conversations → resumes → applications → user
+    // 级联删除：messages → conversations → resumes → applications → 授权 → user
     for (const conv of userConversations) {
       await db.delete(messages).where(eq(messages.conversationId, conv.id));
     }
     await db.delete(conversations).where(eq(conversations.userId, id));
     await db.delete(resumes).where(eq(resumes.userId, id));
     await db.delete(applications).where(eq(applications.userId, id));
+    await db.delete(userRoles).where(eq(userRoles.userId, id));
+    await db.delete(userPlans).where(eq(userPlans.userId, id));
     await db.delete(users).where(eq(users.id, id));
 
     return c.json({ ok: true });
@@ -262,7 +531,7 @@ adminRoutes.delete("/users/:id", async (c) => {
 
 // ── GET /api/admin/users/:id/conversations ──
 adminRoutes.get("/users/:id/conversations", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.users");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   const id = c.req.param("id");
@@ -301,9 +570,101 @@ adminRoutes.get("/users/:id/conversations", async (c) => {
   }
 });
 
+// ── PUT /api/admin/users/:id/roles ── 授予/替换用户后台角色
+adminRoutes.put("/users/:id/roles", async (c) => {
+  const admin = await requireAdmin(c, "admin.permissions");
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => null);
+  const roleIds = Array.isArray(body?.roleIds) ? body.roleIds.map(String).filter(Boolean) : [];
+
+  try {
+    const db = getDb();
+    const [target] = await db.select().from(users).where(eq(users.id, id)).limit(1).all();
+    if (!target) return c.json({ error: "用户不存在" }, 404);
+
+    // 匿名用户不可授权（预建人员有 githubLogin 占位，可授权）
+    if (!target.githubId && !target.authingSub && !target.githubLogin) {
+      return c.json({ error: "匿名用户不可授权" }, 400);
+    }
+
+    try {
+      await assertRoleGrantsAllowed(c, roleIds);
+    } catch (err) {
+      if (err instanceof GrantError) return c.json({ error: err.message }, err.status as 400 | 403);
+      throw err;
+    }
+
+    await db.delete(userRoles).where(eq(userRoles.userId, id)).run();
+    const now = new Date().toISOString();
+    for (const roleId of roleIds) {
+      await db
+        .insert(userRoles)
+        .values({ id: crypto.randomUUID(), userId: id, roleId, assignedBy: admin.id, createdAt: now })
+        .run();
+    }
+
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error("Admin assign roles error:", err);
+    return c.json({ error: "授权角色失败" }, 500);
+  }
+});
+
+// ── PUT /api/admin/users/:id/plan ── 授予/替换用户套餐
+adminRoutes.put("/users/:id/plan", async (c) => {
+  const admin = await requireAdmin(c, "admin.permissions");
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => null);
+  const planId = body?.planId != null && body.planId !== "" ? String(body.planId) : null;
+  const expiresAt = body?.expiresAt != null && body.expiresAt !== "" ? String(body.expiresAt) : null;
+
+  try {
+    const db = getDb();
+    const [target] = await db.select().from(users).where(eq(users.id, id)).limit(1).all();
+    if (!target) return c.json({ error: "用户不存在" }, 404);
+
+    // 匿名用户不可授权（预建人员有 githubLogin 占位，可授权）
+    if (!target.githubId && !target.authingSub && !target.githubLogin) {
+      return c.json({ error: "匿名用户不可授权" }, 400);
+    }
+
+    // 清除套餐
+    if (planId == null) {
+      await db.delete(userPlans).where(eq(userPlans.userId, id)).run();
+      return c.json({ ok: true });
+    }
+
+    const [plan] = await db.select({ id: plans.id }).from(plans).where(eq(plans.id, planId)).limit(1).all();
+    if (!plan) return c.json({ error: "套餐不存在" }, 400);
+
+    const [existing] = await db.select().from(userPlans).where(eq(userPlans.userId, id)).limit(1).all();
+    if (existing) {
+      await db
+        .update(userPlans)
+        .set({ planId, expiresAt, assignedBy: admin.id })
+        .where(eq(userPlans.userId, id))
+        .run();
+    } else {
+      await db
+        .insert(userPlans)
+        .values({ id: crypto.randomUUID(), userId: id, planId, expiresAt, assignedBy: admin.id, createdAt: new Date().toISOString() })
+        .run();
+    }
+
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error("Admin assign plan error:", err);
+    return c.json({ error: "授权套餐失败" }, 500);
+  }
+});
+
 // ── GET /api/admin/traces ──
 adminRoutes.get("/traces", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.traces");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   try {
@@ -345,7 +706,7 @@ adminRoutes.get("/traces", async (c) => {
 
 // ── GET /api/admin/traces/:id ──
 adminRoutes.get("/traces/:id", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.traces");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   const id = c.req.param("id");
@@ -379,7 +740,7 @@ adminRoutes.get("/traces/:id", async (c) => {
 
 // ── GET /api/admin/degradations/stats ──
 adminRoutes.get("/degradations/stats", async (c) => {
-  const admin = await getAdminUser(c.req.raw);
+  const admin = await requireAdmin(c, "admin.traces");
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   try {

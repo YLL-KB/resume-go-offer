@@ -5,20 +5,19 @@ import { flushSync } from "react-dom";
 import { useChatStore, type ResumeData } from "@/stores/chat-store";
 import { Button } from "@resume/ui";
 import { Textarea } from "@resume/ui";
-import { Input } from "@resume/ui";
-import { Send, Square, Loader2, X, Quote, Image as ImageIcon, Link, Paperclip, Trash2 } from "lucide-react";
+import { Send, Square, Loader2, Quote, X } from "lucide-react";
 import { toast } from "sonner";
 import { randomUUID } from "@/lib/utils/uuid";
+import { syncResumeToLibrary } from "./sync-resume";
 import { mergeArrayItems, type AnyRecord } from "@/lib/utils/merge-data";
+import { AttachmentBar } from "./AttachmentBar";
+import { useAttachments, type AttachmentItem } from "./use-attachments";
 
 const MAX_BUFFER_BYTES = 1024 * 1024; // 1MB SSE buffer limit
 
 export function ChatInput() {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const urlInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const {
     conversationId,
@@ -47,21 +46,15 @@ export function ChatInput() {
     stop,
   } = useChatStore();
 
-  // ── 附件状态 ──
-  const [attachment, setAttachment] = useState<{
-    status: "idle" | "uploading" | "parsing" | "done" | "error";
-    type?: "image" | "file" | "link";
-    name?: string;
-    formatted?: string;
-    error?: string;
-  }>({ status: "idle" });
-  const [showUrlInput, setShowUrlInput] = useState(false);
-
-  const clearAttachment = useCallback(() => {
-    setAttachment({ status: "idle" });
-    if (imageInputRef.current) imageInputRef.current.value = "";
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }, []);
+  // ── 多附件状态（本地引用，发送时由服务端解析）──
+  const {
+    attachments,
+    hasAttachments,
+    addFiles,
+    addUrl,
+    removeAttachment,
+    clearAttachments,
+  } = useAttachments();
 
   // 自动调整高度
   const adjustHeight = useCallback(() => {
@@ -72,72 +65,12 @@ export function ChatInput() {
     }
   }, []);
 
-  // ── 附件处理 ──
-
-  const handleImageUpload = useCallback(async (file: File) => {
-    setAttachment({ status: "uploading", type: "image", name: file.name });
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/chat/parse-attachment", { method: "POST", body: formData });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "上传失败" }));
-        throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
-      }
-      const data = await res.json() as { formatted: string };
-      setAttachment({ status: "done", type: "image", name: file.name, formatted: data.formatted });
-    } catch (err) {
-      setAttachment({ status: "error", type: "image", name: file.name, error: err instanceof Error ? err.message : "解析失败" });
-      toast.error(err instanceof Error ? err.message : "图片解析失败");
-    }
-  }, []);
-
-  const handleFileUpload = useCallback(async (file: File) => {
-    setAttachment({ status: "uploading", type: "file", name: file.name });
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/chat/parse-attachment", { method: "POST", body: formData });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "上传失败" }));
-        throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
-      }
-      const data = await res.json() as { formatted: string };
-      // 自动发送给 AI，不等到用户手动点发送
-      if (data.formatted) sendRawRef.current(data.formatted);
-      clearAttachment();
-    } catch (err) {
-      setAttachment({ status: "error", type: "file", name: file.name, error: err instanceof Error ? err.message : "解析失败" });
-      toast.error(err instanceof Error ? err.message : "文件解析失败");
-    }
-  }, [clearAttachment]);
-
-  const handleUrlSubmit = useCallback(async () => {
-    const url = urlInputRef.current?.value?.trim();
-    if (!url) return;
-    setShowUrlInput(false);
-    setAttachment({ status: "parsing", type: "link", name: url.slice(0, 50) });
-    try {
-      const res = await fetch("/api/chat/parse-attachment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "解析失败" }));
-        throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
-      }
-      const data = await res.json() as { formatted: string };
-      setAttachment({ status: "done", type: "link", name: url.slice(0, 50), formatted: data.formatted });
-    } catch (err) {
-      setAttachment({ status: "error", type: "link", name: url.slice(0, 50), error: err instanceof Error ? err.message : "解析失败" });
-      toast.error(err instanceof Error ? err.message : "链接解析失败");
-    }
-  }, []);
-
   // ── 核心发送逻辑 ──
-  const sendRaw = useCallback(async (text: string) => {
-    if (!text || isStreaming) return;
+  // attachments 非空时以 multipart 提交（message + files + urls），
+  // 由服务端在流式开始前并行解析附件；为空时走原 JSON 链路。
+  const sendRaw = useCallback(async (text: string, attachments?: AttachmentItem[]) => {
+    const withAttachments = attachments && attachments.length > 0;
+    if ((!text && !withAttachments) || isStreaming) return;
     setError(null);
 
     // 取消上一个未完成的请求
@@ -168,17 +101,41 @@ export function ChatInput() {
     let effectiveConvId = conversationId;
 
     try {
+      let body: BodyInit;
+      let headers: Record<string, string> | undefined;
+      if (withAttachments) {
+        const formData = new FormData();
+        formData.append("message", text);
+        for (const a of attachments) {
+          if (a.kind === "link") {
+            formData.append("urls", a.url ?? "");
+          } else if (a.file) {
+            formData.append("files", a.file, a.name);
+          }
+        }
+        body = formData;
+      } else {
+        headers = { "Content-Type": "application/json" };
+        // resumeData 随消息上送，供 extractResume 工具做增量提取
+        body = JSON.stringify({
+          conversationId: conversationId ?? undefined,
+          message: text,
+          resumeData: useChatStore.getState().resumeData ?? undefined,
+        });
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: conversationId ?? undefined, message: text }),
+        headers,
+        body,
         signal: controller.signal,
       });
       if (!response.ok) {
         let errMsg = "AI 回复失败";
         try {
           const errData = await response.json() as { error?: string; message?: string };
-          if (errData.message) errMsg = errData.message;
+          if (errData.error) errMsg = errData.error;
+          else if (errData.message) errMsg = errData.message;
         } catch { /* use default */ }
         throw new Error(errMsg);
       }
@@ -236,6 +193,8 @@ export function ChatInput() {
                 if (parsed.resumeData) {
                   setResumeData(parsed.resumeData as Partial<ResumeData>);
                   setShowPreview(true);
+                  // 联动：提取结果同步到「我的简历」
+                  syncResumeToLibrary(parsed.conversationId ?? undefined);
                 }
               }
             } catch { /* 单行 JSON 损坏则丢弃，避免污染 buffer */ }
@@ -251,12 +210,6 @@ export function ChatInput() {
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   }, [isStreaming, conversationId, addMessage, appendToLastMessage, clearLastAssistantMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview]);
-
-  // sendRaw 的 ref，供 handleFileUpload 等前置函数调用
-  const sendRawRef = useRef(sendRaw);
-  useEffect(() => {
-    sendRawRef.current = sendRaw;
-  }, [sendRaw]);
 
   // ── 监听表单事件 ──
   useEffect(() => {
@@ -346,28 +299,24 @@ export function ChatInput() {
     stop();
   }, [stop]);
 
-  // ── 用户手动发消息 ──
+  // ── 用户手动发消息（文字 + 多附件一起）──
   const sendMessage = useCallback(async () => {
     // 从 DOM 直接读值，避免 iOS 上 React state 闭包滞后
     const text = (textareaRef.current?.value ?? "").trim();
-    if (!text && !attachment.formatted) return;
+    if (!text && !hasAttachments) return;
+
     setInput("");
-    // 拼装消息：附件内容 + 引用内容 + 用户输入
+    // 拼装消息：引用内容 + 用户输入（附件随 multipart 单独提交，服务端解析后拼装）
     const parts: string[] = [];
-    if (attachment.status === "done" && attachment.formatted) {
-      parts.push(attachment.formatted);
-    }
-    if (quoteText) {
-      parts.push(`> "${quoteText}"`);
-    }
-    if (text) {
-      parts.push(text);
-    }
+    if (quoteText) parts.push(`> "${quoteText}"`);
+    if (text) parts.push(text);
     const fullText = parts.join("\n\n");
+
     setQuoteText(null);
-    clearAttachment();
-    await sendRaw(fullText);
-  }, [sendRaw, quoteText, setQuoteText, attachment, clearAttachment]);
+    const toSend = attachments;
+    clearAttachments();
+    await sendRaw(fullText, toSend);
+  }, [sendRaw, quoteText, setQuoteText, attachments, hasAttachments, clearAttachments]);
 
   // 提取简历（SSE 流式）
   const handleExtract = useCallback(async () => {
@@ -423,6 +372,8 @@ export function ChatInput() {
       };
       setResumeData(merged as Parameters<typeof setResumeData>[0]);
       setShowPreview(true);
+      // 联动：提取结果同步到「我的简历」
+      syncResumeToLibrary(conversationId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "提取失败，请再聊几句";
       setError(msg);
@@ -445,22 +396,6 @@ export function ChatInput() {
 
   return (
     <>
-      {/* 隐藏的文件选择器 */}
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); }}
-      />
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".pdf,.docx,.doc"
-        className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }}
-      />
-
       <div className="print:hidden border-t border-gray-200/60 bg-white/60 backdrop-blur-xl px-4 py-4 overflow-x-hidden">
       <div className="mx-auto max-w-2xl">
         {/* 操作按钮行 */}
@@ -502,86 +437,14 @@ export function ChatInput() {
           </div>
         )}
 
-        {/* 附件预览条 */}
-        {attachment.status !== "idle" && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border bg-muted/50 px-3 py-2 text-xs">
-            {attachment.status === "uploading" || attachment.status === "parsing" ? (
-              <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-            ) : attachment.status === "done" ? (
-              <span className="shrink-0 text-emerald-500 font-bold">&#10003;</span>
-            ) : (
-              <span className="shrink-0 text-destructive font-bold">!</span>
-            )}
-            <span className="flex-1 truncate text-muted-foreground">
-              {attachment.status === "uploading" && `上传中：${attachment.name}`}
-              {attachment.status === "parsing" && `解析中：${attachment.name}`}
-              {attachment.status === "done" && `${attachment.type === "image" ? "图片" : attachment.type === "link" ? "链接" : "文件"}已识别`}
-              {attachment.status === "error" && `失败：${attachment.error ?? attachment.name}`}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={clearAttachment}
-              className="shrink-0 size-6 text-muted-foreground hover:text-foreground"
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          </div>
-        )}
-
-        {/* 附件按钮 + URL 输入 */}
-        {!isStreaming && attachment.status === "idle" && (
-          <div className="mb-2 flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-foreground"
-              title="上传截图"
-              onClick={() => imageInputRef.current?.click()}
-            >
-              <ImageIcon className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-foreground"
-              title="粘贴链接"
-              onClick={() => { setShowUrlInput(!showUrlInput); setTimeout(() => urlInputRef.current?.focus(), 0); }}
-            >
-              <Link className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-foreground"
-              title="上传文件"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Paperclip className="size-4" />
-            </Button>
-
-            {showUrlInput && (
-              <div className="flex flex-1 items-center gap-1">
-                <Input
-                  ref={urlInputRef}
-                  type="url"
-                  placeholder="粘贴招聘链接..."
-                  className="flex-1 h-8 text-xs"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleUrlSubmit();
-                    if (e.key === "Escape") { setShowUrlInput(false); if (urlInputRef.current) urlInputRef.current.value = ""; }
-                  }}
-                />
-                <Button variant="ghost" size="icon" className="size-8" onClick={handleUrlSubmit}>
-                  <Send className="size-3.5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="size-7" onClick={() => { setShowUrlInput(false); if (urlInputRef.current) urlInputRef.current.value = ""; }}>
-                  <X className="size-3.5" />
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
+        {/* 多附件栏：chips + 选择按钮 + URL 输入（发送时才解析） */}
+        <AttachmentBar
+          attachments={attachments}
+          disabled={isStreaming}
+          onPickFiles={addFiles}
+          onSubmitUrl={addUrl}
+          onRemove={removeAttachment}
+        />
 
         {/* 输入区 */}
         <div className="flex items-end gap-2 rounded-2xl border bg-muted/30 px-4 py-3 focus-within:border-primary/50 focus-within:bg-background transition-colors">

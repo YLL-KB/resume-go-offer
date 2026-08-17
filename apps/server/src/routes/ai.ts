@@ -3,12 +3,38 @@
  */
 
 import { Hono } from "hono";
-import { ai, streamToResponse } from "../lib/ai";
+import { ai, streamToResponse, DEFAULT_MODEL, runWithAIConfig } from "../lib/ai";
+import { getAuthUserId } from "../lib/auth/utils";
+import { runWithUsage, recordUsage } from "../lib/billing/ledger";
+import { getUserAiConfigs } from "../lib/billing/byok";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 export const aiRoutes = new Hono();
+
+// 全部 AI 路由：注入用量记账的用户上下文 + BYOK chat 配置（深处的 tracedCompletion 自动归户/切 key）
+aiRoutes.use("*", async (c, next) => {
+  const { userId } = await getAuthUserId(c.req.raw);
+  const chatUserCfg = getUserAiConfigs(userId).chat;
+  const chatCfg = chatUserCfg
+    ? { baseUrl: chatUserCfg.baseUrl, apiKey: chatUserCfg.apiKey, model: chatUserCfg.model }
+    : null;
+  return runWithUsage({ userId, provider: chatCfg ? "byok" : "platform" }, () =>
+    runWithAIConfig(chatCfg ? { chat: chatCfg } : null, () => next()),
+  );
+});
+
+/** 供流式路由显式记账（流消费发生在中间件 ALS 上下文之外，需闭包捕获） */
+async function resolveRequestAi(request: Request): Promise<{ userId: string; model: string; provider: "platform" | "byok" }> {
+  const { userId } = await getAuthUserId(request);
+  const chatUserCfg = getUserAiConfigs(userId).chat;
+  return {
+    userId,
+    model: chatUserCfg?.model ?? DEFAULT_MODEL,
+    provider: chatUserCfg ? "byok" : "platform",
+  };
+}
 
 const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads", "analysis");
 const MAX_AGE_MS = 30 * 60 * 1000; // 30 分钟自动清理
@@ -37,8 +63,16 @@ aiRoutes.post("/analyze-resume", async (c) => {
     }
 
     if (c.req.query("stream") === "true") {
+      const { userId, model, provider } = await resolveRequestAi(c.req.raw);
       const stream = await ai.analyzeResumeStream(content.trim());
-      return new Response(streamToResponse(stream), {
+      return new Response(streamToResponse(stream, (usage) => recordUsage({
+        model,
+        inputTokens: usage.prompt_tokens,
+        outputTokens: usage.completion_tokens,
+        source: "analyze",
+        userId,
+        provider,
+      })), {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }
@@ -105,8 +139,16 @@ aiRoutes.post("/improve", async (c) => {
     }
 
     if (c.req.query("stream") === "true") {
+      const { userId, model, provider } = await resolveRequestAi(c.req.raw);
       const stream = await ai.improveTextStream(text.trim(), context);
-      return new Response(streamToResponse(stream), {
+      return new Response(streamToResponse(stream, (usage) => recordUsage({
+        model,
+        inputTokens: usage.prompt_tokens,
+        outputTokens: usage.completion_tokens,
+        source: "improve",
+        userId,
+        provider,
+      })), {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       });
     }

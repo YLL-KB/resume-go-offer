@@ -5,8 +5,16 @@
  * 方便注入对话上下文让 AI 顾问引用。
  */
 
-import { extractClient, safeJsonParse, EXTRACT_MODEL } from "./index";
+import { currentExtractClient, currentExtractModel, currentVisionConfig, getRuntimeAiConfigs, safeJsonParse } from "./index";
 import { JOB_PARSING_PROMPT, RESUME_FILE_PARSING_PROMPT } from "./prompts";
+import { recordUsage } from "../billing/ledger";
+
+/** 记账上下文：路由层显式传入用户身份（附件解析在独立路由，无 trace collector） */
+export interface AttachmentUsageCtx {
+  userId?: string;
+  conversationId?: string;
+  provider?: "platform" | "byok";
+}
 
 // ── Resume Workshop PDF 格式检测与解码 ──
 // Resume Workshop 导出的 PDF 将简历数据用 base64 编码嵌入在文本中，
@@ -168,14 +176,17 @@ export interface ParsedJob {
 
 // ── 图片 → 岗位信息（Zhipu GLM-4V vision model）──
 
-export async function parseJobFromImage(base64: string, mimeType = "image/png"): Promise<ParsedJob | null> {
+export async function parseJobFromImage(base64: string, mimeType = "image/png", usageCtx?: AttachmentUsageCtx): Promise<ParsedJob | null> {
   const t0 = Date.now();
   console.log(`[parseJobFromImage] 开始解析，图片大小 ~${Math.round(base64.length / 1024)}KB`);
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  const baseURL = process.env.OPENAI_BASE_URL ?? `${ZHIPU_BASE}/`;
+  // BYOK：用户 vision scope 配置优先，否则平台 glm-4v
+  const visionCfg = currentVisionConfig();
+  const apiKey = visionCfg?.apiKey ?? process.env.OPENAI_API_KEY;
+  const baseURL = visionCfg?.baseUrl ?? process.env.OPENAI_BASE_URL ?? `${ZHIPU_BASE}/`;
+  const model = visionCfg?.model ?? VISION_MODEL;
 
-  // 使用 Zhipu 原生 vision API 格式
+  // 使用 vision API 格式（OpenAI 兼容）
   const res = await fetch(`${baseURL}chat/completions`, {
     method: "POST",
     headers: {
@@ -183,7 +194,7 @@ export async function parseJobFromImage(base64: string, mimeType = "image/png"):
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: VISION_MODEL,
+      model,
       temperature: 0.2,
       max_tokens: 2048,
       messages: [
@@ -207,23 +218,33 @@ export async function parseJobFromImage(base64: string, mimeType = "image/png"):
     throw new Error(`图片解析失败 (${res.status})`);
   }
 
-  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+  const data = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
   const text = data.choices?.[0]?.message?.content?.trim() ?? "";
   console.log(`[parseJobFromImage] ${((Date.now() - t0) / 1000).toFixed(1)}s  output=${text.length}chars`);
+
+  recordUsage({
+    model,
+    inputTokens: data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
+    source: "attachment",
+    userId: usageCtx?.userId,
+    conversationId: usageCtx?.conversationId,
+    provider: visionCfg ? "byok" : (usageCtx?.provider ?? "platform"),
+  });
 
   return safeJsonParse<ParsedJob>(text);
 }
 
 // ── 网页文本 → 岗位信息（text model）──
 
-export async function parseJobFromText(content: string): Promise<ParsedJob | null> {
+export async function parseJobFromText(content: string, usageCtx?: AttachmentUsageCtx): Promise<ParsedJob | null> {
   const t0 = Date.now();
   // 截断过长内容
   const truncated = content.slice(0, 20000);
   console.log(`[parseJobFromText] 开始解析，内容 ${truncated.length}chars`);
 
-  const res = await extractClient.chat.completions.create({
-    model: EXTRACT_MODEL,
+  const res = await currentExtractClient().chat.completions.create({
+    model: currentExtractModel(),
     temperature: 0.2,
     max_tokens: 2048,
     response_format: { type: "json_object" },
@@ -236,19 +257,29 @@ export async function parseJobFromText(content: string): Promise<ParsedJob | nul
   const text = res.choices[0]?.message?.content?.trim() ?? "";
   console.log(`[parseJobFromText] ${((Date.now() - t0) / 1000).toFixed(1)}s  output=${text.length}chars`);
 
+  recordUsage({
+    model: currentExtractModel(),
+    inputTokens: res.usage?.prompt_tokens ?? 0,
+    outputTokens: res.usage?.completion_tokens ?? 0,
+    source: "attachment",
+    userId: usageCtx?.userId,
+    conversationId: usageCtx?.conversationId,
+    provider: getRuntimeAiConfigs()?.extract ? "byok" : (usageCtx?.provider ?? "platform"),
+  });
+
   return safeJsonParse<ParsedJob>(text);
 }
 
 // ── 简历文本 → 结构化摘要 ──
 
-export async function parseResumeFromFile(text: string): Promise<string | null> {
+export async function parseResumeFromFile(text: string, usageCtx?: AttachmentUsageCtx): Promise<string | null> {
   const t0 = Date.now();
   // 截断过长内容
   const truncated = text.slice(0, 16000);
   console.log(`[parseResumeFromFile] 开始解析，内容 ${truncated.length}chars`);
 
-  const res = await extractClient.chat.completions.create({
-    model: EXTRACT_MODEL,
+  const res = await currentExtractClient().chat.completions.create({
+    model: currentExtractModel(),
     temperature: 0.2,
     max_tokens: 2048,
     messages: [
@@ -259,6 +290,16 @@ export async function parseResumeFromFile(text: string): Promise<string | null> 
 
   const result = res.choices[0]?.message?.content?.trim() ?? "";
   console.log(`[parseResumeFromFile] ${((Date.now() - t0) / 1000).toFixed(1)}s  output=${result.length}chars`);
+
+  recordUsage({
+    model: currentExtractModel(),
+    inputTokens: res.usage?.prompt_tokens ?? 0,
+    outputTokens: res.usage?.completion_tokens ?? 0,
+    source: "attachment",
+    userId: usageCtx?.userId,
+    conversationId: usageCtx?.conversationId,
+    provider: getRuntimeAiConfigs()?.extract ? "byok" : (usageCtx?.provider ?? "platform"),
+  });
 
   return result || null;
 }
@@ -280,4 +321,192 @@ export function formatJobForChat(job: ParsedJob): string {
     parts.push(`**职责**：\n${job.responsibilities.map((r) => `- ${r}`).join("\n")}`);
   }
   return `[用户分享了一个岗位信息]\n\n${parts.join("\n")}`;
+}
+
+// ============================================================
+// 附件解析公共入口 — 供 /api/chat（multipart 发送时解析）与
+// /api/chat/parse-attachment（旧接口）复用
+// ============================================================
+
+/** 附件解析错误：带 HTTP 状态码，路由层据此返回 4xx 并给出可修复的提示 */
+export class AttachmentParseError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+export const MAX_DOC_SIZE = 15 * 1024 * 1024;
+const IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
+
+export function fileExt(filename: string): string {
+  const idx = filename.lastIndexOf(".");
+  return idx >= 0 ? filename.slice(idx).toLowerCase() : "";
+}
+
+export function stripHtml(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#?\w+;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** AI 调用自动重试 1 次，消化上游 API 偶发超时/限流/5xx */
+async function withRetry<T>(fn: () => Promise<T>, name: string): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn(`[attachment] ${name} 首次失败，自动重试:`, err instanceof Error ? err.message : err);
+    return await fn();
+  }
+}
+
+export interface ParsedChatAttachment {
+  kind: "job" | "resume";
+  formatted: string;
+}
+
+/**
+ * 简历文本 → 结构化摘要，AI 失败时用本地提取的原文兜底（确定性结果，不会失败）。
+ */
+async function parseResumeWithFallback(rawText: string, usageCtx?: AttachmentUsageCtx): Promise<string> {
+  try {
+    const summary = await withRetry(() => parseResumeFromFile(rawText, usageCtx), "parseResumeFromFile");
+    if (summary && summary.trim()) return summary;
+  } catch {
+    // AI 摘要失败 → 原文兜底
+  }
+  return rawText.slice(0, 3000);
+}
+
+/**
+ * 文件附件（图片/Word/PDF）→ 对话注入文本。
+ * 输入不合格（超限/格式/扫描版 PDF）抛 AttachmentParseError，路由层返回 4xx。
+ */
+export async function parseAttachmentFile(file: File, usageCtx?: AttachmentUsageCtx): Promise<ParsedChatAttachment> {
+  const fileName = file.name || "unknown";
+  const mime = file.type || "";
+  const ext = fileExt(fileName);
+  const bytes = Buffer.from(await file.arrayBuffer());
+
+  const isImage = IMAGE_MIMES.has(mime) || [".png", ".jpg", ".jpeg", ".webp"].includes(ext);
+  if (isImage) {
+    if (bytes.length > MAX_IMAGE_SIZE) {
+      throw new AttachmentParseError("图片文件过大（最大 10MB）", 413);
+    }
+    const base64 = bytes.toString("base64");
+    const imgMime = mime || "image/png";
+    let parsed: ParsedJob | null = null;
+    try {
+      parsed = await withRetry(() => parseJobFromImage(base64, imgMime, usageCtx), "parseJobFromImage");
+    } catch (err) {
+      throw new AttachmentParseError(
+        `图片解析失败：${err instanceof Error ? err.message : "服务异常"}`,
+        422,
+      );
+    }
+    if (!parsed) {
+      throw new AttachmentParseError("未能从图片中识别岗位信息，请确保图片中包含清晰的招聘信息", 422);
+    }
+    return { kind: "job", formatted: formatJobForChat(parsed) };
+  }
+
+  const isWord =
+    mime.includes("wordprocessingml") || mime === "application/msword" || [".docx", ".doc"].includes(ext);
+  if (isWord) {
+    if (bytes.length > MAX_DOC_SIZE) {
+      throw new AttachmentParseError("文件过大（最大 15MB）", 413);
+    }
+    const mammoth = await import("mammoth");
+    const result = await mammoth.extractRawText({ buffer: bytes });
+    const text = result.value?.trim();
+    if (!text || text.length < 20) {
+      throw new AttachmentParseError("未能从文件中提取到文字内容", 422);
+    }
+    const content = await parseResumeWithFallback(text, usageCtx);
+    return { kind: "resume", formatted: `[用户上传了简历文件]\n\n${content}` };
+  }
+
+  const isPdf = mime === "application/pdf" || ext === ".pdf";
+  if (isPdf) {
+    if (bytes.length > MAX_DOC_SIZE) {
+      throw new AttachmentParseError("文件过大（最大 15MB）", 413);
+    }
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+
+    const uint8 = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const doc = await pdfjsLib.getDocument({ data: uint8 }).promise;
+
+    const pages: string[] = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item) => ("str" in item ? (item as { str: string }).str : ""))
+        .join(" ");
+      pages.push(pageText);
+    }
+
+    const rawText = pages.join("\n").trim();
+
+    if (!rawText || rawText.length < 20) {
+      throw new AttachmentParseError("未能从 PDF 中提取到文字内容（可能是扫描版 PDF）", 422);
+    }
+
+    // Resume Workshop 导出 PDF 的 base64 解码
+    const decoded = detectAndParseResumeWorkshop(rawText);
+    const content = await parseResumeWithFallback(decoded ?? rawText, usageCtx);
+
+    return { kind: "resume", formatted: `[用户上传了简历文件]\n\n${content}` };
+  }
+
+  throw new AttachmentParseError("不支持的文件格式，请上传图片（PNG/JPG/WebP）、PDF 或 Word 文档", 400);
+}
+
+/**
+ * URL 附件 → 岗位信息注入文本。
+ * 抓取失败 / 识别失败抛 AttachmentParseError。
+ */
+export async function parseAttachmentUrl(url: string, usageCtx?: AttachmentUsageCtx): Promise<ParsedChatAttachment> {
+  let html: string;
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; ResumeGoOffer/1.0)" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    html = await res.text();
+  } catch (err) {
+    throw new AttachmentParseError(
+      `无法访问该链接：${err instanceof Error ? err.message : "网络错误"}`,
+      422,
+    );
+  }
+
+  const text = stripHtml(html);
+  if (!text || text.length < 50) {
+    throw new AttachmentParseError("未能从该链接提取到有效内容", 422);
+  }
+
+  let parsed: ParsedJob | null = null;
+  try {
+    parsed = await withRetry(() => parseJobFromText(text, usageCtx), "parseJobFromText");
+  } catch {
+    throw new AttachmentParseError("未能从链接内容中识别岗位信息", 422);
+  }
+  if (!parsed) {
+    throw new AttachmentParseError("未能从链接内容中识别岗位信息", 422);
+  }
+
+  return { kind: "job", formatted: formatJobForChat(parsed) };
 }

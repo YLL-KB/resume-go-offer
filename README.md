@@ -10,6 +10,9 @@
 - **简历亮点捕捉** — AI 在对话中自动识别用户硬核战绩、稀缺能力、个人特质，生成「个人亮点」卡片
 - **PDF 编辑器** — 上传 PDF 简历模版，自动提取文字块，原位编辑替换，追加自定义页，输出文字可选中的真 PDF
 - **对话历史管理** — 多轮对话持久化，支持重命名、删除、切换历史记录
+- **后台管理** — 独立管理后台：用户管理、请求日志、AI Traces（可回放）、细粒度 RBAC 权限与套餐管理
+- **自带 API Key（BYOK）** — 用户可配置 1..N 条自定义 AI API（按对话/提取/视觉分工），密钥 AES 加密、只进不出
+- **用量记账** — token 用量与成本账本（平台/自带流量拆分），为收费窗口预留
 
 ## 项目结构（pnpm Monorepo）
 
@@ -44,7 +47,7 @@ resume-go-offer/
 | PDF 解析 | pdfjs-dist（文字块提取）+ react-pdf（预览） |
 | PDF 生成 | pdf-lib + @pdf-lib/fontkit（CJK 字体嵌入） |
 | 状态管理 | Zustand（chat-store / editor-store） |
-| 数据库 | SQLite (better-sqlite3) / Cloudflare D1 + Drizzle ORM |
+| 数据库 | SQLite (better-sqlite3) + Drizzle ORM（MIGRATIONS 自动建表） |
 | 认证 | GitHub OAuth / Authing OIDC / 微信 |
 | 部署 | VPS + PM2（`./deploy.sh`） |
 | 包管理 | pnpm |
@@ -101,6 +104,15 @@ MINERU_TOKEN=
 # 可选: LangSmith 调试
 LANGCHAIN_TRACING_V2=false
 LANGCHAIN_API_KEY=
+
+# 后台超级管理员（GitHub ID 逗号分隔，命中拥有全部后台权限，用于 bootstrap 防锁死）
+# ADMIN_GITHUB_IDS=
+
+# 数据库目录（默认 apps/server/.db）
+# DATABASE_DIR=/path/to/.db
+
+# 用户自带 API Key（BYOK）主密钥（64 位 hex，生产必填；开发缺省用进程内临时密钥）
+# BYOK_MASTER_KEY=
 ```
 
 ```env
@@ -194,7 +206,14 @@ pdfjs-dist 提取文字块 ──► 逐块原位编辑（textarea 替换 / 删�
 | `/applications` | 投递记录 |
 | `/login` | GitHub / Authing / 微信登录 |
 
-管理后台是独立 Next 应用（`apps/admin`，端口 3001），用于查看请求日志。
+管理后台是独立 Next 应用（`apps/admin`，端口 3001），访问 `http://localhost:3001` 自动跳转 `/admin`：
+
+| 路径 | 说明 |
+|------|------|
+| `/admin` | 用户管理（含角色/套餐授权） |
+| `/admin/logs` | 请求日志监控 |
+| `/admin/traces` | AI Traces（列表 + 详情回放） |
+| `/admin/permissions` | 权限管理（角色 + 套餐 + 用户授权） |
 
 ## 开发规范
 

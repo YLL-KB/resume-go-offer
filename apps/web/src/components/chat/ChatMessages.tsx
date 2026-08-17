@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useChatStore, type ChatMessage as ChatMessageType } from "@/stores/chat-store";
 import { FormCard, type FormType } from "./FormCard";
+import { syncResumeToLibrary } from "./sync-resume";
 import { mergeArrayItems, type AnyRecord } from "@/lib/utils/merge-data";
 import { marked } from "marked";
 import { User, Bot, Copy, Check, Quote, TextSelect, Trash2, RefreshCw, MoreHorizontal } from "lucide-react";
@@ -402,7 +403,7 @@ export function ChatMessages() {
             body: JSON.stringify({ conversationId, resumeData: useChatStore.getState().resumeData }),
           })
             .then((res) => readExtractSSE(res, (chunk) => { appendExtractStreamText(chunk); }))
-            .then((data) => { if (data) { setResumeData(data); setShowPreview(true); } })
+            .then((data) => { if (data) { setResumeData(data); setShowPreview(true); syncResumeToLibrary(conversationId); } })
             .catch(console.error)
             .finally(() => setExtracting(false)),
         );
@@ -472,6 +473,8 @@ export function ChatMessages() {
               };
               setResumeData(merged as Parameters<typeof setResumeData>[0]);
               setShowPreview(true);
+              // 联动：提取结果同步到「我的简历」
+              syncResumeToLibrary(conversationId);
             }
           })
           .catch(console.error)

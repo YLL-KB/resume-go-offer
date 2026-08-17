@@ -449,8 +449,14 @@ extractResume() 不是对话的终点！简历生成后，你必须继续陪用�
 // 2. 简历结构化提取提示词
 // ============================================================
 
-export function buildExtractPrompt(conversationHistory: string, resumeData?: Record<string, unknown> | null): string {
-  const formSection = resumeData ? `
+/** 已有简历数据是否包含内容（空对象不算） */
+function hasResumeContent(resumeData?: Record<string, unknown> | null): boolean {
+  return !!resumeData && Object.keys(resumeData).length > 0;
+}
+
+function buildFormSection(resumeData?: Record<string, unknown> | null): string {
+  if (!hasResumeContent(resumeData)) return "";
+  return `
 
 ## 📋 表单已收集的结构化数据（优先参考！）
 
@@ -466,8 +472,57 @@ ${JSON.stringify(resumeData, null, 2)}
 - 冲突时以表单数据为准（表单是用户亲自确认过的）
 - 表单数据是"骨架"，对话记录是"血肉"——用对话中的细节来丰富 description 和 highlights
 - **禁止用项目日期推算入职日期。项目时间和入职时间是两回事。**
-` : '';
+`;
+}
 
+// ── 增量提取：已有一版「完整」简历数据时，走专门的差异检测提示词 ──
+// （不拼进全量提示词——全量提示词里 130 行"必须完整输出"的铁律会压过增量规则，
+// 实测模型会无视省略指令。差异检测改成任务框架，模型才会稳定输出 {} / 部分字段。）
+
+export function buildIncrementalExtractPrompt(
+  conversationHistory: string,
+  resumeData: Record<string, unknown>,
+  section: ExtractSection,
+): string {
+  return `你是简历撰写专家。本次任务是「增量更新」：用户已有一版简历，对比对话记录，找出新增或修改的内容。
+
+## 已有简历数据（当前状态，日期以它为准，禁止改日期）
+\`\`\`json
+${JSON.stringify(resumeData, null, 2)}
+\`\`\`
+
+## 对话记录
+${conversationHistory}
+
+## 任务：只输出「有变化」的字段
+
+- 已有数据中某字段已完整、对话中没有新信息或修改 → **省略该字段**（不要输出空数组、空字符串占位）
+- education/experience/projects 数组：只输出「新增条目」或「有修改条目」；全部未变则省略该字段
+- 已有条目中缺失/为空的子字段（description、highlights、techStack 等）→ 输出补充后的完整条目
+- 对话中用户补充了新细节、纠正了信息 → 输出该条目的完整内容
+- 判断标准从严：只是措辞差异、没有实质新信息 → 视为无变化，省略
+- **全部字段都无变化 → 输出 \`{}\`**（这是最常见、最正确的答案，不要为了"看起来有用"编造变化）
+
+系统会自动把你省略的字段与已有数据合并，不要重复输出未变内容。
+
+## 改写规范（只约束你实际输出的内容）
+
+- 强动词开头，禁用词一个不用：负责、参与、协助、做了、进行了
+- 不编造数字和日期，用户没说过的用定性词
+- 外包公司写「XX公司（派驻蚂蚁金服）」，永远不用"外包"二字
+- 技能分级：精通/熟练/了解，一个技能只出现一个分类
+
+## 输出 JSON（只输出下方 schema 中的字段，纯 JSON 不要任何解释）
+
+${EXTRACT_SECTION_SCHEMAS[section]}
+
+## 🔴 最后强调（优先级最高）
+
+再次检查：上方 schema 只是字段格式说明，不是"必须填写"清单。若本组字段在已有数据中已完整、且对话没有实质新信息或修改，**直接输出 \`{}\`**（只输出两个花括号，不要输出任何字段）。输出 \`{}\` 是完全正确且被期望的答案。`;
+}
+
+export function buildExtractPrompt(conversationHistory: string, resumeData?: Record<string, unknown> | null): string {
+  const formSection = buildFormSection(resumeData);
   return `你是简历撰写专家。从对话记录和表单数据中提取结构化简历 JSON。
 
 ## 对话记录
@@ -585,6 +640,57 @@ ${formSection}
   "categorizedSkills": { "前端框架 · 精通": ["TypeScript","React"], "UI生态 · 熟练": ["Ant Design"], "AI与LLM · 熟练": ["LangGraph","LangChain"], "运维工具 · 了解": ["Docker","Kubernetes"] },
   "highlights": ["全局亮点，每条含具体技术/业务信息"]
 `;
+}
+
+// ============================================================
+// 2.1 分块提取 — 三组并行（core / experience / projects）
+// ============================================================
+
+export type ExtractSection = "core" | "experience" | "projects";
+
+const EXTRACT_SECTION_SCHEMAS: Record<ExtractSection, string> = {
+  core: `{
+  "basic": { "name":"", "email":"", "phone":"", "location":"", "website":"", "title":"" },
+  "summary": "标签式摘要，严格2-3行。第一行：身份标签 · 经验 · 差异化能力。第二行：最具代表性的量化战绩。禁止写'沟通能力强''学习能力强'等废话",
+  "education": [{ "school":"", "degree":"", "major":"", "startDate":"YYYY.MM", "endDate":"YYYY.MM", "gpa":null }],
+  "skills": ["全量列出"],
+  "categorizedSkills": { "前端框架 · 精通": ["TypeScript","React"], "UI生态 · 熟练": ["Ant Design"], "AI与LLM · 熟练": ["LangGraph","LangChain"], "运维工具 · 了解": ["Docker","Kubernetes"] },
+  "highlights": ["全局亮点，每条含具体技术/业务信息"]
+}`,
+  experience: `{
+  "experience": [{
+    "company": "公司全称，外包写'XX公司（派驻蚂蚁金服）'，永远不用'外包'二字",
+    "title": "职位，同一家公司有晋升的拆成多条，各有各的时间段",
+    "startDate": "入职或晋升日期", "endDate": "离职或晋升日期",
+    "description": "一句话概括整段职业，如'从工程师成长为前端负责人，主导多条业务线前端架构与团队管理'",
+    "highlights": ["含具体技术/业务信息的亮点"]
+  }]
+}`,
+  projects: `{
+  "projects": [{
+    "name": "每个产品/系统/工具一条", "description": "展开全部技术细节和业务成果，不限句数",
+    "url": "", "techStack": "", "startDate": "YYYY.MM", "endDate": "YYYY.MM",
+    "highlights": ["含具体技术/业务信息的亮点"]
+  }]
+}`,
+};
+
+/**
+ * 分块提取提示词：复用全量提示词（同一套铁律/表单数据/增量规则），
+ * 仅把「输出 JSON」schema 替换为本组字段，让并行分组各管一段。
+ */
+export function buildSectionExtractPrompt(
+  conversationHistory: string,
+  resumeData: Record<string, unknown> | null | undefined,
+  section: ExtractSection,
+): string {
+  const full = buildExtractPrompt(conversationHistory, resumeData);
+  const marker = "## 输出 JSON";
+  const idx = full.indexOf(marker);
+  const base = idx >= 0 ? full.slice(0, idx) : full;
+  return `${base}## 输出 JSON（只输出下方 schema 中的字段，其他字段一律不要输出，纯 JSON 不要任何解释）
+
+${EXTRACT_SECTION_SCHEMAS[section]}`;
 }
 
 // ============================================================

@@ -63,3 +63,24 @@ export async function updateResume(
   }
   return res.json();
 }
+
+/**
+ * 聊天生成的简历同步到「我的简历」：
+ * 对话已关联简历则更新（版本+1），否则新建并回填关联。
+ * 前端在每次提取合并完成后静默调用（失败不打断对话）。
+ */
+export async function syncChatResume(
+  conversationId: string,
+  data: ResumeData,
+): Promise<{ ok: boolean; resumeId: string; version: number; created: boolean }> {
+  const res = await fetch("/api/chat/resume", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversationId, data }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new Error((err.error as string) ?? "同步失败");
+  }
+  return res.json();
+}

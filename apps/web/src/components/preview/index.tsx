@@ -21,6 +21,8 @@ export interface PreviewPanelProps {
   className?: string;
   /** Padding inside the A4 page (px). Defaults to 32. */
   pagePadding?: number;
+  /** 独立全尺寸展示（100% 不缩放），用于独立预览页；默认 false 保持构建器侧栏缩放适配 */
+  fullSize?: boolean;
 }
 
 // ───────────────────────────────────────────────
@@ -33,6 +35,7 @@ export function PreviewPanel({
   onSectionClick,
   className,
   pagePadding = PAGE_PADDING_PX,
+  fullSize = false,
 }: PreviewPanelProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const contentHeight = useContentHeight(contentRef);
@@ -81,8 +84,13 @@ export function PreviewPanel({
         </div>
       )}
 
-      {/* Screen-adaptation scale (L1) */}
-      <div className="w-full max-w-[210mm] origin-top scale-[0.58] md:scale-90 md:origin-top-left">
+      {/* Screen-adaptation scale (L1)；fullSize 时按 100% 原尺寸居中展示 */}
+      <div
+        className={cn(
+          "w-full max-w-[210mm]",
+          fullSize ? "mx-auto" : "origin-top scale-[0.58] md:scale-90 md:origin-top-left",
+        )}
+      >
         {/* A4 paper simulation */}
         <div className="relative bg-white shadow-lg print:shadow-none mx-auto">
           {/* Content container */}

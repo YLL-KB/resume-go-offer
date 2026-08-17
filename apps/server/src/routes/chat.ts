@@ -3,10 +3,16 @@
  */
 
 import { Hono } from "hono";
-import { ai, openai, DEFAULT_MODEL } from "../lib/ai";
+import { ai, openai, DEFAULT_MODEL, runWithAIConfig, currentChatClient, currentChatModel, type RuntimeAiConfigs } from "../lib/ai";
 import { SYSTEM_PROMPT, GREETING_NEW_USER } from "../lib/ai/prompts";
+import {
+  parseAttachmentFile,
+  parseAttachmentUrl,
+  AttachmentParseError,
+} from "../lib/ai/attachment-parser";
 import { getDb } from "../db";
-import { conversations, messages } from "../db/schema";
+import { conversations, messages, resumes } from "../db/schema";
+import { resumeDataSchema } from "../lib/resume.schema";
 import { getAuthUserId, buildAnonymousCookie, ANON_COOKIE } from "../lib/auth/utils";
 import { checkRateLimit, getRateLimitKey } from "../lib/rate-limit";
 import { eq, asc, and, desc } from "drizzle-orm";
@@ -14,6 +20,8 @@ import { streamAgent } from "../lib/ai/graph";
 import { TraceCollector } from "../lib/observability/collector";
 import { runWithTrace } from "../lib/observability/context";
 import { persistTraceFireAndForget } from "../lib/observability/persist";
+import { recordUsage } from "../lib/billing/ledger";
+import { getUserAiConfigs, type AiScope } from "../lib/billing/byok";
 
 export const chatRoutes = new Hono();
 
@@ -61,20 +69,53 @@ function extractTokenUsage(output: unknown): { input: number; output: number; to
 }
 
 // ── POST /api/chat ──
+// 两种请求形态：
+//  1. JSON（原链路）：{ conversationId?, message, resumeData? }
+//  2. multipart/form-data（带附件）：message + files[] + urls[]
+//     → 发送时才解析：在流式开始前并行解析全部附件并拼装消息
 chatRoutes.post("/", async (c) => {
-  let body: { conversationId?: string; message: string };
-  try {
-    body = await c.req.json() as { conversationId?: string; message: string };
-  } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+  const contentType = c.req.header("content-type") ?? "";
+  let conversationId: string | undefined;
+  let message = "";
+  let resumeData: Record<string, unknown> | undefined;
+  let attachmentInputs: Array<{ kind: "file"; file: File } | { kind: "url"; url: string }> = [];
+
+  if (contentType.includes("multipart/form-data")) {
+    const formData = await c.req.formData().catch(() => null);
+    if (!formData) {
+      return new Response(JSON.stringify({ error: "Invalid form data" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    message = String(formData.get("message") ?? "").trim();
+    const files = formData.getAll("files").filter((f) => typeof f !== "string" && f instanceof File) as File[];
+    const urls = formData.getAll("urls").map((u) => String(u).trim()).filter(Boolean);
+    for (const f of files) attachmentInputs.push({ kind: "file", file: f });
+    for (const u of urls) attachmentInputs.push({ kind: "url", url: u });
+  } else {
+    let body: { conversationId?: string; message: string; resumeData?: Record<string, unknown> };
+    try {
+      body = await c.req.json() as { conversationId?: string; message: string; resumeData?: Record<string, unknown> };
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    conversationId = body.conversationId;
+    message = typeof body.message === "string" ? body.message.trim() : "";
+    resumeData = body.resumeData;
+  }
+
+  if (!message && attachmentInputs.length === 0) {
+    return new Response(JSON.stringify({ error: "message is required" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
   }
-
-  const { conversationId, message } = body;
-  if (!message || typeof message !== "string" || !message.trim()) {
-    return new Response(JSON.stringify({ error: "message is required" }), {
+  if (attachmentInputs.length > 5) {
+    return new Response(JSON.stringify({ error: "最多同时发送 5 个附件" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
@@ -85,6 +126,21 @@ chatRoutes.post("/", async (c) => {
     const now = new Date().toISOString();
 
     const { userId, isAnonymous } = await getAuthUserId(c.req.raw);
+
+    // BYOK：按 scope 解析用户配置（chat/extract/vision），本次请求对应调用走用户 key
+    const userCfgs = getUserAiConfigs(userId);
+    const toRuntime = (scope: AiScope) => {
+      const c = userCfgs[scope];
+      return c ? { baseUrl: c.baseUrl, apiKey: c.apiKey, model: c.model } : null;
+    };
+    const chatCfg = toRuntime("chat");
+    const extractCfg = toRuntime("extract");
+    const visionCfg = toRuntime("vision");
+    const runtimeCfgs: RuntimeAiConfigs = {};
+    if (chatCfg) runtimeCfgs.chat = chatCfg;
+    if (extractCfg) runtimeCfgs.extract = extractCfg;
+    if (visionCfg) runtimeCfgs.vision = visionCfg;
+    const chatProvider: "platform" | "byok" = chatCfg ? "byok" : "platform";
 
     const rlKey = getRateLimitKey(c.req.raw);
     const rl = checkRateLimit(rlKey, isAnonymous ? 10 : 30);
@@ -99,6 +155,43 @@ chatRoutes.post("/", async (c) => {
           },
         },
       );
+    }
+
+    // ── 解析附件（并行；输入不合格直接 4xx，此时尚无任何对话副作用）──
+    let finalMessage = message;
+    if (attachmentInputs.length > 0) {
+      try {
+        const parsed = await runWithAIConfig(runtimeCfgs, () =>
+          Promise.all(
+            attachmentInputs.map(async (att) => {
+              const result =
+                att.kind === "url"
+                  ? await parseAttachmentUrl(att.url, { userId, provider: extractCfg ? "byok" : "platform" })
+                  : await parseAttachmentFile(att.file, { userId, provider: extractCfg ? "byok" : "platform" });
+              const name = att.kind === "url" ? att.url.slice(0, 60) : att.file.name;
+              return { ...result, name };
+            }),
+          ),
+        );
+        const multi = parsed.length > 1;
+        const blocks = parsed.map((p, i) => {
+          const label = p.kind === "job" ? "岗位要求" : "简历";
+          const header = multi
+            ? `【附件 ${i + 1} · ${label}：${p.name}】`
+            : `【${label}：${p.name}】`;
+          return `${header}\n${p.formatted}`;
+        });
+        const attachmentText = blocks.join("\n\n");
+        finalMessage = message ? `${attachmentText}\n\n${message}` : attachmentText;
+      } catch (err) {
+        if (err instanceof AttachmentParseError) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: err.status,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        throw err;
+      }
     }
 
     let convId = conversationId;
@@ -154,7 +247,7 @@ chatRoutes.post("/", async (c) => {
     const collector = new TraceCollector({
       conversationId: convId,
       userId,
-      input: message.trim(),
+      input: finalMessage,
     });
 
     const history = await db
@@ -171,13 +264,13 @@ chatRoutes.post("/", async (c) => {
         chatMessages.push({ role: msg.role, content: msg.content });
       }
     }
-    chatMessages.push({ role: "user", content: message.trim() });
+    chatMessages.push({ role: "user", content: finalMessage });
 
     const userMsgSaved = db.insert(messages).values({
       id: crypto.randomUUID(),
       conversationId: convId,
       role: "user",
-      content: message.trim(),
+      content: finalMessage,
       createdAt: now,
     });
 
@@ -205,7 +298,9 @@ chatRoutes.post("/", async (c) => {
         const toolStarts = new Map<string, { name: string; ts: number }>();
 
         try {
-          await runWithTrace(collector, async () => {
+          // BYOK：本次请求内所有 AI 调用（worker/提取工具/标题/回退）按 scope 注入用户配置
+          await runWithAIConfig(runtimeCfgs, () =>
+            runWithTrace(collector, async () => {
             await userMsgSaved;
 
             if (USE_LANGGRAPH) {
@@ -214,7 +309,7 @@ chatRoutes.post("/", async (c) => {
                   m.role === "user" || m.role === "assistant" || m.role === "system",
               );
 
-              for await (const event of streamAgent({ messages: agentInput })) {
+              for await (const event of streamAgent({ messages: agentInput, resumeData, aiConfig: chatCfg ?? undefined })) {
                 const runId = (event as { run_id?: string }).run_id;
                 const meta = (event as unknown as { metadata?: { langgraph_node?: string; ls_model_name?: string } }).metadata;
 
@@ -290,7 +385,17 @@ chatRoutes.post("/", async (c) => {
                         modelStarts.delete(runId);
                       }
                     }
-                    if (usage) collector.totalTokens += usage.total;
+                    if (usage) {
+                      collector.totalTokens += usage.total;
+                      // 用量账本：router / worker 各自记账（userId 从 collector 解析；router 恒平台，worker 随 BYOK）
+                      recordUsage({
+                        model: meta?.ls_model_name ?? "unknown",
+                        inputTokens: usage.input,
+                        outputTokens: usage.output,
+                        source: node === "router" ? "router" : "chat",
+                        provider: node === "router" ? "platform" : chatProvider,
+                      });
+                    }
                     if (node === "router") break;
                     const toolCalls = output?.tool_calls;
                     if (toolCalls && toolCalls.length > 0) {
@@ -367,6 +472,7 @@ chatRoutes.post("/", async (c) => {
               const stream = await ai.chat(chatMessages);
               collector.model = DEFAULT_MODEL;
 
+              let usage: { prompt_tokens: number; completion_tokens: number } | null = null;
               for await (const chunk of stream) {
                 const content = chunk.choices[0]?.delta?.content;
                 if (content) {
@@ -374,11 +480,22 @@ chatRoutes.post("/", async (c) => {
                   fullReply += content;
                   send({ content, conversationId: convId });
                 }
+                if (chunk.usage) usage = chunk.usage; // include_usage：最后一个 chunk 携带 usage
+              }
+              if (usage) {
+                collector.totalTokens += usage.prompt_tokens + usage.completion_tokens;
+                recordUsage({
+                  model: currentChatModel(),
+                  inputTokens: usage.prompt_tokens,
+                  outputTokens: usage.completion_tokens,
+                  source: "chat",
+                  provider: chatProvider,
+                });
               }
               collector.addSpan({
                 type: "model",
                 name: "ai.chat",
-                model: DEFAULT_MODEL,
+                model: currentChatModel(),
                 durationMs: Date.now() - t0,
                 status: "success",
               });
@@ -395,24 +512,32 @@ chatRoutes.post("/", async (c) => {
 
               let titlePromise: Promise<unknown> = Promise.resolve();
               if (history.length === 0) {
-                titlePromise = openai.chat.completions.create({
-                  model: process.env.AI_MODEL ?? "gpt-4o-mini",
+                titlePromise = currentChatClient().chat.completions.create({
+                  model: currentChatModel(),
                   temperature: 0.3,
                   max_tokens: 30,
                   messages: [
                     { role: "system", content: "根据用户和AI的第一轮对话，生成一个简短的对话标题（8字以内）。只返回标题文本。" },
-                    { role: "user", content: `用户: ${message.trim()}\nAI: ${fullReply.slice(0, 200)}` },
+                    { role: "user", content: `用户: ${finalMessage.slice(0, 300)}\nAI: ${fullReply.slice(0, 200)}` },
                   ],
                 }).then(async (titleRes) => {
                   const title = titleRes.choices[0]?.message?.content?.trim()?.replace(/["「」""]/g, "") ?? "新对话";
                   await db.update(conversations).set({ title: title.slice(0, 20) }).where(eq(conversations.id, convId!));
                   send({ title: title.slice(0, 20) });
+                  recordUsage({
+                    model: currentChatModel(),
+                    inputTokens: titleRes.usage?.prompt_tokens ?? 0,
+                    outputTokens: titleRes.usage?.completion_tokens ?? 0,
+                    source: "title",
+                    conversationId: convId!,
+                    provider: chatProvider,
+                  });
                 }).catch(() => { /* 标题生成失败不影响对话 */ });
               }
 
               await Promise.all([savePromise.catch((e: unknown) => console.error("Failed to save AI reply:", e)), titlePromise]);
             }
-          });
+          }));
 
           try {
             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -658,6 +783,71 @@ chatRoutes.post("/greeting", async (c) => {
   }
 });
 
+// ── POST /api/chat/resume ── 聊天生成的简历同步到「我的简历」（联动）
+// 对话已有关联简历（conversations.resumeId）→ 更新数据并升版本；
+// 没有 → 新建简历并回填 resumeId。前端在每次提取合并完成后调用。
+chatRoutes.post("/resume", async (c) => {
+  const body = await c.req.json().catch(() => null) as { conversationId?: string; data?: unknown } | null;
+  const conversationId = String(body?.conversationId ?? "").trim();
+  if (!conversationId || !body?.data) {
+    return c.json({ error: "conversationId 和 data 必填" }, 400);
+  }
+
+  const db = getDb();
+  const { userId } = await getAuthUserId(c.req.raw);
+
+  const [conv] = db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.id, conversationId), eq(conversations.userId, userId)))
+    .limit(1)
+    .all();
+  if (!conv) return c.json({ error: "对话不存在" }, 404);
+
+  let parsed: ReturnType<typeof resumeDataSchema.parse>;
+  try {
+    parsed = resumeDataSchema.parse(body.data);
+  } catch {
+    return c.json({ error: "简历数据不合法" }, 400);
+  }
+
+  const now = new Date().toISOString();
+
+  // 已有关联简历 → 更新（版本 +1）
+  if (conv.resumeId) {
+    const [existing] = db.select().from(resumes).where(eq(resumes.id, conv.resumeId)).limit(1).all();
+    if (existing) {
+      db.update(resumes)
+        .set({ data: JSON.stringify(parsed), version: existing.version + 1, updatedAt: now })
+        .where(eq(resumes.id, conv.resumeId))
+        .run();
+      return c.json({ ok: true, resumeId: conv.resumeId, version: existing.version + 1, created: false });
+    }
+    // resumeId 指向的简历已被删除 → 走新建分支重建
+  }
+
+  // 新建简历并回填对话关联
+  const name = typeof parsed.basic?.name === "string" && parsed.basic.name.trim()
+    ? `${parsed.basic.name.trim()}的简历`
+    : (conv.title && conv.title !== "新对话" ? conv.title : "我的简历");
+  const resumeId = crypto.randomUUID();
+  db.insert(resumes)
+    .values({
+      id: resumeId,
+      userId,
+      title: name,
+      templateId: "classic",
+      data: JSON.stringify(parsed),
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.update(conversations).set({ resumeId }).where(eq(conversations.id, conversationId)).run();
+
+  return c.json({ ok: true, resumeId, version: 1, created: true });
+});
+
 // ── POST /api/chat/extract ──
 chatRoutes.post("/extract", async (c) => {
   let conversationId: string;
@@ -674,6 +864,12 @@ chatRoutes.post("/extract", async (c) => {
   }
 
   const db = getDb();
+  // 用量记账：提取在独立路由（无 trace collector），显式传入用户身份
+  const { userId } = await getAuthUserId(c.req.raw);
+  const userExtractCfg = getUserAiConfigs(userId).extract;
+  const extractRuntimeCfg = userExtractCfg
+    ? { baseUrl: userExtractCfg.baseUrl, apiKey: userExtractCfg.apiKey, model: userExtractCfg.model }
+    : null;
 
   const history = await db
     .select()
@@ -707,7 +903,13 @@ chatRoutes.post("/extract", async (c) => {
       try {
         send({ type: "connecting" });
 
-        const stream = ai.extractResumeDataStream(conversationText, resumeData);
+        const stream = await runWithAIConfig(extractRuntimeCfg ? { extract: extractRuntimeCfg } : null, () =>
+          ai.extractResumeDataStream(conversationText, resumeData, {
+            userId,
+            conversationId,
+            provider: extractRuntimeCfg ? "byok" : "platform",
+          }),
+        );
         const reader = stream.getReader();
 
         while (true) {
@@ -742,33 +944,25 @@ chatRoutes.post("/extract", async (c) => {
 });
 
 // ── POST /api/chat/parse-attachment ──
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
-const MAX_DOC_SIZE = 15 * 1024 * 1024;
-const IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
-
-function fileExt(filename: string): string {
-  const idx = filename.lastIndexOf(".");
-  return idx >= 0 ? filename.slice(idx).toLowerCase() : "";
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#?\w+;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
+// 旧接口保留向后兼容，内部复用公共解析函数（与 /api/chat multipart 同源）。
+// 用量记账：附件解析是独立路由，显式传用户身份。
 chatRoutes.post("/parse-attachment", async (c) => {
   try {
     const contentType = c.req.header("content-type") ?? "";
+    const { userId } = await getAuthUserId(c.req.raw);
+    const userCfgs = getUserAiConfigs(userId);
+    const extractUserCfg = userCfgs.extract;
+    const visionUserCfg = userCfgs.vision;
+    const extractCfg = extractUserCfg
+      ? { baseUrl: extractUserCfg.baseUrl, apiKey: extractUserCfg.apiKey, model: extractUserCfg.model }
+      : null;
+    const visionCfg = visionUserCfg
+      ? { baseUrl: visionUserCfg.baseUrl, apiKey: visionUserCfg.apiKey, model: visionUserCfg.model }
+      : null;
+    const runtimeCfgs = extractCfg || visionCfg
+      ? { extract: extractCfg ?? undefined, vision: visionCfg ?? undefined }
+      : null;
+    const usageCtx = { userId, provider: (extractCfg ? "byok" : "platform") as "platform" | "byok" };
 
     // ── URL 模式 ──
     if (contentType.includes("application/json")) {
@@ -777,35 +971,8 @@ chatRoutes.post("/parse-attachment", async (c) => {
       if (!url) {
         return c.json({ error: "url is required" }, 400);
       }
-
-      let html: string;
-      try {
-        const res = await fetch(url, {
-          headers: { "User-Agent": "Mozilla/5.0 (compatible; ResumeGoOffer/1.0)" },
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        html = await res.text();
-      } catch (err) {
-        return c.json(
-          { error: `无法访问该链接：${err instanceof Error ? err.message : "网络错误"}` },
-          422,
-        );
-      }
-
-      const text = stripHtml(html);
-      if (!text || text.length < 50) {
-        return c.json({ error: "未能从该链接提取到有效内容" }, 422);
-      }
-
-      const { parseJobFromText, formatJobForChat } = await import("../lib/ai/attachment-parser");
-      const parsed = await parseJobFromText(text);
-
-      if (!parsed) {
-        return c.json({ error: "未能从链接内容中识别岗位信息" }, 422);
-      }
-
-      return c.json({ type: "job", formatted: formatJobForChat(parsed), raw: parsed });
+      const parsed = await runWithAIConfig(runtimeCfgs, () => parseAttachmentUrl(url, usageCtx));
+      return c.json({ type: "job", formatted: parsed.formatted });
     }
 
     // ── 文件模式（multipart/form-data）──
@@ -816,95 +983,12 @@ chatRoutes.post("/parse-attachment", async (c) => {
       return c.json({ error: "file is required" }, 400);
     }
 
-    const fileName = file.name || "unknown";
-    const mime = file.type || "";
-    const ext = fileExt(fileName);
-    const bytes = Buffer.from(await file.arrayBuffer());
-
-    const isImage = IMAGE_MIMES.has(mime) || [".png", ".jpg", ".jpeg", ".webp"].includes(ext);
-    if (isImage) {
-      if (bytes.length > MAX_IMAGE_SIZE) {
-        return c.json({ error: "图片文件过大（最大 10MB）" }, 413);
-      }
-
-      const { parseJobFromImage, formatJobForChat } = await import("../lib/ai/attachment-parser");
-      const base64 = bytes.toString("base64");
-      const imgMime = mime || "image/png";
-      const parsed = await parseJobFromImage(base64, imgMime);
-
-      if (!parsed) {
-        return c.json({ error: "未能从图片中识别岗位信息，请确保图片中包含清晰的招聘信息" }, 422);
-      }
-
-      return c.json({ type: "job", formatted: formatJobForChat(parsed), raw: parsed });
-    }
-
-    const isWord = mime.includes("wordprocessingml") || mime === "application/msword" || [".docx", ".doc"].includes(ext);
-    if (isWord) {
-      if (bytes.length > MAX_DOC_SIZE) {
-        return c.json({ error: "文件过大（最大 15MB）" }, 413);
-      }
-
-      const mammoth = await import("mammoth");
-      const result = await mammoth.extractRawText({ buffer: bytes });
-      const text = result.value?.trim();
-
-      if (!text || text.length < 20) {
-        return c.json({ error: "未能从文件中提取到文字内容" }, 422);
-      }
-
-      const { parseResumeFromFile } = await import("../lib/ai/attachment-parser");
-      const summary = await parseResumeFromFile(text);
-
-      return c.json({
-        type: "resume",
-        formatted: `[用户上传了简历文件]\n\n${summary ?? text.slice(0, 3000)}`,
-        rawText: text.slice(0, 6000),
-      });
-    }
-
-    const isPdf = mime === "application/pdf" || ext === ".pdf";
-    if (isPdf) {
-      if (bytes.length > MAX_DOC_SIZE) {
-        return c.json({ error: "文件过大（最大 15MB）" }, 413);
-      }
-
-      const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-
-      const uint8 = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      const doc = await pdfjsLib.getDocument({ data: uint8 }).promise;
-
-      const pages: string[] = [];
-      for (let i = 1; i <= doc.numPages; i++) {
-        const page = await doc.getPage(i);
-        const content = await page.getTextContent();
-        const pageText = content.items
-          .map((item) => ("str" in item ? (item as { str: string }).str : ""))
-          .join(" ");
-        pages.push(pageText);
-      }
-
-      const rawText = pages.join("\n").trim();
-
-      if (!rawText || rawText.length < 20) {
-        return c.json({ error: "未能从 PDF 中提取到文字内容（可能是扫描版 PDF）" }, 422);
-      }
-
-      const { detectAndParseResumeWorkshop, parseResumeFromFile } = await import("../lib/ai/attachment-parser");
-      const decoded = detectAndParseResumeWorkshop(rawText);
-      const text = decoded ?? rawText;
-
-      const summary = await parseResumeFromFile(text);
-
-      return c.json({
-        type: "resume",
-        formatted: `[用户上传了简历文件]\n\n${summary ?? text.slice(0, 3000)}`,
-        rawText: text.slice(0, 6000),
-      });
-    }
-
-    return c.json({ error: "不支持的文件格式，请上传图片（PNG/JPG/WebP）、PDF 或 Word 文档" }, 400);
+    const parsed = await runWithAIConfig(runtimeCfgs, () => parseAttachmentFile(file, usageCtx));
+    return c.json({ type: parsed.kind, formatted: parsed.formatted });
   } catch (err) {
+    if (err instanceof AttachmentParseError) {
+      return c.json({ error: err.message }, err.status as 400 | 413 | 422);
+    }
     console.error("[parse-attachment] Error:", err);
     return c.json(
       { error: err instanceof Error ? err.message : "服务器错误" },

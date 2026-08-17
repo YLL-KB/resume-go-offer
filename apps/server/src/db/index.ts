@@ -31,6 +31,33 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS idx_ai_events_trace_id ON ai_events(trace_id)`,
   `CREATE INDEX IF NOT EXISTS idx_ai_events_name ON ai_events(name)`,
   `CREATE INDEX IF NOT EXISTS idx_ai_events_timestamp ON ai_events(timestamp)`,
+  `CREATE TABLE IF NOT EXISTS roles (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL UNIQUE, label TEXT NOT NULL, permissions TEXT DEFAULT '[]' NOT NULL, is_builtin INTEGER DEFAULT 0 NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS user_roles (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, role_id TEXT NOT NULL, assigned_by TEXT, created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL UNIQUE, label TEXT NOT NULL, features TEXT DEFAULT '[]' NOT NULL, price_cents INTEGER, sort_order INTEGER DEFAULT 0 NOT NULL, is_active INTEGER DEFAULT 1 NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS user_plans (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL UNIQUE, plan_id TEXT NOT NULL, expires_at TEXT, assigned_by TEXT, created_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON user_roles(role_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_user_plans_user_id ON user_plans(user_id)`,
+  `CREATE TABLE IF NOT EXISTS token_usage (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, model TEXT NOT NULL, provider TEXT DEFAULT 'platform' NOT NULL, source TEXT NOT NULL, input_tokens INTEGER DEFAULT 0 NOT NULL, output_tokens INTEGER DEFAULT 0 NOT NULL, cost_cents INTEGER DEFAULT 0 NOT NULL, unit_price_input TEXT, unit_price_output TEXT, conversation_id TEXT, created_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_token_usage_user_time ON token_usage(user_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_token_usage_time ON token_usage(created_at)`,
+  `CREATE TABLE IF NOT EXISTS user_ai_configs (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL UNIQUE, provider TEXT DEFAULT 'custom' NOT NULL, base_url TEXT NOT NULL, model TEXT NOT NULL, api_key_enc TEXT NOT NULL, is_active INTEGER DEFAULT 1 NOT NULL, last_test_at TEXT, last_test_ok INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  // BYOK v2：按调用域分 scope（chat/extract/vision）。旧单配置表迁移到 scope=chat 后删除。
+  `CREATE TABLE IF NOT EXISTS user_ai_scopes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, scope TEXT NOT NULL, provider TEXT DEFAULT 'custom' NOT NULL, base_url TEXT NOT NULL, model TEXT NOT NULL, api_key_enc TEXT NOT NULL, is_active INTEGER DEFAULT 1 NOT NULL, last_test_at TEXT, last_test_ok INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_ai_scopes_user_scope ON user_ai_scopes(user_id, scope)`,
+  `INSERT OR IGNORE INTO user_ai_scopes (id, user_id, scope, provider, base_url, model, api_key_enc, is_active, last_test_at, last_test_ok, created_at, updated_at) SELECT id, user_id, 'chat', provider, base_url, model, api_key_enc, is_active, last_test_at, last_test_ok, created_at, updated_at FROM user_ai_configs`,
+  `DROP TABLE IF EXISTS user_ai_configs`,
+  // BYOK v3：1..N 条自定义 API（scopes JSON 多选），旧按 scope 的表迁移为每条单 scope 后删除。
+  `CREATE TABLE IF NOT EXISTS user_ai_apis (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, name TEXT DEFAULT '' NOT NULL, provider TEXT DEFAULT 'custom' NOT NULL, base_url TEXT NOT NULL, model TEXT NOT NULL, api_key_enc TEXT NOT NULL, scopes TEXT DEFAULT '[]' NOT NULL, is_active INTEGER DEFAULT 1 NOT NULL, last_test_at TEXT, last_test_ok INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_user_ai_apis_user ON user_ai_apis(user_id)`,
+  `INSERT OR IGNORE INTO user_ai_apis (id, user_id, name, provider, base_url, model, api_key_enc, scopes, is_active, last_test_at, last_test_ok, created_at, updated_at) SELECT id, user_id, scope, provider, base_url, model, api_key_enc, '["' || scope || '"]', is_active, last_test_at, last_test_ok, created_at, updated_at FROM user_ai_scopes`,
+  `DROP TABLE IF EXISTS user_ai_scopes`,
+  // 内置角色种子（INSERT OR IGNORE 幂等）
+  `INSERT OR IGNORE INTO roles (id, name, label, permissions, is_builtin, created_at, updated_at) VALUES ('role-super-admin', 'super_admin', '超级管理员', '["*"]', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+  `INSERT OR IGNORE INTO roles (id, name, label, permissions, is_builtin, created_at, updated_at) VALUES ('role-admin', 'admin', '管理员', '["admin.users","admin.logs","admin.traces"]', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+  `INSERT OR IGNORE INTO roles (id, name, label, permissions, is_builtin, created_at, updated_at) VALUES ('role-viewer', 'viewer', '只读', '["admin.logs","admin.traces"]', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+  // 内置套餐种子
+  `INSERT OR IGNORE INTO plans (id, name, label, features, price_cents, sort_order, is_active, created_at, updated_at) VALUES ('plan-free', 'free', '免费版', '[]', NULL, 0, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
 ];
 
 /**

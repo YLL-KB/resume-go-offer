@@ -23,7 +23,8 @@ export const educationSchema = z.object({
   major: z.string().default(""),
   startDate: z.string().optional().default(""),
   endDate: z.string().optional().default(""),
-  gpa: z.string().optional().default(""),
+  // 提取结果里 GPA 缺省为 null（前端表单也用 null 表示未填）
+  gpa: z.string().nullable().optional().default(""),
 });
 
 export type Education = z.infer<typeof educationSchema>;

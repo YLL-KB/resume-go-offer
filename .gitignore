@@ -65,3 +65,5 @@ next-env.d.ts
 
 # claude
 .claude/
+# pnpm local store (sandbox artifact)
+.pnpm-store/

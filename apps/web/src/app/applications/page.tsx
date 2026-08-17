@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { Button } from "@resume/ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@resume/ui";
 import { Badge } from "@resume/ui";
+import { AppHeader } from "@resume/ui";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,7 @@ import {
   SelectTrigger,
 
 } from "@resume/ui";
-import { ArrowLeft, Plus, Trash2, GripVertical } from "lucide-react";
+import { Plus, Trash2, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 
 interface Application {
@@ -136,12 +136,10 @@ export default function ApplicationsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <AppHeader />
       <div className="mx-auto max-w-6xl px-6 py-8">
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <Link href="/chat" className="mb-2 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
-              <ArrowLeft className="size-4" /> 返回对话
-            </Link>
             <h1 className="text-2xl font-bold text-slate-900">投递追踪</h1>
             <p className="mt-1 text-sm text-slate-500">追踪所有简历投递进度</p>
           </div>

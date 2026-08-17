@@ -9,8 +9,10 @@ import fs from "fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { ai } from "../lib/ai";
+import { ai, runWithAIConfig } from "../lib/ai";
 import { getAuthUserId, buildAnonymousCookie } from "../lib/auth/utils";
+import { runWithUsage } from "../lib/billing/ledger";
+import { getUserAiConfigs } from "../lib/billing/byok";
 
 export const templatesRoutes = new Hono();
 
@@ -467,7 +469,12 @@ templatesRoutes.post("/:id/summary", async (c) => {
       return c.json({ title: name, summary: "该 PDF 内可提取的文本内容较少，无法自动生成摘要。", rawLength: fullText.length });
     }
 
-    const { title, summary } = await ai.summarizeTemplate(fullText);
+    const { userId } = await getAuthUserId(c.req.raw);
+    const userCfg = getUserAiConfigs(userId).chat;
+    const runtimeCfg = userCfg ? { baseUrl: userCfg.baseUrl, apiKey: userCfg.apiKey, model: userCfg.model } : null;
+    const { title, summary } = await runWithUsage({ userId, provider: runtimeCfg ? "byok" : "platform" }, () =>
+      runWithAIConfig(runtimeCfg ? { chat: runtimeCfg } : null, () => ai.summarizeTemplate(fullText)),
+    );
 
     return c.json({ title, summary, rawLength: fullText.length });
   } catch (err) {
@@ -508,7 +515,12 @@ templatesRoutes.post("/:id/analyze", async (c) => {
       });
     }
 
-    const analysis = await ai.analyzeTemplate(text);
+    const { userId } = await getAuthUserId(c.req.raw);
+    const userCfg = getUserAiConfigs(userId).chat;
+    const runtimeCfg = userCfg ? { baseUrl: userCfg.baseUrl, apiKey: userCfg.apiKey, model: userCfg.model } : null;
+    const analysis = await runWithUsage({ userId, provider: runtimeCfg ? "byok" : "platform" }, () =>
+      runWithAIConfig(runtimeCfg ? { chat: runtimeCfg } : null, () => ai.analyzeTemplate(text)),
+    );
 
     const metaPath = path.join(TEMPLATE_DIR(), `${id}.meta.json`);
     try {

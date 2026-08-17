@@ -6,7 +6,7 @@
 
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { getDb } from "../db";
 import { users } from "../db/schema";
 import {
@@ -331,17 +331,40 @@ auth.get("/github/callback", async (c) => {
         })
         .where(eq(users.githubId, githubId));
     } else {
-      userId = crypto.randomUUID();
-      await db.insert(users).values({
-        id: userId,
-        githubId,
-        githubLogin: ghUser.login,
-        name: ghUser.name ?? ghUser.login,
-        email,
-        avatarUrl: ghUser.avatar_url,
-        createdAt: now,
-        updatedAt: now,
-      });
+      // 预建人员关联：管理员在后台按 GitHub 用户名预添加的用户（githubId 尚未填充），
+      // 首次登录时命中即关联，其角色/套餐（user_roles / user_plans）立即生效
+      const prebuilt = await db
+        .select()
+        .from(users)
+        .where(and(eq(users.githubLogin, ghUser.login), isNull(users.githubId)))
+        .limit(1);
+
+      if (prebuilt.length > 0) {
+        userId = prebuilt[0].id;
+        await db
+          .update(users)
+          .set({
+            githubId,
+            githubLogin: ghUser.login,
+            name: ghUser.name ?? prebuilt[0].name,
+            email: email ?? prebuilt[0].email,
+            avatarUrl: ghUser.avatar_url ?? prebuilt[0].avatarUrl,
+            updatedAt: now,
+          })
+          .where(eq(users.id, userId));
+      } else {
+        userId = crypto.randomUUID();
+        await db.insert(users).values({
+          id: userId,
+          githubId,
+          githubLogin: ghUser.login,
+          name: ghUser.name ?? ghUser.login,
+          email,
+          avatarUrl: ghUser.avatar_url,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
     }
 
     const appUser = {

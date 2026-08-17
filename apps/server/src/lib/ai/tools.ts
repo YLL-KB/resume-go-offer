@@ -57,7 +57,7 @@ export const pushFormTool = tool(
 export const extractResumeTool = tool(
   async (_args, config) => {
     // LangGraph ToolNode 通过 config.state 传入图状态（而非 config.configurable）
-    const state = (config as unknown as { state?: { messages?: BaseMessage[] } }).state;
+    const state = (config as unknown as { state?: { messages?: BaseMessage[]; resumeData?: Record<string, unknown>; aiConfig?: { baseUrl: string; apiKey: string; model: string } } }).state;
     const msgs = state?.messages ?? [];
 
     const conversationText = msgs
@@ -70,9 +70,11 @@ export const extractResumeTool = tool(
       .filter(Boolean)
       .join("\n\n");
 
-    // 复用现有的提取逻辑
-    const { ai } = await import("./index");
-    const result = await ai.extractResumeData(conversationText);
+    // 复用提取引擎：三组并行 + 已有数据增量提取（BYOK extract scope 时流量记到用户名下）
+    const { ai, getRuntimeAiConfigs } = await import("./index");
+    const result = await ai.extractResumeData(conversationText, state?.resumeData, {
+      provider: getRuntimeAiConfigs()?.extract ? "byok" : "platform",
+    });
 
     if (!result) {
       recordDegradation("extract_null");

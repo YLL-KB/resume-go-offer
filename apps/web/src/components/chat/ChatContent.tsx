@@ -7,13 +7,23 @@ import { ChatInput } from "@/components/chat/ChatInput";
 import { useChatStore } from "@/stores/chat-store";
 import { ResumePreviewPanel } from "@/components/chat/ResumePreviewPanel";
 import { TemplateResume } from "@/components/resume/TemplateResume";
+import { getResume } from "@/lib/api/resume";
+import { resumeDataToText } from "@/lib/utils/resume-text";
 import { Loader2 } from "lucide-react";
 // ── 聊天主体 ──
 
-export function ChatContent({ conversationId }: { conversationId: string | null }) {
-  const { resumeData, loadConversation, setConversations, startNewChat, isLoadingHistory, showPreview } = useChatStore();
+export function ChatContent({
+  conversationId,
+  resumeId,
+}: {
+  conversationId: string | null;
+  /** 从「我的简历」引用进入：预载该简历 + 快捷发送优化请求 */
+  resumeId?: string | null;
+}) {
+  const { resumeData, loadConversation, setConversations, startNewChat, isLoadingHistory, showPreview, setResumeData, setShowPreview, triggerQuickSend } = useChatStore();
 
   const [ready, setReady] = useState(false);
+  const seededRef = useRef(false);
 
   // ── 移动端检测 ──
   const [isDesktop, setIsDesktop] = useState(false);
@@ -70,6 +80,26 @@ export function ChatContent({ conversationId }: { conversationId: string | null 
     } else {
       startNewChat(); // 静态兜底问候语
       setReady(true);
+
+      // 从「我的简历」引用进入：预载简历数据 + 展示预览 + 快捷发送优化请求
+      if (resumeId && !seededRef.current) {
+        seededRef.current = true;
+        (async () => {
+          try {
+            const detail = await getResume(resumeId);
+            if (!detail.data) return;
+            setResumeData(detail.data as Parameters<typeof setResumeData>[0]);
+            setShowPreview(true);
+            // 复用上传简历文件的标记：router 会分到 advising，提取规则 0.5 也会直接采纳这份数据
+            triggerQuickSend(
+              `[用户上传了简历文件]\n\n${resumeDataToText(detail.data, detail.title)}\n\n这是我当前的简历，帮我看看整体有哪些可以优化的地方。`,
+            );
+            window.history.replaceState(null, "", "/chat");
+          } catch {
+            window.history.replaceState(null, "", "/chat");
+          }
+        })();
+      }
     }
     fetch(`/api/chat/history?_t=${Date.now()}`)
       .then((res) => res.json())
