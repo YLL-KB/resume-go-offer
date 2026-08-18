@@ -21,6 +21,8 @@ import {
   MessageSquare,
   Bot,
   User,
+  KeyRound,
+  ChartColumn,
 } from "lucide-react";
 
 // ── 动画预设 ──
@@ -283,6 +285,8 @@ const aiFeatures = [
   { icon: FileSearch, title: "竞争力分析", desc: "AI 从 HR 视角评分，指出具体不足并给出可替换的改写建议。", highlight: "评分 + 建议" },
   { icon: MousePointerClick, title: "可视化编辑器", desc: "所见即所得编辑 PDF 模板，原位替换文字，保留原始排版不变。", highlight: "原位编辑" },
   { icon: TrendingUp, title: "投递追踪看板", desc: "看板管理已投 / 初筛 / 面试 / Offer 全流程，求职进度不遗漏。", highlight: "看板视图" },
+  { icon: KeyRound, title: "自带 API Key", desc: "配置你自己的 OpenAI / DeepSeek / 智谱 Key，密钥加密只进不出，用自己的 token 省钱又灵活。", highlight: "BYOK" },
+  { icon: ChartColumn, title: "用量透明可查", desc: "token 用量与成本实时记账，平台 / 自带流量分开统计，花多少一目了然。", highlight: "用量看板" },
 ];
 
 const stats = [
