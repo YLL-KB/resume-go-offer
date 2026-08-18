@@ -31,6 +31,7 @@ export function ChatInput() {
     appendToLastMessage,
     clearLastAssistantMessage,
     setStreaming,
+    setParsingAttachment,
     setError,
     setResumeData,
     setExtracting,
@@ -93,6 +94,7 @@ export function ChatInput() {
     addMessage(assistantMsg);
 
     setStreaming(true);
+    setParsingAttachment(!!withAttachments);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -167,6 +169,8 @@ export function ChatInput() {
               // 服务端返回了 conversationId → 更新追踪变量，后续事件才能通过 sameConv 校验
               if (parsed.conversationId) effectiveConvId = parsed.conversationId;
               if (sameConv && typeof parsed.content === "string" && useChatStore.getState().isStreaming) {
+                // 附件解析占位阶段结束，首 token 到达后切回普通思考态
+                setParsingAttachment(false);
                 // React 18/19 会把异步 SSE 循环里的连续 store 更新批处理，导致流式内容直到结束才一次性渲染；
                 // flushSync 强制每个 token 立即同步提交，实现逐字渲染。
                 flushSync(() => appendToLastMessage(parsed.content));
@@ -207,9 +211,10 @@ export function ChatInput() {
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       setStreaming(false);
+      setParsingAttachment(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [isStreaming, conversationId, addMessage, appendToLastMessage, clearLastAssistantMessage, setConversationId, setConversations, setStreaming, setError, setResumeData, setShowPreview]);
+  }, [isStreaming, conversationId, addMessage, appendToLastMessage, clearLastAssistantMessage, setConversationId, setConversations, setStreaming, setParsingAttachment, setError, setResumeData, setShowPreview]);
 
   // ── 监听表单事件 ──
   useEffect(() => {

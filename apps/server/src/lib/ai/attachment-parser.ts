@@ -5,7 +5,7 @@
  * 方便注入对话上下文让 AI 顾问引用。
  */
 
-import { currentExtractClient, currentExtractModel, currentVisionConfig, getRuntimeAiConfigs, safeJsonParse } from "./index";
+import { currentAttachmentClient, currentAttachmentModel, currentVisionConfig, getRuntimeAiConfigs, safeJsonParse } from "./index";
 import { JOB_PARSING_PROMPT, RESUME_FILE_PARSING_PROMPT } from "./prompts";
 import { recordUsage } from "../billing/ledger";
 
@@ -243,8 +243,8 @@ export async function parseJobFromText(content: string, usageCtx?: AttachmentUsa
   const truncated = content.slice(0, 20000);
   console.log(`[parseJobFromText] 开始解析，内容 ${truncated.length}chars`);
 
-  const res = await currentExtractClient().chat.completions.create({
-    model: currentExtractModel(),
+  const res = await currentAttachmentClient().chat.completions.create({
+    model: currentAttachmentModel(),
     temperature: 0.2,
     max_tokens: 2048,
     response_format: { type: "json_object" },
@@ -258,7 +258,7 @@ export async function parseJobFromText(content: string, usageCtx?: AttachmentUsa
   console.log(`[parseJobFromText] ${((Date.now() - t0) / 1000).toFixed(1)}s  output=${text.length}chars`);
 
   recordUsage({
-    model: currentExtractModel(),
+    model: currentAttachmentModel(),
     inputTokens: res.usage?.prompt_tokens ?? 0,
     outputTokens: res.usage?.completion_tokens ?? 0,
     source: "attachment",
@@ -278,8 +278,8 @@ export async function parseResumeFromFile(text: string, usageCtx?: AttachmentUsa
   const truncated = text.slice(0, 16000);
   console.log(`[parseResumeFromFile] 开始解析，内容 ${truncated.length}chars`);
 
-  const res = await currentExtractClient().chat.completions.create({
-    model: currentExtractModel(),
+  const res = await currentAttachmentClient().chat.completions.create({
+    model: currentAttachmentModel(),
     temperature: 0.2,
     max_tokens: 2048,
     messages: [
@@ -292,7 +292,7 @@ export async function parseResumeFromFile(text: string, usageCtx?: AttachmentUsa
   console.log(`[parseResumeFromFile] ${((Date.now() - t0) / 1000).toFixed(1)}s  output=${result.length}chars`);
 
   recordUsage({
-    model: currentExtractModel(),
+    model: currentAttachmentModel(),
     inputTokens: res.usage?.prompt_tokens ?? 0,
     outputTokens: res.usage?.completion_tokens ?? 0,
     source: "attachment",

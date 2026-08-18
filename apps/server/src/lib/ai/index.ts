@@ -93,7 +93,7 @@ export function currentChatModel(): string {
   return aiConfigStorage.getStore()?.chat?.model ?? DEFAULT_MODEL;
 }
 
-/** 当前请求的提取客户端/模型（提取引擎与附件解析共用） */
+/** 当前请求的提取客户端/模型（简历提取引擎专用） */
 export function currentExtractClient(): OpenAI {
   const cfg = aiConfigStorage.getStore()?.extract;
   return cfg ? userClient(cfg) : extractClient;
@@ -101,6 +101,19 @@ export function currentExtractClient(): OpenAI {
 
 export function currentExtractModel(): string {
   return aiConfigStorage.getStore()?.extract?.model ?? EXTRACT_MODEL;
+}
+
+/** 附件解析专用模型：默认复用主对话模型（同 provider），可用 AI_ATTACHMENT_MODEL 指定更快模型 */
+export const ATTACHMENT_MODEL = process.env.AI_ATTACHMENT_MODEL ?? DEFAULT_MODEL;
+
+/** 附件解析客户端：BYOK extract scope 优先，否则走平台主客户端（更快的 provider） */
+export function currentAttachmentClient(): OpenAI {
+  const cfg = aiConfigStorage.getStore()?.extract;
+  return cfg ? userClient(cfg) : openai;
+}
+
+export function currentAttachmentModel(): string {
+  return aiConfigStorage.getStore()?.extract?.model ?? ATTACHMENT_MODEL;
 }
 
 /** 当前请求的视觉配置（图片识别）：用户 vision 配置优先，否则平台 glm-4v */
@@ -165,7 +178,7 @@ async function tracedCompletion(
   }
 }
 
-console.log(`[AI] 聊天模型=${DEFAULT_MODEL}  提取模型=${EXTRACT_MODEL}`);
+console.log(`[AI] 聊天模型=${DEFAULT_MODEL}  提取模型=${EXTRACT_MODEL}  附件模型=${ATTACHMENT_MODEL}`);
 
 if (process.env.LANGCHAIN_TRACING_V2 === "true" && process.env.LANGCHAIN_API_KEY) {
   console.log("[AI] LangSmith tracing enabled");

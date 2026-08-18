@@ -326,7 +326,7 @@ function ChatBubble({ msg, formMessages, firstFormMsgIds, userAvatarUrl }: { msg
 
 // ── 打字指示器 ──
 
-function TypingIndicator() {
+function TypingIndicator({ parsing }: { parsing: boolean }) {
   return (
     <div className="flex gap-3">
       <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
@@ -336,7 +336,7 @@ function TypingIndicator() {
         <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "0ms" }} />
         <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "150ms" }} />
         <span className="size-2 animate-bounce rounded-full bg-emerald-400" style={{ animationDelay: "300ms" }} />
-        <span className="ml-1 text-xs text-slate-400">AI 正在思考...</span>
+        <span className="ml-1 text-xs text-slate-400">{parsing ? "正在解析附件..." : "AI 正在思考..."}</span>
       </div>
     </div>
   );
@@ -347,7 +347,7 @@ function TypingIndicator() {
 export function ChatMessages() {
   const { user } = useAuth();
   const userAvatarUrl = user?.avatarUrl;
-  const { messages, isStreaming, isExtracting, setShowPreview, setResumeData, setExtracting, conversationId, extractStreamText, setExtractStreamText, appendExtractStreamText } = useChatStore();
+  const { messages, isStreaming, parsingAttachment, isExtracting, setShowPreview, setResumeData, setExtracting, conversationId, extractStreamText, setExtractStreamText, appendExtractStreamText } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [formState] = useState<Map<string, { type: FormType; submitted?: boolean }>>(new Map());
   // LangGraph: tool-push-form 事件触发的表单
@@ -526,7 +526,7 @@ export function ChatMessages() {
           />
         ))}
 
-        {isStreaming && messages[messages.length - 1]?.content === "" && <TypingIndicator />}
+        {isStreaming && messages[messages.length - 1]?.content === "" && <TypingIndicator parsing={parsingAttachment} />}
 
         <div ref={bottomRef} />
       </div>

@@ -25,6 +25,7 @@ interface ChatState {
   conversationId: string | null;
   messages: ChatMessage[];
   isStreaming: boolean;
+  parsingAttachment: boolean;
   error: string | null;
 
   // 简历
@@ -61,6 +62,7 @@ interface ChatState {
   appendToLastMessage: (content: string) => void;
   clearLastAssistantMessage: () => void;
   setStreaming: (v: boolean) => void;
+  setParsingAttachment: (v: boolean) => void;
   setError: (err: string | null) => void;
   setResumeData: (data: Partial<ResumeData>) => void;
   loadResumeDraft: () => void;
@@ -83,6 +85,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversationId: null,
   messages: [],
   isStreaming: false,
+  parsingAttachment: false,
   error: null,
   resumeData: null,
   skillsHtmlMap: null,
@@ -128,6 +131,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   setStreaming: (v) => set({ isStreaming: v }),
+
+  setParsingAttachment: (v) => set({ parsingAttachment: v }),
 
   setError: (err) => set({ error: err }),
 
