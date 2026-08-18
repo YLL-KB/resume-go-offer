@@ -58,6 +58,12 @@ const MIGRATIONS = [
   `INSERT OR IGNORE INTO roles (id, name, label, permissions, is_builtin, created_at, updated_at) VALUES ('role-viewer', 'viewer', '只读', '["admin.logs","admin.traces"]', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
   // 内置套餐种子
   `INSERT OR IGNORE INTO plans (id, name, label, features, price_cents, sort_order, is_active, created_at, updated_at) VALUES ('plan-free', 'free', '免费版', '[]', NULL, 0, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+  // 核心业务表索引（历史遗漏，全表扫描导致读接口卡顿）
+  `CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_resumes_user ON resumes(user_id, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id, applied_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_applications_resume ON applications(resume_id)`,
 ];
 
 /**
