@@ -112,6 +112,7 @@ export function ChatInput() {
       if (withAttachments) {
         const formData = new FormData();
         formData.append("message", text);
+        if (conversationId) formData.append("conversationId", conversationId);
         for (const a of attachments) {
           if (a.kind === "link") {
             formData.append("urls", a.url ?? "");

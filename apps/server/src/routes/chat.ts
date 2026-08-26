@@ -123,6 +123,7 @@ chatRoutes.post("/", async (c) => {
       });
     }
     message = String(formData.get("message") ?? "").trim();
+    conversationId = String(formData.get("conversationId") ?? "").trim() || undefined;
     const files = formData.getAll("files").filter((f) => typeof f !== "string" && f instanceof File) as File[];
     const urls = formData.getAll("urls").map((u) => String(u).trim()).filter(Boolean);
     for (const f of files) attachmentInputs.push({ kind: "file", file: f });
