@@ -37,16 +37,7 @@ EXCLUDES=(
 
 echo "🚀 部署分支 \`${BRANCH}\` 到 ${SERVER}..."
 
-# ── 1. 尝试推送到 GitHub ──
-PUSHED=false
-if git push origin "${BRANCH}" 2>/dev/null; then
-  PUSHED=true
-  echo "✅ Git push 成功"
-else
-  echo "⚠️  Git push 失败（GitHub 不可达），改用 SCP 传输"
-fi
-
-# ── 服务器端统一执行的部署命令 ──
+# ── 服务器端构建 + 重启命令（同步完成后统一执行）──
 read -r -d '' REMOTE_STEPS << 'ENDSSH' || true
 echo "  ↻ pnpm install..."
 pnpm install --frozen-lockfile
@@ -59,20 +50,28 @@ pm2 save
 echo "  ✓ 部署完成"
 ENDSSH
 
-# ── 2. 服务器端更新 ──
-echo "📦 服务器更新中..."
-
-if $PUSHED; then
-  # GitHub 可达 → git pull
-  ssh "${SERVER}" << ENDSSH
-set -euo pipefail
-cd ${REMOTE_DIR}
-echo "  ↻ git pull..."
-git pull origin \$(git rev-parse --abbrev-ref HEAD)
-${REMOTE_STEPS}
-ENDSSH
+# ── 1. 尝试推送到 GitHub ──
+PUSHED=false
+if git push origin "${BRANCH}" 2>/dev/null; then
+  PUSHED=true
+  echo "✅ Git push 成功"
 else
-  # GitHub 不可达 → SCP 打包
+  echo "⚠️  Git push 失败（GitHub 不可达），改用 SCP 传输"
+fi
+
+# ── 2. 同步代码到服务器（git pull 优先，失败回退 SCP）──
+SYNCED=false
+if $PUSHED; then
+  echo "📦 服务器尝试 git pull..."
+  if ssh "${SERVER}" "cd ${REMOTE_DIR} && git pull origin \$(git rev-parse --abbrev-ref HEAD)"; then
+    echo "✅ 服务器 git pull 成功"
+    SYNCED=true
+  else
+    echo "⚠️  服务器 git pull 失败（GitHub 不可达），回退 SCP 传输"
+  fi
+fi
+
+if ! $SYNCED; then
   echo "  ↻ 打包源文件..."
   TARFILE="/tmp/resume-deploy-$(date +%s).tar.gz"
   tar -czf "${TARFILE}" "${EXCLUDES[@]}" .
@@ -89,9 +88,16 @@ rm -f /tmp/deploy.tar.gz
 git reset --hard HEAD 2>/dev/null || true
 git clean -fd 2>/dev/null || true
 echo "  ↻ git HEAD: \$(git log --oneline -1)"
-${REMOTE_STEPS}
 ENDSSH
 fi
+
+# ── 3. 服务器构建 + 重启 ──
+echo "📦 服务器构建中..."
+ssh "${SERVER}" << ENDSSH
+set -euo pipefail
+cd ${REMOTE_DIR}
+${REMOTE_STEPS}
+ENDSSH
 
 echo ""
 echo "✅ 已部署到 https://www.resumeoffer.cn"
