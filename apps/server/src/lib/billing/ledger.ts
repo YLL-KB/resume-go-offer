@@ -16,7 +16,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { getDb } from "../../db";
 import { tokenUsage } from "../../db/schema";
-import { sql, type SQL } from "drizzle-orm";
+import { sql, count, and, eq, gte, type SQL } from "drizzle-orm";
 import { getTraceCollector } from "../observability/context";
 import { computeUsageCost } from "./pricing";
 
@@ -198,7 +198,30 @@ export function getGlobalUsage(sinceIso?: string): UsageSummaryRow & { byModel: 
  *   2. getUsageSummary(userId, 当月窗口) 判断是否超限
  *   3. 超限返回 { allowed: false, reason }，调用方（chat/extract 等）直接短路
  */
-export async function assertUsageAllowed(_userId: string): Promise<{ allowed: true } | { allowed: false; reason: string }> {
+export async function assertUsageAllowed(userId: string): Promise<{ allowed: true } | { allowed: false; reason: string }> {
+  const limit = Number(process.env.FREE_TIER_TURNS_PER_MONTH ?? "5");
+  // 未配置或非法值视为不限额（保留平台兜底），避免配置错误误伤用户
+  if (!Number.isFinite(limit) || limit <= 0) return { allowed: true };
+
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const [row] = getDb()
+    .select({ n: count() })
+    .from(tokenUsage)
+    .where(
+      and(
+        eq(tokenUsage.userId, userId),
+        eq(tokenUsage.provider, "platform"),
+        eq(tokenUsage.source, "chat"),
+        gte(tokenUsage.createdAt, monthStart),
+      ),
+    )
+    .all();
+
+  const used = Number(row?.n ?? 0);
+  if (used >= limit) {
+    return { allowed: false, reason: `本月免费对话额度（${limit} 次）已用完，请在设置页添加你自己的 API Key 继续使用` };
+  }
   return { allowed: true };
 }
 

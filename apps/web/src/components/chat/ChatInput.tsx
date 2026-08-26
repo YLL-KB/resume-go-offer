@@ -140,7 +140,16 @@ export function ChatInput() {
       if (!response.ok) {
         let errMsg = "AI 回复失败";
         try {
-          const errData = await response.json() as { error?: string; message?: string };
+          const errData = await response.json() as { error?: string; message?: string; code?: string };
+          if (response.status === 402 || errData.code === "FREE_TIER_EXCEEDED") {
+            toast.error(errData.error ?? "本月免费对话额度已用完", {
+              action: { label: "去设置", onClick: () => { window.location.href = "/settings"; } },
+            });
+            // 回滚刚添加的本地消息（尚未持久化到服务端，无需调删除接口）
+            const st = useChatStore.getState();
+            st.setMessages(st.messages.filter((m) => m.id !== userMsg.id && m.id !== assistantMsg.id));
+            return;
+          }
           if (errData.error) errMsg = errData.error;
           else if (errData.message) errMsg = errData.message;
         } catch { /* use default */ }

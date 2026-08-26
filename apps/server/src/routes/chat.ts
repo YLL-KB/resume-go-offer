@@ -20,7 +20,7 @@ import { streamAgent } from "../lib/ai/graph";
 import { TraceCollector } from "../lib/observability/collector";
 import { runWithTrace } from "../lib/observability/context";
 import { persistTraceFireAndForget } from "../lib/observability/persist";
-import { recordUsage } from "../lib/billing/ledger";
+import { recordUsage, assertUsageAllowed } from "../lib/billing/ledger";
 import { getUserAiConfigs, type AiScope } from "../lib/billing/byok";
 
 export const chatRoutes = new Hono();
@@ -176,6 +176,17 @@ chatRoutes.post("/", async (c) => {
     if (extractCfg) runtimeCfgs.extract = extractCfg;
     if (visionCfg) runtimeCfgs.vision = visionCfg;
     const chatProvider: "platform" | "byok" = chatCfg ? "byok" : "platform";
+
+    // 平台 key 免费额度：仅 platform 流量受限，BYOK 用户（配了 chat 用途）不受限
+    if (chatProvider === "platform") {
+      const quota = await assertUsageAllowed(userId);
+      if (!quota.allowed) {
+        return new Response(
+          JSON.stringify({ error: quota.reason, code: "FREE_TIER_EXCEEDED" }),
+          { status: 402, headers: { "Content-Type": "application/json" } },
+        );
+      }
+    }
 
     const rlKey = getRateLimitKey(c.req.raw);
     const rl = checkRateLimit(rlKey, isAnonymous ? 10 : 30);
