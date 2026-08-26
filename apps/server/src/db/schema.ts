@@ -68,6 +68,7 @@ export const applications = sqliteTable("applications", {
 		.default("applied"),
 	appliedAt: text("applied_at").notNull(),
 	notes: text("notes").default(""),
+	jd: text("jd"),
 });
 
 // ============================================================
@@ -233,4 +234,37 @@ export const userAiApis = sqliteTable("user_ai_apis", {
 	lastTestOk: integer("last_test_ok"),
 	createdAt: text("created_at").notNull(),
 	updatedAt: text("updated_at").notNull(),
+});
+
+// ============================================================
+// InterviewSession — 视频模拟面试会话
+// jd 为 ParsedJob JSON 字符串（投递带入或临时粘贴）；report 为评估报告 JSON 字符串
+// ============================================================
+export const interviewSessions = sqliteTable("interview_sessions", {
+	id: text("id").primaryKey(),
+	userId: text("user_id").notNull(),
+	resumeId: text("resume_id").notNull(),
+	applicationId: text("application_id"),
+	jd: text("jd"),
+	position: text("position"),
+	company: text("company"),
+	status: text("status").notNull().default("in_progress"), // in_progress | completed
+	score: integer("score"),
+	report: text("report"),
+	createdAt: text("created_at").notNull(),
+	updatedAt: text("updated_at").notNull(),
+});
+
+// ============================================================
+// InterviewMessage — 面试消息（一问一答，含语音 + 非语言分析）
+// audioBase64 为面试官 TTS 音频；nonVerbal 为该回答的视频帧分析结果 JSON
+// ============================================================
+export const interviewMessages = sqliteTable("interview_messages", {
+	id: text("id").primaryKey(),
+	sessionId: text("session_id").notNull(),
+	role: text("role").notNull(), // interviewer | candidate | system
+	content: text("content").notNull(),
+	audioBase64: text("audio_base64"),
+	nonVerbal: text("non_verbal"),
+	createdAt: text("created_at").notNull(),
 });

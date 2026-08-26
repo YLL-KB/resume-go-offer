@@ -58,6 +58,11 @@ const MIGRATIONS = [
   `INSERT OR IGNORE INTO roles (id, name, label, permissions, is_builtin, created_at, updated_at) VALUES ('role-viewer', 'viewer', '只读', '["admin.logs","admin.traces"]', 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
   // 内置套餐种子
   `INSERT OR IGNORE INTO plans (id, name, label, features, price_cents, sort_order, is_active, created_at, updated_at) VALUES ('plan-free', 'free', '免费版', '[]', NULL, 0, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+  `ALTER TABLE applications ADD COLUMN jd TEXT`,
+  `CREATE TABLE IF NOT EXISTS interview_sessions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, resume_id TEXT NOT NULL, application_id TEXT, jd TEXT, position TEXT, company TEXT, status TEXT DEFAULT 'in_progress' NOT NULL, score INTEGER, report TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS interview_messages (id TEXT PRIMARY KEY NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, audio_base64 TEXT, non_verbal TEXT, created_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_interview_sessions_user ON interview_sessions(user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_interview_messages_session ON interview_messages(session_id)`,
   // 核心业务表索引（历史遗漏，全表扫描导致读接口卡顿）
   `CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id, updated_at)`,

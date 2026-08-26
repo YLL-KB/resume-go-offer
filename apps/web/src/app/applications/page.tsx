@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@resume/ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@resume/ui";
 import { Badge } from "@resume/ui";
@@ -23,7 +24,7 @@ import {
   SelectTrigger,
 
 } from "@resume/ui";
-import { Plus, Trash2, GripVertical } from "lucide-react";
+import { Plus, Trash2, GripVertical, Video } from "lucide-react";
 import { toast } from "sonner";
 
 interface Application {
@@ -35,6 +36,7 @@ interface Application {
   status: string;
   appliedAt: string;
   notes: string;
+  jd?: string | null;
 }
 
 const STATUSES = ["applied", "screening", "interview", "offer", "rejected"] as const;
@@ -56,11 +58,12 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function ApplicationsPage() {
+  const router = useRouter();
   const [apps, setApps] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Application | null>(null);
-  const [form, setForm] = useState({ company: "", position: "", resumeId: "", notes: "" });
+  const [form, setForm] = useState({ company: "", position: "", resumeId: "", notes: "", jd: "" });
   const [submitting, setSubmitting] = useState(false);
 
   const fetchApps = async () => {
@@ -91,7 +94,7 @@ export default function ApplicationsPage() {
       if (res.ok) {
         toast.success("已添加投递记录");
         setShowAdd(false);
-        setForm({ company: "", position: "", resumeId: "", notes: "" });
+        setForm({ company: "", position: "", resumeId: "", notes: "", jd: "" });
         fetchApps();
       } else {
         const err = await res.json() as { error: string };
@@ -202,14 +205,24 @@ export default function ApplicationsPage() {
                           {app.notes && (
                             <p className="text-xs text-slate-500 line-clamp-2">{app.notes}</p>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setDeleteTarget(app)}
-                            className="text-xs text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all h-auto py-0"
-                          >
-                            <Trash2 className="size-3" /> 删除
-                          </Button>
+                          <div className="flex items-center gap-2 pt-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => router.push(`/interview?applicationId=${app.id}`)}
+                              className="text-xs h-auto py-0.5"
+                            >
+                              <Video className="size-3 mr-1" /> 模拟面试
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteTarget(app)}
+                              className="text-xs text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all h-auto py-0 ml-auto"
+                            >
+                              <Trash2 className="size-3" /> 删除
+                            </Button>
+                          </div>
                         </CardContent>
                       </Card>
                     ))}
@@ -235,6 +248,10 @@ export default function ApplicationsPage() {
               <div>
                 <Label>职位 *</Label>
                 <Input value={form.position} onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))} placeholder="例如：前端工程师" />
+              </div>
+              <div>
+                <Label>岗位要求（JD）</Label>
+                <Textarea value={form.jd} onChange={(e) => setForm((f) => ({ ...f, jd: e.target.value }))} placeholder="粘贴目标岗位的 JD，后续可直接用这份 JD 做模拟面试" rows={4} />
               </div>
               <div>
                 <Label>备注</Label>

@@ -42,6 +42,7 @@ applicationsRoutes.post("/", async (c) => {
       company?: string;
       position?: string;
       notes?: string;
+      jd?: string;
     };
 
     if (!body.company?.trim() || !body.position?.trim()) {
@@ -61,6 +62,7 @@ applicationsRoutes.post("/", async (c) => {
       status: "applied",
       appliedAt: now,
       notes: body.notes ?? "",
+      jd: body.jd ?? null,
     });
 
     return c.json({
@@ -72,6 +74,7 @@ applicationsRoutes.post("/", async (c) => {
       status: "applied",
       appliedAt: now,
       notes: body.notes ?? "",
+      jd: body.jd ?? null,
     }, 201);
   } catch (err) {
     console.error("创建投递失败", err);
@@ -84,10 +87,10 @@ applicationsRoutes.patch("/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const { userId } = await getAuthUserId(c.req.raw);
-    const body = await c.req.json() as { status?: string; notes?: string };
+    const body = await c.req.json() as { status?: string; notes?: string; jd?: string };
     const db = getDb();
 
-    const updates: Record<string, string> = {};
+    const updates: Record<string, string | null> = {};
     if (body.status) {
       const validStatuses = ["applied", "screening", "interview", "offer", "rejected"];
       if (!validStatuses.includes(body.status)) {
@@ -97,6 +100,9 @@ applicationsRoutes.patch("/:id", async (c) => {
     }
     if (body.notes !== undefined) {
       updates.notes = body.notes;
+    }
+    if (body.jd !== undefined) {
+      updates.jd = body.jd;
     }
 
     const result = await db

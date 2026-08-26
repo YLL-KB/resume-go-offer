@@ -12,6 +12,7 @@ import { resumeRoutes } from "./routes/resume";
 import { analysisRoutes } from "./routes/analysis";
 import { byokRoutes } from "./routes/byok";
 import { usageRoutes } from "./routes/usage";
+import { interviewRoutes } from "./routes/interview";
 import { requestLogger } from "./lib/logging/request-logger";
 
 const app = new Hono();
@@ -33,6 +34,7 @@ api.route("/resume", resumeRoutes);
 api.route("/analysis", analysisRoutes);
 api.route("/user/ai-config", byokRoutes);
 api.route("/user/usage", usageRoutes);
+api.route("/interview", interviewRoutes);
 
 app.route("/api", api);
 
