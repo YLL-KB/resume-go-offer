@@ -26,7 +26,6 @@ const ALGO = "aes-256-gcm";
 const ENC_VERSION = "v1";
 
 let _masterKey: Buffer | null = null;
-let _devEphemeral = false;
 
 function getMasterKey(): Buffer {
   if (_masterKey) return _masterKey;
@@ -36,7 +35,6 @@ function getMasterKey(): Buffer {
   } else if (process.env.NODE_ENV === "development") {
     // 本地开发：进程内随机密钥（重启失效，仅调试用）
     _masterKey = randomBytes(32);
-    _devEphemeral = true;
     console.warn("[byok] BYOK_MASTER_KEY 未配置，使用进程内临时密钥（仅开发环境）。生产环境必须配置 64 位 hex 密钥。");
   } else {
     throw new Error("[byok] 服务端未配置 BYOK_MASTER_KEY（64 位 hex），无法加解密用户 API Key");
@@ -46,8 +44,9 @@ function getMasterKey(): Buffer {
 
 /** 是否使用开发临时密钥（重启后旧密文无法解密，需提示用户重新保存） */
 export function isDevEphemeralKey(): boolean {
-  getMasterKey();
-  return _devEphemeral;
+  const raw = process.env.BYOK_MASTER_KEY;
+  if (raw && /^[0-9a-fA-F]{64}$/.test(raw)) return false;
+  return process.env.NODE_ENV === "development";
 }
 
 export function encryptApiKey(plain: string): string {
