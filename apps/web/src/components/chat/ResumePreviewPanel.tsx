@@ -10,7 +10,9 @@ import { type ResumeTheme, THEMES } from "@/components/resume/TemplateResume";
 type ExportFormat = "pdf" | "html";
 
 export function ResumePreviewPanel() {
-  const { resumeData, skillsHtmlMap, showPreview, setShowPreview, setSkillsHtmlMap, resumeTheme, setResumeTheme } = useChatStore();
+  const { resumeData, previewData, skillsHtmlMap, showPreview, setShowPreview, setSkillsHtmlMap, resumeTheme, setResumeTheme } = useChatStore();
+  // demo 预览：优先展示独立 previewData（示例简历），否则用用户真实简历数据
+  const effectiveData = previewData ?? resumeData;
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [generating, setGenerating] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -19,7 +21,7 @@ export function ResumePreviewPanel() {
 
   // ── 生成技能 HTML ──
   const generate = useCallback(async () => {
-    if (!resumeData || generatingRef.current) return;
+    if (!effectiveData || generatingRef.current) return;
 
     generatingRef.current = true;
     setGenerating(true);
@@ -31,7 +33,7 @@ export function ResumePreviewPanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          categorizedSkills: resumeData?.categorizedSkills ?? {},
+          categorizedSkills: effectiveData?.categorizedSkills ?? {},
         }),
       });
 
@@ -51,18 +53,18 @@ export function ResumePreviewPanel() {
       setGenerating(false);
       generatingRef.current = false;
     }
-  }, [resumeData, setSkillsHtmlMap]);
+  }, [effectiveData, setSkillsHtmlMap]);
 
   // 首次展开预览时自动生成
   useEffect(() => {
-    if (showPreview && resumeData && !skillsHtmlMap && !generatingRef.current) {
+    if (showPreview && effectiveData && !skillsHtmlMap && !generatingRef.current) {
       generate();
     }
-  }, [showPreview, resumeData, skillsHtmlMap, generate]);
+  }, [showPreview, effectiveData, skillsHtmlMap, generate]);
 
   // ── 打印处理 ──
   useEffect(() => {
-    if (!showPreview || !resumeData) return;
+    if (!showPreview || !effectiveData) return;
     const beforePrint = () => {
       const src = document.querySelector(".print-resume");
       if (!src) return;
@@ -114,9 +116,9 @@ export function ResumePreviewPanel() {
       window.removeEventListener("beforeprint", beforePrint);
       window.removeEventListener("afterprint", afterPrint);
     };
-  }, [showPreview, resumeData]);
+  }, [showPreview, effectiveData]);
 
-  if (!showPreview || !resumeData) return null;
+  if (!showPreview || !effectiveData) return null;
 
   const skillsHtml = skillsHtmlMap?.default ?? null;
 
@@ -195,7 +197,7 @@ export function ResumePreviewPanel() {
               </Button>
             </div>
           ) : (
-            <TemplateResume data={resumeData} skillsHtml={skillsHtml} theme={resumeTheme} />
+            <TemplateResume data={effectiveData} skillsHtml={skillsHtml} theme={resumeTheme} />
           )}
         </div>
 

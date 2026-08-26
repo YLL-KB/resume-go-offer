@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { Fragment, useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useChatStore, type ChatMessage as ChatMessageType } from "@/stores/chat-store";
 import { FormCard, type FormType } from "./FormCard";
 import { syncResumeToLibrary } from "./sync-resume";
@@ -350,8 +350,8 @@ export function ChatMessages() {
   const { messages, isStreaming, parsingAttachment, isExtracting, setShowPreview, setResumeData, setExtracting, conversationId, extractStreamText, setExtractStreamText, appendExtractStreamText } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [formState] = useState<Map<string, { type: FormType; submitted?: boolean }>>(new Map());
-  // LangGraph: tool-push-form 事件触发的表单
-  const [toolForms, setToolForms] = useState<Array<{ key: string; type: FormType }>>([]);
+  // LangGraph: tool-push-form 事件触发的表单（anchorId 指向触发它的 assistant 消息，用于内联渲染）
+  const [toolForms, setToolForms] = useState<Array<{ key: string; type: FormType; anchorId: string | null }>>([]);
   // 全局去重：每个表单类型只在第一条包含它的消息中渲染
   const { firstFormMsgIds, shownFormTypes } = useMemo(() => {
     const first = new Map<string, string>();
@@ -412,9 +412,9 @@ export function ChatMessages() {
 
     // LangGraph: tool-push-form 事件 → 展示表单卡片
     const handleToolPushForm = (e: Event) => {
-      const { type } = (e as CustomEvent).detail as { type: string };
+      const { type, anchorId } = (e as CustomEvent).detail as { type: string; anchorId?: string | null };
       const key = `tool-${type}-${Date.now()}`;
-      setToolForms((prev) => [...prev, { key, type: type as FormType }]);
+      setToolForms((prev) => [...prev, { key, type: type as FormType, anchorId: anchorId ?? null }]);
     };
 
     window.addEventListener("form-submit", handleSubmit);
@@ -483,6 +483,22 @@ export function ChatMessages() {
     }
   }, [hasFormDone, conversationId, lastMsg?.id, setExtracting, setResumeData, setShowPreview, storeResumeData, appendExtractStreamText, setExtractStreamText]);
 
+  // 工具推送的表单卡片（与 [FORM:xxx] 内联表单共用 form-submit → form-data 提交链路）
+  const renderToolForm = (tf: { key: string; type: FormType; anchorId: string | null }) => (
+    <FormCard
+      key={tf.key}
+      type={tf.type}
+      onSubmit={(_t, data) => {
+        formState.set(tf.key, { type: tf.type, submitted: true });
+        window.dispatchEvent(new CustomEvent("form-data", { detail: { type: tf.type, data } }));
+      }}
+      onCancel={() => {
+        formState.set(tf.key, { type: tf.type, submitted: true });
+        window.dispatchEvent(new CustomEvent("form-skip", { detail: { type: tf.type } }));
+      }}
+    />
+  );
+
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6">
       <div className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -494,7 +510,10 @@ export function ChatMessages() {
         )}
 
         {messages.filter((m) => m.role !== "system").map((msg) => (
-          <ChatBubble key={msg.id} msg={msg} formMessages={formState} firstFormMsgIds={firstFormMsgIds} userAvatarUrl={userAvatarUrl} />
+          <Fragment key={msg.id}>
+            <ChatBubble msg={msg} formMessages={formState} firstFormMsgIds={firstFormMsgIds} userAvatarUrl={userAvatarUrl} />
+            {visibleToolForms.filter((tf) => tf.anchorId === msg.id).map(renderToolForm)}
+          </Fragment>
         ))}
 
         {/* 简历提取中 */}
@@ -510,21 +529,8 @@ export function ChatMessages() {
           </div>
         )}
 
-        {/* LangGraph: tool-push-form 触发的表单卡片 */}
-        {visibleToolForms.map((tf) => (
-          <FormCard
-            key={tf.key}
-            type={tf.type}
-            onSubmit={(_t, data) => {
-              formState.set(tf.key, { type: tf.type, submitted: true });
-              window.dispatchEvent(new CustomEvent("form-data", { detail: { type: tf.type, data } }));
-            }}
-            onCancel={() => {
-              formState.set(tf.key, { type: tf.type, submitted: true });
-              window.dispatchEvent(new CustomEvent("form-skip", { detail: { type: tf.type } }));
-            }}
-          />
-        ))}
+        {/* 兜底：无锚点的工具表单（理论上不应出现，保留以兼容旧数据）渲染在末尾 */}
+        {visibleToolForms.filter((tf) => !tf.anchorId).map(renderToolForm)}
 
         {isStreaming && messages[messages.length - 1]?.content === "" && <TypingIndicator parsing={parsingAttachment} />}
 

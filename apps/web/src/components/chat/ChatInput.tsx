@@ -19,6 +19,8 @@ export function ChatInput() {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // 当前这条 assistant 占位消息的 id，供 pushForm 表单卡片锚定到正确位置（内联渲染）
+  const assistantMsgIdRef = useRef<string | null>(null);
   const {
     conversationId,
     isStreaming,
@@ -34,6 +36,7 @@ export function ChatInput() {
     setParsingAttachment,
     setError,
     setResumeData,
+    setPreviewData,
     setExtracting,
     setExtractStreamText,
     appendExtractStreamText,
@@ -92,6 +95,7 @@ export function ChatInput() {
       createdAt: new Date().toISOString(),
     };
     addMessage(assistantMsg);
+    assistantMsgIdRef.current = assistantMsg.id;
 
     setStreaming(true);
     setParsingAttachment(!!withAttachments);
@@ -186,19 +190,26 @@ export function ChatInput() {
                 }
                 if (parsed.error) setError(parsed.error);
                 if (parsed.tool_call?.name === "pushForm") {
+                  // 带上锚点消息 id，让表单卡片内联渲染在触发它的那条 AI 消息之后（而非列表末尾）
                   window.dispatchEvent(new CustomEvent("tool-push-form", {
-                    detail: { type: parsed.tool_call.args.type as string },
+                    detail: { type: parsed.tool_call.args.type as string, anchorId: assistantMsgIdRef.current },
                   }));
                 }
-                // 收到工具调用时，清空已推送的开场白（如"让我先搜索…"），避免与最终答复重复
-                if (parsed.tool_call) {
+                // 收到工具调用时，清空已推送的开场白（如"让我先搜索…"），避免与最终答复重复。
+                // pushForm 例外：保留开场白作为表单引导语，表单卡片内联紧随其后。
+                if (parsed.tool_call && parsed.tool_call.name !== "pushForm") {
                   clearLastAssistantMessage();
                 }
                 if (parsed.resumeData) {
-                  setResumeData(parsed.resumeData as Partial<ResumeData>);
+                  if (parsed.isDemo) {
+                    // demo 示例简历：写入独立 previewData，不污染真实 resumeData、不同步到「我的简历」
+                    setPreviewData(parsed.resumeData as ResumeData);
+                  } else {
+                    setResumeData(parsed.resumeData as Partial<ResumeData>);
+                    // 联动：提取结果同步到「我的简历」
+                    syncResumeToLibrary(parsed.conversationId ?? undefined);
+                  }
                   setShowPreview(true);
-                  // 联动：提取结果同步到「我的简历」
-                  syncResumeToLibrary(parsed.conversationId ?? undefined);
                 }
               }
             } catch { /* 单行 JSON 损坏则丢弃，避免污染 buffer */ }
@@ -214,7 +225,7 @@ export function ChatInput() {
       setParsingAttachment(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [isStreaming, conversationId, addMessage, appendToLastMessage, clearLastAssistantMessage, setConversationId, setConversations, setStreaming, setParsingAttachment, setError, setResumeData, setShowPreview]);
+  }, [isStreaming, conversationId, addMessage, appendToLastMessage, clearLastAssistantMessage, setConversationId, setConversations, setStreaming, setParsingAttachment, setError, setResumeData, setPreviewData, setShowPreview]);
 
   // ── 监听表单事件 ──
   useEffect(() => {

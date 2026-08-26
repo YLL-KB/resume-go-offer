@@ -23,6 +23,7 @@ import {
   User,
   KeyRound,
   ChartColumn,
+  type LucideIcon,
 } from "lucide-react";
 
 // ── 动画预设 ──
@@ -280,13 +281,19 @@ const steps = [
   },
 ];
 
-const aiFeatures = [
+const aiFeatures: Array<{
+  icon: LucideIcon;
+  title: string;
+  desc: string;
+  highlight: string;
+  href?: string;
+}> = [
   { icon: Sparkles, title: "AI 润色优化", desc: "用有力的动词和量化成果改写经历描述，让 HR 一眼看到亮点。", highlight: "GPT / DeepSeek" },
   { icon: FileSearch, title: "竞争力分析", desc: "AI 从 HR 视角评分，指出具体不足并给出可替换的改写建议。", highlight: "评分 + 建议" },
   { icon: MousePointerClick, title: "可视化编辑器", desc: "所见即所得编辑 PDF 模板，原位替换文字，保留原始排版不变。", highlight: "原位编辑" },
   { icon: TrendingUp, title: "投递追踪看板", desc: "看板管理已投 / 初筛 / 面试 / Offer 全流程，求职进度不遗漏。", highlight: "看板视图" },
-  { icon: KeyRound, title: "自带 API Key", desc: "配置你自己的 OpenAI / DeepSeek / 智谱 Key，密钥加密只进不出，用自己的 token 省钱又灵活。", highlight: "BYOK" },
-  { icon: ChartColumn, title: "用量透明可查", desc: "token 用量与成本实时记账，平台 / 自带流量分开统计，花多少一目了然。", highlight: "用量看板" },
+  { icon: KeyRound, title: "自带 API Key", desc: "配置你自己的 OpenAI / DeepSeek / 智谱 Key，密钥加密只进不出，用自己的 token 省钱又灵活。", highlight: "BYOK", href: "/settings" },
+  { icon: ChartColumn, title: "用量透明可查", desc: "token 用量与成本实时记账，平台 / 自带流量分开统计，花多少一目了然。", highlight: "用量看板", href: "/settings" },
 ];
 
 const stats = [
@@ -344,16 +351,28 @@ export default function HomePage() {
                   </Badge>
                 </motion.div>
 
-                <motion.h1
-                  className="text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl text-slate-900"
-                  {...stagger(0.1)}
-                >
-                  跟 AI 聊聊
-                  <br />
-                  <span className="bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent">
-                    一份专业简历就出来了
+                <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl lg:text-5xl text-slate-900">
+                  <span className="block overflow-hidden pb-1">
+                    <motion.span
+                      className="block"
+                      initial={{ y: "100%", opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                      跟 AI 聊聊
+                    </motion.span>
                   </span>
-                </motion.h1>
+                  <span className="block overflow-hidden pb-1">
+                    <motion.span
+                      className="block bg-gradient-to-r from-emerald-600 via-teal-500 to-cyan-500 bg-clip-text text-transparent"
+                      initial={{ y: "100%", opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      transition={{ duration: 0.6, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                      一份专业简历就出来了
+                    </motion.span>
+                  </span>
+                </h1>
 
                 <motion.p
                   className="mt-6 max-w-lg text-slate-500 text-lg leading-relaxed"
@@ -509,8 +528,8 @@ export default function HomePage() {
           <SectionDesc>AI 从对话、润色到导出，一站式搞定专业简历。</SectionDesc>
 
           <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {aiFeatures.map((f, i) => (
-              <motion.div key={f.title} {...stagger(i * 0.08)}>
+            {aiFeatures.map((f, i) => {
+              const card = (
                 <GlassCard className="h-full">
                   <div className="p-5">
                     <div className="flex items-start justify-between">
@@ -523,10 +542,22 @@ export default function HomePage() {
                     </div>
                     <h3 className="mt-4 font-semibold text-slate-900">{f.title}</h3>
                     <p className="mt-1.5 text-sm text-slate-500 leading-relaxed">{f.desc}</p>
+                    {f.href && (
+                      <div className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+                        前往设置 <ArrowRight className="size-3" />
+                      </div>
+                    )}
                   </div>
                 </GlassCard>
-              </motion.div>
-            ))}
+              );
+              return (
+                <motion.div key={f.title} {...stagger(i * 0.08)}>
+                  {f.href ? (
+                    <Link href={f.href} className="block h-full">{card}</Link>
+                  ) : card}
+                </motion.div>
+              );
+            })}
           </div>
         </section>
 

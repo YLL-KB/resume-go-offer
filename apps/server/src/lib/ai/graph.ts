@@ -12,7 +12,7 @@ import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import { AIMessage, AIMessageChunk, SystemMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import { AGENT_TOOLS, getToolsForMode } from "./tools";
-import { ROUTER_PROMPT, WORKER_PROMPTS } from "./prompts";
+import { ROUTER_PROMPT, WORKER_PROMPTS, OFFTOPIC_REPLIES, PLATFORM_BOUNDARY_RULE } from "./prompts";
 import { RESUME_KNOWLEDGE_BASE } from "./knowledge";
 import { vectorStore } from "./vectorstore";
 import { embedTexts } from "./embeddings";
@@ -70,7 +70,7 @@ const GraphState = Annotation.Root({
   }),
 
   // Router 分类结果
-  mode: Annotation<"chatting" | "collecting" | "advising" | "extracting">({
+  mode: Annotation<"chatting" | "collecting" | "advising" | "extracting" | "offtopic">({
     reducer: (_, update) => update,
     default: () => "chatting",
   }),
@@ -123,6 +123,9 @@ function truncateMessage(m: BaseMessage, maxLen: number): BaseMessage {
 
 /** router 输出非 JSON 时的关键词兜底分类（不再一律 fallback 到 collecting） */
 function classifyByKeywords(text: string, hasResume: boolean): { mode: "chatting" | "collecting" | "advising" | "extracting"; instruction: string } {
+  if (/demo|示例|样例|模板|例子|简历示例|案例简历/i.test(text)) {
+    return { mode: "extracting", instruction: "生成示例简历" };
+  }
   if (/生成简历|帮我生成|可以了|差不多了|确认生成|出简历/.test(text)) {
     return { mode: "extracting", instruction: "确认生成简历" };
   }
@@ -219,7 +222,7 @@ async function routerNode(state: GraphStateType): Promise<Partial<GraphStateType
 
   console.log(`[Router] 原始输出: ${content.slice(0, 200)}`);
 
-  const validModes = ["chatting", "collecting", "advising", "extracting"];
+  const validModes = ["chatting", "collecting", "advising", "extracting", "offtopic"];
 
   try {
     // 尝试提取 JSON
@@ -261,13 +264,21 @@ async function workerNode(state: GraphStateType): Promise<Partial<GraphStateType
     };
   }
 
-  const mode = state.mode ?? "chatting";
+  // offtopic 能走到 worker 的只有 BYOK 用户（平台 key 已被 routeAfterRouter 拦到 offtopicNode），
+  // 这里转成 chatting 保持宽松：烧用户自己的 key，正常聊。
+  const rawMode = state.mode ?? "chatting";
+  const mode = rawMode === "offtopic" ? "chatting" : rawMode;
   const modePrompt = WORKER_PROMPTS[mode] ?? WORKER_PROMPTS.chatting;
 
   // 拼接 Router 指令
   let fullPrompt = state.routerInstruction
     ? `${modePrompt}\n\n## 当前指令\n${state.routerInstruction}`
     : modePrompt;
+
+  // 平台 key 用户注入边界铁律（BYOK 用户保持宽松，不注入）
+  if (!state.aiConfig) {
+    fullPrompt += PLATFORM_BOUNDARY_RULE;
+  }
 
   // 扫描历史 tool_calls，收集已推送的表单（防止重复推送）
   const pushed = new Set(state.formsPushed ?? []);
@@ -332,6 +343,21 @@ function shouldContinue(state: GraphStateType): "tools" | "__end__" {
   return "__end__";
 }
 
+// ── Off-topic 软拒节点（仅平台 key 用户到达，零大模型成本）──
+
+async function offtopicNode(_state: GraphStateType): Promise<Partial<GraphStateType>> {
+  const reply = OFFTOPIC_REPLIES[Math.floor(Math.random() * OFFTOPIC_REPLIES.length)];
+  recordDegradation("offtopic_blocked");
+  return { messages: [new AIMessage({ content: reply })] };
+}
+
+// ── Router 之后分流：平台 key 的 offtopic 拦到软拒节点，其余（含 BYOK）进 worker ──
+
+function routeAfterRouter(state: GraphStateType): "worker" | "offtopic" {
+  if (state.mode === "offtopic" && !state.aiConfig) return "offtopic";
+  return "worker";
+}
+
 // ── 工具节点 ──
 
 const toolNode = new ToolNode(AGENT_TOOLS, { handleToolErrors: true });
@@ -341,14 +367,19 @@ const toolNode = new ToolNode(AGENT_TOOLS, { handleToolErrors: true });
 const agentGraph = new StateGraph(GraphState)
   .addNode("router", routerNode)
   .addNode("worker", workerNode)
+  .addNode("offtopic", offtopicNode)
   .addNode("tools", toolNode)
   .addEdge("__start__", "router")
-  .addEdge("router", "worker")
+  .addConditionalEdges("router", routeAfterRouter, {
+    worker: "worker",
+    offtopic: "offtopic",
+  })
   .addConditionalEdges("worker", shouldContinue, {
     tools: "tools",
     __end__: "__end__",
   })
   .addEdge("tools", "worker")
+  .addEdge("offtopic", "__end__")
   .compile();
 
 export { agentGraph };

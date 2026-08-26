@@ -30,6 +30,8 @@ interface ChatState {
 
   // 简历
   resumeData: ResumeData | null;
+  // 示例简历（demo）预览数据——独立于 resumeData，避免虚构数据污染用户真实简历
+  previewData: ResumeData | null;
   skillsHtmlMap: Record<string, string> | null;
   isExtracting: boolean;
   extractStreamText: string;
@@ -65,6 +67,7 @@ interface ChatState {
   setParsingAttachment: (v: boolean) => void;
   setError: (err: string | null) => void;
   setResumeData: (data: Partial<ResumeData>) => void;
+  setPreviewData: (data: ResumeData | null) => void;
   loadResumeDraft: () => void;
   clearResumeDraft: () => void;
   setSkillsHtmlMap: (map: Record<string, string> | null) => void;
@@ -88,6 +91,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   parsingAttachment: false,
   error: null,
   resumeData: null,
+  previewData: null,
   skillsHtmlMap: null,
   isExtracting: false,
   extractStreamText: "",
@@ -148,8 +152,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (typeof window !== "undefined") {
         try { localStorage.setItem("resume_draft", JSON.stringify(merged)); } catch { /* quota exceeded */ }
       }
-      return { resumeData: merged, skillsHtmlMap: null };
+      return { resumeData: merged, previewData: null, skillsHtmlMap: null };
     }),
+
+  setPreviewData: (data) => set({ previewData: data, skillsHtmlMap: null }),
 
   loadResumeDraft: () => {
     if (typeof window === "undefined") return;
@@ -201,6 +207,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isStreaming: false,
       error: null,
       resumeData: null,
+      previewData: null,
       skillsHtmlMap: null,
       isExtracting: false,
       extractStreamText: "",
@@ -217,6 +224,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isExtracting: false,
       extractStreamText: "",
       resumeData: null,
+      previewData: null,
       skillsHtmlMap: null,
       showPreview: false,
       error: null,

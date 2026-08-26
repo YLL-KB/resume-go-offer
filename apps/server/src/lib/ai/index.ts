@@ -538,6 +538,26 @@ export const ai = {
   },
 
   /**
+   * 生成示例简历（demo）——虚构候选人数据，用于展示简历预览排版。
+   * 不涉及用户真实信息，走提取模型生成完整结构化数据。
+   */
+  async generateDemoResume(usageCtx?: UsageContextLike): Promise<Record<string, unknown> | null> {
+    const { buildDemoResumePrompt } = await import("./prompts");
+    const t0 = Date.now();
+    const res = await tracedCompletion(currentExtractClient(), {
+      model: currentExtractModel(),
+      temperature: 0.7,
+      max_tokens: 4096,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: buildDemoResumePrompt() }],
+    }, "extractDemo", { signal: AbortSignal.timeout(90_000) }, usageCtx);
+
+    const text = res.choices[0]?.message?.content?.trim() ?? "";
+    console.log(`[extract-demo] ${((Date.now() - t0) / 1000).toFixed(1)}s  output=${text.length}chars`);
+    return safeJsonParse<Record<string, unknown>>(text);
+  },
+
+  /**
    * 流式提取简历数据 — 返回 SSE ReadableStream
    *
    * 三组并行：core 组走流式作为前端进度展示，experience/projects

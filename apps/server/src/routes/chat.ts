@@ -3,7 +3,7 @@
  */
 
 import { Hono } from "hono";
-import { ai, openai, DEFAULT_MODEL, runWithAIConfig, currentChatClient, currentChatModel, type RuntimeAiConfigs } from "../lib/ai";
+import { ai, DEFAULT_MODEL, runWithAIConfig, currentChatClient, currentChatModel, type RuntimeAiConfigs } from "../lib/ai";
 import { SYSTEM_PROMPT, GREETING_NEW_USER } from "../lib/ai/prompts";
 import {
   parseAttachmentFile,
@@ -45,6 +45,40 @@ function extractTextContent(content: unknown): string {
   return "";
 }
 
+// 从 on_tool_end 的 event.data.output 提取工具返回的字符串内容。
+// LangGraph v1.x 的 ToolNode 返回 ToolMessage，序列化为 { lc, type, id, kwargs: { content, ... } }，
+// 也兼容直接返回 string 或 { content } 的形态。
+function extractToolOutput(output: unknown): unknown {
+  if (output && typeof output === "object") {
+    const o = output as Record<string, unknown>;
+    if (o.kwargs && typeof o.kwargs === "object") {
+      const k = o.kwargs as Record<string, unknown>;
+      if ("content" in k) return k.content;
+    }
+    if ("content" in o) return o.content;
+  }
+  return output;
+}
+
+// 从 on_tool_end 的 event.data.input 解析工具入参。
+// ToolNode 把工具入参包成 { input: '<json string>' }。
+function extractToolArgs(input: unknown): Record<string, unknown> {
+  if (input && typeof input === "object") {
+    const o = input as Record<string, unknown>;
+    if (typeof o.input === "string") {
+      try {
+        const parsed = JSON.parse(o.input);
+        if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+      } catch { /* fallthrough */ }
+    }
+    // 兼容直接是入参对象的情况
+    if (!("input" in o) || Object.keys(o).length > 1) {
+      return o as Record<string, unknown>;
+    }
+  }
+  return {};
+}
+
 // 从 LangChain model end 事件的 output 提取 token usage（兼容 usage_metadata / response_metadata）
 function extractTokenUsage(output: unknown): { input: number; output: number; total: number } | null {
   if (!output || typeof output !== "object") return null;
@@ -78,7 +112,7 @@ chatRoutes.post("/", async (c) => {
   let conversationId: string | undefined;
   let message = "";
   let resumeData: Record<string, unknown> | undefined;
-  let attachmentInputs: Array<{ kind: "file"; file: File } | { kind: "url"; url: string }> = [];
+  const attachmentInputs: Array<{ kind: "file"; file: File } | { kind: "url"; url: string }> = [];
 
   if (contentType.includes("multipart/form-data")) {
     const formData = await c.req.formData().catch(() => null);
@@ -339,6 +373,15 @@ chatRoutes.post("/", async (c) => {
                       const out = event.data?.output as { mode?: string } | undefined;
                       if (out?.mode) collector.mode = out.mode;
                     }
+                    // offtopic 节点不走 model.stream，不会触发 on_chat_model_* 事件，这里兜底转发软拒回复
+                    if (event.name === "offtopic") {
+                      const out = event.data?.output as { messages?: Array<{ content?: unknown }> } | undefined;
+                      const text = extractTextContent(out?.messages?.[0]?.content);
+                      if (text) {
+                        fullReply += text;
+                        send({ content: text, conversationId: convId });
+                      }
+                    }
                     break;
                   }
                   case "on_chat_model_start": {
@@ -439,11 +482,13 @@ chatRoutes.post("/", async (c) => {
                     }
                     if (meta?.langgraph_node === "router") break;
                     if (event.name === "extractResume") {
-                      const raw = event.data?.output;
+                      const raw = extractToolOutput(event.data?.output);
+                      const toolArgs = extractToolArgs(event.data?.input);
+                      const isDemo = !!toolArgs.demo;
                       if (typeof raw === "string") {
                         try {
                           const parsed = JSON.parse(raw);
-                          send({ resumeData: parsed, conversationId: convId });
+                          send({ resumeData: parsed, conversationId: convId, isDemo });
                         } catch {
                           send({ error: "简历数据解析失败" });
                         }
@@ -511,7 +556,9 @@ chatRoutes.post("/", async (c) => {
               }).then(() => { saved = true; });
 
               let titlePromise: Promise<unknown> = Promise.resolve();
-              if (history.length === 0) {
+              // 首条「用户」消息才生成标题——新对话预插了开场白 assistant 消息，
+              // 不能用 history.length===0（会永远为 false，导致标题始终是"新对话"）
+              if (!history.some((m) => m.role === "user")) {
                 titlePromise = currentChatClient().chat.completions.create({
                   model: currentChatModel(),
                   temperature: 0.3,

@@ -390,6 +390,77 @@ async function parseResumeWithFallback(rawText: string, usageCtx?: AttachmentUsa
 }
 
 /**
+ * 提取文档（Word/PDF）的纯文本，供面试简历结构化提取复用。
+ * PDF 会先尝试 Resume Workshop 的 base64 解码，避免 AI 幻觉。
+ */
+export async function extractDocumentText(bytes: Buffer, mime: string, fileName: string): Promise<string> {
+  const ext = fileExt(fileName);
+
+  const isWord =
+    mime.includes("wordprocessingml") || mime === "application/msword" || [".docx", ".doc"].includes(ext);
+  if (isWord) {
+    const mammoth = await import("mammoth");
+    const result = await mammoth.extractRawText({ buffer: bytes });
+    const text = result.value?.trim();
+    if (!text || text.length < 20) {
+      throw new AttachmentParseError("未能从文件中提取到文字内容", 422);
+    }
+    return text;
+  }
+
+  const isPdf = mime === "application/pdf" || ext === ".pdf";
+  if (isPdf) {
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const uint8 = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const doc = await pdfjsLib.getDocument({ data: uint8 }).promise;
+    const pages: string[] = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item) => ("str" in item ? (item as { str: string }).str : ""))
+        .join(" ");
+      pages.push(pageText);
+    }
+    const rawText = pages.join("\n").trim();
+    if (!rawText || rawText.length < 20) {
+      throw new AttachmentParseError("未能从 PDF 中提取到文字内容（可能是扫描版 PDF）", 422);
+    }
+    return detectAndParseResumeWorkshop(rawText) ?? rawText;
+  }
+
+  throw new AttachmentParseError("不支持的文件格式，请上传 PDF 或 Word 文档", 400);
+}
+
+/**
+ * 招聘链接 → 结构化岗位信息（ParsedJob）。
+ * 抓取失败 / 无法识别抛 AttachmentParseError；提取失败返回 null。
+ */
+export async function parseJobFromUrl(url: string, usageCtx?: AttachmentUsageCtx): Promise<ParsedJob | null> {
+  let html: string;
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; ResumeGoOffer/1.0)" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    html = await res.text();
+  } catch (err) {
+    throw new AttachmentParseError(
+      `无法访问该链接：${err instanceof Error ? err.message : "网络错误"}`,
+      422,
+    );
+  }
+
+  const text = stripHtml(html);
+  if (!text || text.length < 50) {
+    throw new AttachmentParseError("未能从该链接提取到有效内容", 422);
+  }
+
+  return withRetry(() => parseJobFromText(text, usageCtx), "parseJobFromText");
+}
+
+/**
  * 文件附件（图片/Word/PDF）→ 对话注入文本。
  * 输入不合格（超限/格式/扫描版 PDF）抛 AttachmentParseError，路由层返回 4xx。
  */
@@ -427,13 +498,7 @@ export async function parseAttachmentFile(file: File, usageCtx?: AttachmentUsage
     if (bytes.length > MAX_DOC_SIZE) {
       throw new AttachmentParseError("文件过大（最大 15MB）", 413);
     }
-    const mammoth = await import("mammoth");
-    const result = await mammoth.extractRawText({ buffer: bytes });
-    const text = result.value?.trim();
-    if (!text || text.length < 20) {
-      throw new AttachmentParseError("未能从文件中提取到文字内容", 422);
-    }
-    const content = await parseResumeWithFallback(text, usageCtx);
+    const content = await parseResumeWithFallback(await extractDocumentText(bytes, mime, fileName), usageCtx);
     return { kind: "resume", formatted: `[用户上传了简历文件]\n\n${content}` };
   }
 
@@ -442,31 +507,7 @@ export async function parseAttachmentFile(file: File, usageCtx?: AttachmentUsage
     if (bytes.length > MAX_DOC_SIZE) {
       throw new AttachmentParseError("文件过大（最大 15MB）", 413);
     }
-    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-
-    const uint8 = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const doc = await pdfjsLib.getDocument({ data: uint8 }).promise;
-
-    const pages: string[] = [];
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      const pageText = content.items
-        .map((item) => ("str" in item ? (item as { str: string }).str : ""))
-        .join(" ");
-      pages.push(pageText);
-    }
-
-    const rawText = pages.join("\n").trim();
-
-    if (!rawText || rawText.length < 20) {
-      throw new AttachmentParseError("未能从 PDF 中提取到文字内容（可能是扫描版 PDF）", 422);
-    }
-
-    // Resume Workshop 导出 PDF 的 base64 解码
-    const decoded = detectAndParseResumeWorkshop(rawText);
-    const content = await parseResumeWithFallback(decoded ?? rawText, usageCtx);
-
+    const content = await parseResumeWithFallback(await extractDocumentText(bytes, mime, fileName), usageCtx);
     return { kind: "resume", formatted: `[用户上传了简历文件]\n\n${content}` };
   }
 
@@ -478,30 +519,11 @@ export async function parseAttachmentFile(file: File, usageCtx?: AttachmentUsage
  * 抓取失败 / 识别失败抛 AttachmentParseError。
  */
 export async function parseAttachmentUrl(url: string, usageCtx?: AttachmentUsageCtx): Promise<ParsedChatAttachment> {
-  let html: string;
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ResumeGoOffer/1.0)" },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    html = await res.text();
-  } catch (err) {
-    throw new AttachmentParseError(
-      `无法访问该链接：${err instanceof Error ? err.message : "网络错误"}`,
-      422,
-    );
-  }
-
-  const text = stripHtml(html);
-  if (!text || text.length < 50) {
-    throw new AttachmentParseError("未能从该链接提取到有效内容", 422);
-  }
-
   let parsed: ParsedJob | null = null;
   try {
-    parsed = await withRetry(() => parseJobFromText(text, usageCtx), "parseJobFromText");
-  } catch {
+    parsed = await parseJobFromUrl(url, usageCtx);
+  } catch (err) {
+    if (err instanceof AttachmentParseError) throw err;
     throw new AttachmentParseError("未能从链接内容中识别岗位信息", 422);
   }
   if (!parsed) {

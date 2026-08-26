@@ -11,6 +11,9 @@
     "deploy:vps": "./deploy.sh"
   },
   "devDependencies": {
-    "turbo": "^2.5.0"
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "turbo": "^2.5.0",
+    "typescript-eslint": "^8.60.0"
   }
 }

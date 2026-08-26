@@ -233,7 +233,7 @@ auth.get("/me", async (c) => {
 });
 
 // ── GET /api/auth/logout ──
-auth.get("/logout", (c) => {
+auth.get("/logout", () => {
   const host = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
   const headers = new Headers();

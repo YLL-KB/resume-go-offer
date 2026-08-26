@@ -55,7 +55,22 @@ export const pushFormTool = tool(
 // ── extractResume: 提取简历 ──
 
 export const extractResumeTool = tool(
-  async (_args, config) => {
+  async (args, config) => {
+    const { demo } = (args ?? {}) as { demo?: boolean };
+
+    // demo 模式：生成一份虚构示例简历，展示预览排版（不涉及用户真实信息）
+    if (demo) {
+      const { ai, getRuntimeAiConfigs } = await import("./index");
+      const demoData = await ai.generateDemoResume({
+        provider: getRuntimeAiConfigs()?.extract ? "byok" : "platform",
+      });
+      if (!demoData) {
+        recordDegradation("demo_null");
+        return JSON.stringify({ error: "示例简历生成失败，请重试" });
+      }
+      return JSON.stringify(demoData);
+    }
+
     // LangGraph ToolNode 通过 config.state 传入图状态（而非 config.configurable）
     const state = (config as unknown as { state?: { messages?: BaseMessage[]; resumeData?: Record<string, unknown>; aiConfig?: { baseUrl: string; apiKey: string; model: string } } }).state;
     const msgs = state?.messages ?? [];
@@ -87,8 +102,11 @@ export const extractResumeTool = tool(
     name: "extractResume",
     description:
       "从对话历史中提取结构化简历数据。当用户确认所有信息收集完毕、对内容满意后调用此工具。" +
-      "调用前应该向用户确认：信息是否完整、是否需要修改。调用后系统会自动展示简历预览。",
-    schema: z.object({}),
+      "调用前应该向用户确认：信息是否完整、是否需要修改。调用后系统会自动展示简历预览。" +
+      "当用户要求生成 demo/示例/样例/模板简历（想看效果而非做自己的简历）时，传入 demo=true。",
+    schema: z.object({
+      demo: z.boolean().optional().describe("生成示例简历（demo）而非用户真实简历时设为 true"),
+    }),
   },
 );
 

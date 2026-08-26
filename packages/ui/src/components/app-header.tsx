@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, LogIn, MessageSquare, ClipboardList, LogOut, Loader2, Menu, X } from "lucide-react";
+import { FileText, LogIn, MessageSquare, ClipboardList, LogOut, Loader2, Menu, X, Settings2 } from "lucide-react";
 import { Button } from "./button";
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar";
 import {
@@ -20,6 +20,7 @@ const links = [
   { href: "/chat", label: "AI 对话", icon: MessageSquare },
   { href: "/resume/list", label: "我的简历", icon: FileText },
   { href: "/applications", label: "投递追踪", icon: ClipboardList },
+  { href: "/settings", label: "设置", icon: Settings2 },
 ] as const;
 
 export function AppHeader() {

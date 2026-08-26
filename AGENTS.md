@@ -176,6 +176,13 @@ AI 输出 tool_call: { name: "pushForm", args: { type: "experience" } }
 - 前端：聊天页头部齿轮按钮 → `ModelSettingsDialog`（**动态列表 + 「添加 API」**，每条卡片：名称/预设/baseUrl/模型/Key/用途多选/测试/删除，子组件 `ApiConfigCard`）；用量弹窗 `UsageDialog` 展示 byModel/bySource
 - 账本：BYOK 流量 `provider=byok`、`cost_cents=0`（用户已向自己的供应商付费）
 
+**越界防护（off-topic 边界，防薅羊毛）：**
+- 目标：防止用平台 key 的用户把对话当成免费通用 ChatGPT 白嫖。判定标准是**「这次 chat 烧谁的钱」**：`GraphState.aiConfig`（chat scope）存在 = 用户自带 key = 宽松；不存在（含只配了 extract/vision 但没配 chat 的 BYOK）= 烧平台钱 = 严格
+- Router 新增第 5 类 `offtopic`（`prompts.ts` 的 `ROUTER_PROMPT`）：用户问与求职/简历/职业发展**完全无关**的问题（写代码/翻译/写诗/解数学题/天气/八卦/医疗法律建议/扮演角色等）分类为 offtopic；**求职相关照常分类**（职业规划/面试技巧/行业行情/薪资谈判等绝不判 offtopic）
+- 分流（`graph.ts` 的 `routeAfterRouter`）：`mode===offtopic && !aiConfig` → 拦到 `offtopicNode`，返回固定软拒模板（`OFFTOPIC_REPLIES` 随机取一条），**不进 worker 大模型、零模型成本**；BYOK 用户 off-topic 仍进 worker（`workerNode` 里把 offtopic 转成 chatting）正常聊
+- 第二道兜底：平台 key 用户 worker 提示词末尾注入 `PLATFORM_BOUNDARY_RULE`（`workerNode` 里 `if (!state.aiConfig) fullPrompt += ...`），防 router 漏判时平台大模型被白嫖；BYOK 用户不注入
+- ⚠️ **SSE 转发坑**：`offtopicNode` 不走 `model.stream`，不触发 `on_chat_model_*` 事件，它的回复必须靠 `chat.ts` 的 `on_chain_end` 里 `event.name === "offtopic"` 分支兜底提取 `output.messages[0].content` 并 `send()`，否则用户会看到 AI 没回话
+
 **Streaming 格式：**
 ```
 data: {"content":"xxx","conversationId":"uuid","title":"对话标题"}

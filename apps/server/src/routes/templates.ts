@@ -10,7 +10,7 @@ import fsPromises from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { ai, runWithAIConfig } from "../lib/ai";
-import { getAuthUserId, buildAnonymousCookie } from "../lib/auth/utils";
+import { getAuthUserId } from "../lib/auth/utils";
 import { runWithUsage } from "../lib/billing/ledger";
 import { getUserAiConfigs } from "../lib/billing/byok";
 

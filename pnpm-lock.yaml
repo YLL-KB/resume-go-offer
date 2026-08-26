@@ -8,9 +8,18 @@ importers:
 
   .:
     devDependencies:
+      eslint:
+        specifier: ^9.39.4
+        version: 9.39.4(jiti@2.7.0)(supports-color@10.2.2)
+      eslint-plugin-react-hooks:
+        specifier: ^7.1.1
+        version: 7.1.1(eslint@9.39.4(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
       turbo:
         specifier: ^2.5.0
         version: 2.10.9
+      typescript-eslint:
+        specifier: ^8.60.0
+        version: 8.60.1(eslint@9.39.4(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
 
   apps/admin:
     dependencies:
