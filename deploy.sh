@@ -18,8 +18,9 @@ REMOTE_DIR="/opt/resume-go-offer"
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 # ── 需要传输的源文件（排除危险/本地目录）──
+# 注意：不再排除 .git —— SCP 回退时连同 git 仓库一起同步，
+# 使服务器 HEAD 与本地一致、工作区干净，避免下次 git pull 冲突。
 EXCLUDES=(
-  --exclude='.git'
   --exclude='node_modules'
   --exclude='.next'
   --exclude='.open-next'
@@ -31,6 +32,7 @@ EXCLUDES=(
   --exclude='.env'
   --exclude='*.tar.gz'
   --exclude='.DS_Store'
+  --exclude='._*'
 )
 
 echo "🚀 部署分支 \`${BRANCH}\` 到 ${SERVER}..."
@@ -81,9 +83,12 @@ else
   ssh "${SERVER}" << ENDSSH
 set -euo pipefail
 cd ${REMOTE_DIR}
-echo "  ↻ 解压源码（保留 .db）..."
+echo "  ↻ 解压源码 + 同步 git（保留 .db）..."
 tar -xzf /tmp/deploy.tar.gz --overwrite --exclude='.db' 2>/dev/null || tar -xzf /tmp/deploy.tar.gz --overwrite
 rm -f /tmp/deploy.tar.gz
+git reset --hard HEAD 2>/dev/null || true
+git clean -fd 2>/dev/null || true
+echo "  ↻ git HEAD: \$(git log --oneline -1)"
 ${REMOTE_STEPS}
 ENDSSH
 fi
