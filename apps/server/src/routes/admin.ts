@@ -24,7 +24,7 @@ import {
 import { getAdminUser, getAdminPermissions, requirePermission } from "../lib/auth/admin";
 import { WILDCARD } from "../lib/auth/permissions";
 import type { AdminUser } from "../lib/auth/admin";
-import { and, gte, lte, desc, asc, like, eq, inArray, sql } from "drizzle-orm";
+import { and, gte, lte, desc, asc, like, eq, inArray, sql, count } from "drizzle-orm";
 
 export const adminRoutes = new Hono();
 
@@ -263,7 +263,7 @@ adminRoutes.get("/usage", async (c) => {
   if (!admin) return c.json({ error: "无权限" }, 403);
 
   try {
-    const { getGlobalUsage } = await import("../lib/billing/ledger");
+    const { getGlobalUsage, getFreeTierLimits } = await import("../lib/billing/ledger");
     const days = Math.max(1, Math.min(90, Number(c.req.query("days")) || 30));
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -291,11 +291,64 @@ adminRoutes.get("/usage", async (c) => {
       .sort((a, b) => b.tokens - a.tokens)
       .slice(0, 10);
 
+    // ── 免费额度消耗：本月平台对话次数（source=chat & provider=platform）──
+    const limits = getFreeTierLimits();
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const chatRows = db
+      .select({ userId: tokenUsage.userId, turns: count() })
+      .from(tokenUsage)
+      .where(
+        and(
+          eq(tokenUsage.provider, "platform"),
+          eq(tokenUsage.source, "chat"),
+          gte(tokenUsage.createdAt, monthStart),
+        ),
+      )
+      .groupBy(tokenUsage.userId)
+      .all();
+
+    // 登录用户名字映射（匿名 userId 不在 users 表）
+    const userRows = await db
+      .select({ id: users.id, name: users.name, githubLogin: users.githubLogin })
+      .from(users)
+      .all();
+    const userMap = new Map(userRows.map((u) => [u.id, u]));
+
+    const freeTierByUser = chatRows
+      .map((r) => {
+        const isAnonymous = !userMap.has(r.userId);
+        const u = userMap.get(r.userId);
+        const limit = isAnonymous ? limits.anon : limits.loggedIn;
+        const turns = Number(r.turns ?? 0);
+        return {
+          userId: r.userId,
+          isAnonymous,
+          name: u?.name ?? null,
+          githubLogin: u?.githubLogin ?? null,
+          turns,
+          limit,
+          reached: turns >= limit,
+        };
+      })
+      .sort((a, b) => b.turns - a.turns);
+
+    const freeTier = {
+      limits,
+      monthStart,
+      totalTurns: freeTierByUser.reduce((s, x) => s + x.turns, 0),
+      anonTurns: freeTierByUser.filter((x) => x.isAnonymous).reduce((s, x) => s + x.turns, 0),
+      loggedInTurns: freeTierByUser.filter((x) => !x.isAnonymous).reduce((s, x) => s + x.turns, 0),
+      anonUsers: freeTierByUser.filter((x) => x.isAnonymous).length,
+      loggedInUsers: freeTierByUser.filter((x) => !x.isAnonymous).length,
+      byUser: freeTierByUser,
+    };
+
     return c.json({
       days,
       since,
       total,
       topUsers,
+      freeTier,
     });
   } catch (err) {
     console.error("[admin/usage]", err);

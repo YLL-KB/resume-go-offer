@@ -29,6 +29,7 @@ import {
 } from "@resume/ui";
 import { toast } from "sonner";
 import { UsageCard } from "@/components/usage-card";
+import { FreeTierCard } from "@/components/free-tier-card";
 
 interface UserRow {
   id: string;
@@ -241,6 +242,11 @@ export default function AdminPage() {
           </CardContent>
         </Card>
         <UsageCard />
+      </div>
+
+      {/* 免费额度消耗 */}
+      <div className="mb-6">
+        <FreeTierCard />
       </div>
 
       {/* Loading */}

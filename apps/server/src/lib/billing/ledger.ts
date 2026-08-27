@@ -197,12 +197,16 @@ export function getGlobalUsage(sinceIso?: string): UsageSummaryRow & { byModel: 
  * 登录用户默认每月 5 次，访客（isAnonymous）默认每月 2 次，均可环境变量覆盖。
  * 超限返回 code 供前端区分引导方向（访客去登录 / 登录用户去设置页加自有 API）。
  */
+/** 免费对话额度阈值（env 可配，缺省访客 2 次/月、登录 5 次/月） */
+export function getFreeTierLimits(): { anon: number; loggedIn: number } {
+  return {
+    anon: Number(process.env.FREE_TIER_TURNS_ANON_PER_MONTH ?? "2"),
+    loggedIn: Number(process.env.FREE_TIER_TURNS_PER_MONTH ?? "5"),
+  };
+}
+
 export async function assertUsageAllowed(userId: string, isAnonymous = false): Promise<{ allowed: true } | { allowed: false; reason: string; code: string }> {
-  const limit = Number(
-    isAnonymous
-      ? (process.env.FREE_TIER_TURNS_ANON_PER_MONTH ?? "2")
-      : (process.env.FREE_TIER_TURNS_PER_MONTH ?? "5"),
-  );
+  const limit = isAnonymous ? getFreeTierLimits().anon : getFreeTierLimits().loggedIn;
   // 未配置或非法值视为不限额（保留平台兜底），避免配置错误误伤用户
   if (!Number.isFinite(limit) || limit <= 0) return { allowed: true };
 
