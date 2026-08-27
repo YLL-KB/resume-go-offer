@@ -13,9 +13,12 @@ import { analysisRoutes } from "./routes/analysis";
 import { byokRoutes } from "./routes/byok";
 import { usageRoutes } from "./routes/usage";
 import { interviewRoutes } from "./routes/interview";
+import { interviewRealtimeHandler } from "./routes/interview-realtime";
+import { createNodeWebSocket } from "@hono/node-ws";
 import { requestLogger } from "./lib/logging/request-logger";
 
 const app = new Hono();
+const { upgradeWebSocket, injectWebSocket } = createNodeWebSocket({ app });
 
 app.route("/health", health);
 
@@ -35,7 +38,9 @@ api.route("/analysis", analysisRoutes);
 api.route("/user/ai-config", byokRoutes);
 api.route("/user/usage", usageRoutes);
 api.route("/interview", interviewRoutes);
+api.get("/interview/:id/realtime", upgradeWebSocket(interviewRealtimeHandler));
 
 app.route("/api", api);
 
 export default app;
+export { injectWebSocket };

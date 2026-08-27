@@ -207,3 +207,64 @@ export function playAudio(base64: string): Promise<void> {
     audio.play().catch(reject);
   });
 }
+
+export interface RealtimeAudioCapture {
+  /** 开始采集并持续回调音频分片 */
+  start: () => Promise<void>;
+  /** 停止采集并释放资源 */
+  stop: () => void;
+}
+
+/**
+ * Realtime 持续音频采集 — 麦克风 → 16kHz PCM → 每 ~100ms 编码 WAV base64 回调。
+ *
+ * 供全双工语音面试使用：前端通过 WebSocket 把每一段 WAV 作为
+ * input_audio_buffer.append 持续上传，VAD/打断由智谱服务端托管（server_vad）。
+ */
+export function startRealtimeAudio(onChunk: (wavBase64: string) => void): RealtimeAudioCapture {
+  let stream: MediaStream | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
+  let processor: ScriptProcessorNode | null = null;
+  let stopped = false;
+
+  // 在调用处（须位于用户手势内）同步创建并 resume AudioContext：
+  // 若在异步回调（如 ws.onopen）里创建，浏览器 autoplay 策略会把 context 挂起，
+  // onaudioprocess 永不触发 → 采集不到麦克风音频。
+  const audioContext = new AudioContext({ sampleRate: 16000 });
+  void audioContext.resume().catch(() => undefined);
+  const sampleRate = audioContext.sampleRate;
+
+  const start = async () => {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    source = audioContext.createMediaStreamSource(stream);
+    // createScriptProcessor 的 bufferSize 只能是 256~16384 的 2 的幂，任意值会抛 IndexSizeError
+    const chunkSize = 2048; // 16kHz 下约 128ms 一段
+    processor = audioContext.createScriptProcessor(chunkSize, 1, 1);
+    processor.onaudioprocess = (e) => {
+      if (stopped) return;
+      const input = e.inputBuffer.getChannelData(0);
+      const wav = encodeWav(new Float32Array(input), sampleRate);
+      onChunk(arrayBufferToBase64(wav));
+    };
+    source.connect(processor);
+    // 连到静音节点而非 destination，避免把麦克风回声输出到扬声器
+    const mute = audioContext.createGain();
+    mute.gain.value = 0;
+    processor.connect(mute);
+    mute.connect(audioContext.destination);
+  };
+
+  const stop = () => {
+    stopped = true;
+    try {
+      source?.disconnect();
+      processor?.disconnect();
+      stream?.getTracks().forEach((t) => t.stop());
+      void audioContext.close();
+    } catch {
+      // 清理失败忽略
+    }
+  };
+
+  return { start, stop };
+}

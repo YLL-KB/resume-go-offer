@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Button, Card, CardContent, AppHeader } from "@resume/ui";
-import { Mic, Square, Loader2, Volume2, Video, VideoOff, Flag } from "lucide-react";
+import { Mic, Loader2, Video, VideoOff, Flag, AudioLines } from "lucide-react";
 import { toast } from "sonner";
-import { startRecording, playAudio, createStreamPlayer, type AudioRecording, type StreamPlayer } from "@/lib/utils/audio";
+import { createStreamPlayer, startRealtimeAudio, type StreamPlayer, type RealtimeAudioCapture } from "@/lib/utils/audio";
 
 interface InterviewMessage {
   id: string;
@@ -61,18 +61,19 @@ export default function InterviewSessionPage() {
   const [messages, setMessages] = useState<InterviewMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [cameraOn, setCameraOn] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [liveInterviewer, setLiveInterviewer] = useState("");
   const [report, setReport] = useState<InterviewReport | null>(null);
   const [generating, setGenerating] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const recordingRef = useRef<AudioRecording | null>(null);
-  const streamPlayerRef = useRef<StreamPlayer | null>(null);
-  const autoPlayedRef = useRef(false);
   const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioCaptureRef = useRef<RealtimeAudioCapture | null>(null);
+  const streamPlayerRef = useRef<StreamPlayer | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchSession = useCallback(async () => {
@@ -137,6 +138,126 @@ export default function InterviewSessionPage() {
     }
   }, [id]);
 
+  // 结束实时面试（关闭 WS + 停止采集/播放）
+  const endRealtime = useCallback(() => {
+    audioCaptureRef.current?.stop();
+    audioCaptureRef.current = null;
+    streamPlayerRef.current?.close();
+    streamPlayerRef.current = null;
+    wsRef.current?.close();
+    wsRef.current = null;
+    setConnected(false);
+    setListening(false);
+    setLiveInterviewer("");
+  }, []);
+
+  // 开始全双工面试
+  const startRealtime = useCallback(async () => {
+    if (connecting || connected) return;
+    setConnecting(true);
+    // 在用户手势内创建播放器 + 采集器（内部都会创建并 resume AudioContext），
+    // 若延迟到 ws.onopen 等异步回调里创建，autoplay 策略会挂起 context 导致无声/采集不到麦克风。
+    const player = createStreamPlayer(24000);
+    streamPlayerRef.current = player;
+    const capture = startRealtimeAudio((wavBase64) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        // client_timestamp 是智谱 VAD 判定静音间隔的必要字段，缺失会导致 speech_stopped 永不触发
+        wsRef.current.send(JSON.stringify({ type: "input_audio_buffer.append", audio: wavBase64, client_timestamp: Date.now() }));
+      }
+    });
+    audioCaptureRef.current = capture;
+
+    // 用户手势内启动麦克风采集（getUserMedia 触发权限框）：
+    // 若延迟到 ws.onopen 等异步回调里调用，浏览器会因失去用户手势上下文而拒绝授权。
+    try {
+      await capture.start();
+    } catch (err) {
+      capture.stop();
+      audioCaptureRef.current = null;
+      setConnecting(false);
+      const name = (err as { name?: string })?.name ?? "未知错误";
+      toast.error(`无法访问麦克风（${name}），请检查浏览器地址栏的麦克风权限`);
+      return;
+    }
+
+    try {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${proto}//${location.host}/api/interview/${id}/realtime`);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setConnected(true);
+        setConnecting(false);
+      };
+
+      ws.onmessage = (evt) => {
+        let event: { type?: string; [key: string]: unknown };
+        try {
+          event = JSON.parse(evt.data);
+        } catch {
+          return;
+        }
+
+        switch (event.type) {
+          case "response.audio.delta":
+            if (typeof event.delta === "string") player.feed(event.delta);
+            break;
+          case "response.audio_transcript.delta":
+          case "response.text.delta":
+            if (typeof event.delta === "string") setLiveInterviewer((p) => p + event.delta);
+            break;
+          case "response.audio_transcript.done": {
+            const text = typeof event.transcript === "string" ? event.transcript.trim() : "";
+            if (text) {
+              setMessages((prev) => [
+                ...prev,
+                { id: crypto.randomUUID(), sessionId: id, role: "interviewer", content: text, audioBase64: null, nonVerbal: null, createdAt: new Date().toISOString() },
+              ]);
+            }
+            setLiveInterviewer("");
+            break;
+          }
+          case "conversation.item.input_audio_transcription.completed": {
+            const text = typeof event.transcript === "string" ? event.transcript.trim() : "";
+            if (text) {
+              setMessages((prev) => [
+                ...prev,
+                { id: crypto.randomUUID(), sessionId: id, role: "candidate", content: text, audioBase64: null, nonVerbal: null, createdAt: new Date().toISOString() },
+              ]);
+            }
+            break;
+          }
+          case "input_audio_buffer.speech_started":
+            setListening(true);
+            break;
+          case "input_audio_buffer.speech_stopped":
+            setListening(false);
+            break;
+          case "error":
+            toast.error((event.message as string) ?? "实时连接出错");
+            break;
+        }
+      };
+
+      ws.onerror = () => {
+        setConnecting(false);
+        setConnected(false);
+        toast.error("实时连接失败，请重试");
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        setListening(false);
+        setLiveInterviewer("");
+      };
+    } catch (err) {
+      capture.stop();
+      audioCaptureRef.current = null;
+      setConnecting(false);
+      toast.error(err instanceof Error ? err.message : "启动失败");
+    }
+  }, [connecting, connected, id]);
+
   useEffect(() => {
     let cancelled = false;
     fetchSession()
@@ -153,11 +274,10 @@ export default function InterviewSessionPage() {
 
     return () => {
       cancelled = true;
+      endRealtime();
       cleanupCamera();
-      recordingRef.current?.cancel();
-      streamPlayerRef.current?.close();
     };
-  }, [fetchSession, startCamera, cleanupCamera]);
+  }, [fetchSession, startCamera, cleanupCamera, endRealtime]);
 
   // 摄像头就绪后开始每 3s 采样一帧
   useEffect(() => {
@@ -176,122 +296,15 @@ export default function InterviewSessionPage() {
   // 自动滚动到最新消息
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  // 进入详情页后自动播放首问语音（被浏览器 autoplay 拦截时静默降级为手动按钮）
-  useEffect(() => {
-    if (autoPlayedRef.current) return;
-    const first = messages.find((m) => m.role === "interviewer" && m.audioBase64);
-    if (!first?.audioBase64) return;
-    autoPlayedRef.current = true;
-    void playAudio(first.audioBase64).catch(() => undefined);
-  }, [messages]);
-
-  const handleStartRecord = async () => {
-    try {
-      recordingRef.current = await startRecording();
-      setRecording(true);
-    } catch {
-      toast.error("无法访问麦克风，请授权麦克风权限");
-    }
-  };
-
-  const handleStopRecord = async () => {
-    const rec = recordingRef.current;
-    if (!rec) return;
-    setRecording(false);
-    recordingRef.current = null;
-    // 在用户手势内创建流式播放器，避免浏览器 autoplay 挂起 AudioContext
-    streamPlayerRef.current?.close();
-    const player = createStreamPlayer(24000);
-    streamPlayerRef.current = player;
-    try {
-      const audioBase64 = await rec.stop();
-      await submitAnswer(audioBase64, player);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "录音失败，请重试");
-    }
-  };
-
-  const submitAnswer = async (audioBase64: string, player: StreamPlayer) => {
-    setProcessing(true);
-    try {
-      const res = await fetch(`/api/interview/${id}/audio`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audioBase64 }),
-      });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(err.error ?? "处理失败");
-      }
-      if (!res.body) throw new Error("流式响应不可用");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data:")) continue;
-          const payload = trimmed.slice(5).trim();
-          if (!payload) continue;
-          let evt: { type?: string; content?: string; message?: string };
-          try {
-            evt = JSON.parse(payload);
-          } catch {
-            continue;
-          }
-          if (evt.type === "text" && typeof evt.content === "string") {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `tmp-${Date.now()}`,
-                sessionId: id,
-                role: "interviewer",
-                content: evt.content as string,
-                audioBase64: null,
-                nonVerbal: null,
-                createdAt: new Date().toISOString(),
-              },
-            ]);
-          } else if (evt.type === "audio" && typeof evt.content === "string") {
-            player.feed(evt.content);
-          } else if (evt.type === "error") {
-            toast.error(evt.message ?? "处理失败");
-          }
-        }
-      }
-
-      await fetchSession();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "处理失败");
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const handlePlay = async (msg: InterviewMessage) => {
-    if (!msg.audioBase64) return;
-    setPlayingId(msg.id);
-    try {
-      await playAudio(msg.audioBase64);
-    } catch {
-      toast.error("音频播放失败");
-    } finally {
-      setPlayingId(null);
-    }
-  };
+  }, [messages, liveInterviewer]);
 
   const handleEnd = async () => {
     if (generating) return;
     setGenerating(true);
+    endRealtime();
     cleanupCamera();
+    // 等最后一句转写落库（后端落库为同步，给延迟缓冲）
+    await new Promise((r) => setTimeout(r, 500));
     try {
       const res = await fetch(`/api/interview/${id}/complete`, { method: "POST" });
       if (!res.ok) {
@@ -334,7 +347,7 @@ export default function InterviewSessionPage() {
               {cameraOn ? <Video className="size-4 text-emerald-500" /> : <VideoOff className="size-4 text-slate-400" />}
               {cameraOn ? "摄像头已开启" : "摄像头未开启"}
             </span>
-            <Button variant="outline" size="sm" onClick={handleEnd} disabled={generating}>
+            <Button variant="outline" size="sm" onClick={handleEnd} disabled={generating || (!connected && messages.length === 0)}>
               <Flag className="size-3.5 mr-1" />
               {generating ? "生成中..." : "结束面试"}
             </Button>
@@ -385,49 +398,45 @@ export default function InterviewSessionPage() {
                             }`}
                           >
                             <div className="whitespace-pre-wrap">{msg.content}</div>
-                            {msg.role === "interviewer" && msg.audioBase64 && (
-                              <button
-                                type="button"
-                                onClick={() => handlePlay(msg)}
-                                className="mt-1.5 flex items-center gap-1 text-xs opacity-70 hover:opacity-100"
-                              >
-                                <Volume2 className="size-3.5" />
-                                {playingId === msg.id ? "播放中..." : "播放语音"}
-                              </button>
-                            )}
                           </div>
                         </div>
                       ))}
-                    {processing && (
-                      <div className="flex items-center gap-2 text-sm text-slate-400">
-                        <Loader2 className="size-4 animate-spin" /> 正在识别回答并生成下一题...
+                    {liveInterviewer && (
+                      <div className="flex justify-start">
+                        <div className="max-w-[80%] rounded-2xl bg-slate-100 px-4 py-2.5 text-sm text-slate-800">
+                          <span className="whitespace-pre-wrap">{liveInterviewer}</span>
+                          <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-400 align-middle" />
+                        </div>
                       </div>
                     )}
                     <div ref={messagesEndRef} />
                   </div>
                 </CardContent>
 
-                {/* 录音控制 */}
+                {/* 控制区 */}
                 <div className="border-t border-slate-100 p-4">
                   <div className="flex items-center justify-center">
-                    {recording ? (
-                      <Button size="lg" onClick={handleStopRecord} className="rounded-full bg-red-500 hover:bg-red-600">
-                        <Square className="size-4 mr-2" /> 停止并提交
-                      </Button>
+                    {connected ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <Button size="lg" onClick={handleEnd} disabled={generating} className="rounded-full bg-red-500 hover:bg-red-600">
+                          <Flag className="size-4 mr-2" /> 结束面试
+                        </Button>
+                        <span className="text-xs text-slate-400">
+                          {listening ? "正在听你说话..." : "面试进行中，随时开口回答或打断"}
+                        </span>
+                      </div>
                     ) : (
                       <Button
                         size="lg"
-                        onClick={handleStartRecord}
-                        disabled={processing}
+                        onClick={startRealtime}
+                        disabled={connecting}
                         className="rounded-full bg-gradient-to-r from-emerald-500 to-teal-500"
                       >
-                        <Mic className="size-4 mr-2" /> 按住回答
+                        {connecting ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Mic className="size-4 mr-2" />}
+                        {connecting ? "连接中..." : "开始面试"}
                       </Button>
                     )}
                   </div>
-                  <p className="mt-2 text-center text-xs text-slate-400">
-                    {recording ? "正在录音，请回答面试官的问题" : "点击开始录音，回答完毕后点击停止"}
-                  </p>
                 </div>
               </Card>
             </div>
