@@ -20,7 +20,7 @@ import { streamAgent } from "../lib/ai/graph";
 import { TraceCollector } from "../lib/observability/collector";
 import { runWithTrace } from "../lib/observability/context";
 import { persistTraceFireAndForget } from "../lib/observability/persist";
-import { recordUsage, assertUsageAllowed } from "../lib/billing/ledger";
+import { recordUsage, assertUsageAllowed, getFreeTierStatus } from "../lib/billing/ledger";
 import { getUserAiConfigs, type AiScope } from "../lib/billing/byok";
 
 export const chatRoutes = new Hono();
@@ -656,6 +656,13 @@ chatRoutes.post("/", async (c) => {
       { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
+});
+
+// ── GET /api/chat/quota ── 返回当前用户本月免费对话额度消耗状态（「新对话」前置引导用）
+chatRoutes.get("/quota", async (c) => {
+  const { userId, isAnonymous } = await getAuthUserId(c.req.raw);
+  const status = getFreeTierStatus(userId, isAnonymous);
+  return c.json(status, 200, isAnonymous ? { "Set-Cookie": buildAnonymousCookie(userId) } : undefined);
 });
 
 // ── GET /api/chat/history ──

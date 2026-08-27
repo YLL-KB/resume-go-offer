@@ -205,10 +205,23 @@ export function getFreeTierLimits(): { anon: number; loggedIn: number } {
   };
 }
 
-export async function assertUsageAllowed(userId: string, isAnonymous = false): Promise<{ allowed: true } | { allowed: false; reason: string; code: string }> {
+export interface FreeTierStatus {
+  isAnonymous: boolean;
+  limit: number;
+  used: number;
+  remaining: number;
+  allowed: boolean;
+  code: "ANON_TIER_EXCEEDED" | "FREE_TIER_EXCEEDED" | null;
+  reason: string | null;
+}
+
+/** 查询某用户本月免费对话额度的消耗状态（供用户端展示与「新对话」前置引导） */
+export function getFreeTierStatus(userId: string, isAnonymous = false): FreeTierStatus {
   const limit = isAnonymous ? getFreeTierLimits().anon : getFreeTierLimits().loggedIn;
   // 未配置或非法值视为不限额（保留平台兜底），避免配置错误误伤用户
-  if (!Number.isFinite(limit) || limit <= 0) return { allowed: true };
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return { isAnonymous, limit: Infinity, used: 0, remaining: Infinity, allowed: true, code: null, reason: null };
+  }
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -226,13 +239,20 @@ export async function assertUsageAllowed(userId: string, isAnonymous = false): P
     .all();
 
   const used = Number(row?.n ?? 0);
+  const remaining = Math.max(0, limit - used);
   if (used >= limit) {
     if (isAnonymous) {
-      return { allowed: false, code: "ANON_TIER_EXCEEDED", reason: `未登录每月仅可免费对话 ${limit} 次，请登录后继续使用` };
+      return { isAnonymous, limit, used, remaining: 0, allowed: false, code: "ANON_TIER_EXCEEDED", reason: `未登录每月仅可免费对话 ${limit} 次，请登录后继续使用` };
     }
-    return { allowed: false, code: "FREE_TIER_EXCEEDED", reason: `本月免费对话额度（${limit} 次）已用完，请在设置页添加你自己的 API Key 继续使用` };
+    return { isAnonymous, limit, used, remaining: 0, allowed: false, code: "FREE_TIER_EXCEEDED", reason: `本月免费对话额度（${limit} 次）已用完，请在设置页添加你自己的 API Key 继续使用` };
   }
-  return { allowed: true };
+  return { isAnonymous, limit, used, remaining, allowed: true, code: null, reason: null };
+}
+
+export async function assertUsageAllowed(userId: string, isAnonymous = false): Promise<{ allowed: true } | { allowed: false; reason: string; code: string }> {
+  const s = getFreeTierStatus(userId, isAnonymous);
+  if (s.allowed) return { allowed: true };
+  return { allowed: false, reason: s.reason as string, code: s.code as string };
 }
 
 // ── 用户自视角（用户端「我的用量」，不进管理页）──
