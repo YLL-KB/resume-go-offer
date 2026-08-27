@@ -73,6 +73,7 @@ fi
 
 if ! $SYNCED; then
   echo "  ↻ 打包源文件..."
+  LOCAL_HEAD=$(git rev-parse HEAD)
   TARFILE="/tmp/resume-deploy-$(date +%s).tar.gz"
   tar -czf "${TARFILE}" "${EXCLUDES[@]}" .
   echo "  ↻ 上传到服务器..."
@@ -85,7 +86,7 @@ cd ${REMOTE_DIR}
 echo "  ↻ 解压源码 + 同步 git（保留 .db）..."
 tar -xzf /tmp/deploy.tar.gz --overwrite --exclude='.db' 2>/dev/null || tar -xzf /tmp/deploy.tar.gz --overwrite
 rm -f /tmp/deploy.tar.gz
-git reset --hard HEAD 2>/dev/null || true
+git reset --hard ${LOCAL_HEAD} 2>/dev/null || true
 git clean -fd 2>/dev/null || true
 echo "  ↻ git HEAD: \$(git log --oneline -1)"
 ENDSSH
