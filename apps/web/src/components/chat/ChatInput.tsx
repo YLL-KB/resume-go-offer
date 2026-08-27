@@ -141,9 +141,13 @@ export function ChatInput() {
         let errMsg = "AI 回复失败";
         try {
           const errData = await response.json() as { error?: string; message?: string; code?: string };
-          if (response.status === 402 || errData.code === "FREE_TIER_EXCEEDED") {
-            toast.error(errData.error ?? "本月免费对话额度已用完", {
-              action: { label: "去设置", onClick: () => { window.location.href = "/settings"; } },
+          if (response.status === 402 || errData.code === "FREE_TIER_EXCEEDED" || errData.code === "ANON_TIER_EXCEEDED") {
+            const isAnon = errData.code === "ANON_TIER_EXCEEDED";
+            toast.error(errData.error ?? "免费对话额度已用完", {
+              action: {
+                label: isAnon ? "去登录" : "去设置",
+                onClick: () => { window.location.href = isAnon ? "/login" : "/settings"; },
+              },
             });
             // 回滚刚添加的本地消息（尚未持久化到服务端，无需调删除接口）
             const st = useChatStore.getState();

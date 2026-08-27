@@ -191,15 +191,18 @@ export function getGlobalUsage(sinceIso?: string): UsageSummaryRow & { byModel: 
 }
 
 /**
- * 额度检查钩子 — 收费窗口预留。
+ * 额度检查钩子 — 平台 key 免费对话额度（自然月窗口）。
  *
- * 当前策略：只记账不拦截（用户拍板）。未来接入收费时在此实现：
- *   1. 查 user_plans / plans.features（feature.unlimited_chat 等）拿额度
- *   2. getUsageSummary(userId, 当月窗口) 判断是否超限
- *   3. 超限返回 { allowed: false, reason }，调用方（chat/extract 等）直接短路
+ * 只对 provider=platform 且 source=chat 的主对话计数；BYOK 流量不计。
+ * 登录用户默认每月 5 次，访客（isAnonymous）默认每月 2 次，均可环境变量覆盖。
+ * 超限返回 code 供前端区分引导方向（访客去登录 / 登录用户去设置页加自有 API）。
  */
-export async function assertUsageAllowed(userId: string): Promise<{ allowed: true } | { allowed: false; reason: string }> {
-  const limit = Number(process.env.FREE_TIER_TURNS_PER_MONTH ?? "5");
+export async function assertUsageAllowed(userId: string, isAnonymous = false): Promise<{ allowed: true } | { allowed: false; reason: string; code: string }> {
+  const limit = Number(
+    isAnonymous
+      ? (process.env.FREE_TIER_TURNS_ANON_PER_MONTH ?? "2")
+      : (process.env.FREE_TIER_TURNS_PER_MONTH ?? "5"),
+  );
   // 未配置或非法值视为不限额（保留平台兜底），避免配置错误误伤用户
   if (!Number.isFinite(limit) || limit <= 0) return { allowed: true };
 
@@ -220,7 +223,10 @@ export async function assertUsageAllowed(userId: string): Promise<{ allowed: tru
 
   const used = Number(row?.n ?? 0);
   if (used >= limit) {
-    return { allowed: false, reason: `本月免费对话额度（${limit} 次）已用完，请在设置页添加你自己的 API Key 继续使用` };
+    if (isAnonymous) {
+      return { allowed: false, code: "ANON_TIER_EXCEEDED", reason: `未登录每月仅可免费对话 ${limit} 次，请登录后继续使用` };
+    }
+    return { allowed: false, code: "FREE_TIER_EXCEEDED", reason: `本月免费对话额度（${limit} 次）已用完，请在设置页添加你自己的 API Key 继续使用` };
   }
   return { allowed: true };
 }

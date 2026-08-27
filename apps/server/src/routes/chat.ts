@@ -179,10 +179,10 @@ chatRoutes.post("/", async (c) => {
 
     // 平台 key 免费额度：仅 platform 流量受限，BYOK 用户（配了 chat 用途）不受限
     if (chatProvider === "platform") {
-      const quota = await assertUsageAllowed(userId);
+      const quota = await assertUsageAllowed(userId, isAnonymous);
       if (!quota.allowed) {
         return new Response(
-          JSON.stringify({ error: quota.reason, code: "FREE_TIER_EXCEEDED" }),
+          JSON.stringify({ error: quota.reason, code: quota.code }),
           { status: 402, headers: { "Content-Type": "application/json" } },
         );
       }
