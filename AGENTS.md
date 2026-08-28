@@ -25,6 +25,12 @@ pnpm dev   # 非 wrangler dev。wrangler dev 会连 Cloudflare 远程代理，�
 
 `pnpm dev` 通过 Turborepo 并行启动三个应用。前端 `/api/*` 请求经 `apps/web/next.config.ts` 的 `rewrites()` 代理到 `http://localhost:8787`（`API_ORIGIN` 环境变量可改）。
 
+## 部署与分支规则
+
+- **分支规则（硬性）**：任何要部署上线的内容，都必须**先进入 `main` 分支**才能部署。其他分支仅用于开发或保存代码，**不允许直接部署上线**。
+- 部署前先 `git checkout main` 并确认要上线的内容已合并/提交到 `main`，再跑 `./deploy.sh`。
+- 部署细节见 [DEPLOY.md](./DEPLOY.md)（生产在 VPS `root@47.116.46.77`，脚本含 GitHub 不可达时的 SCP 回退）。
+
 ## 代码规范
 
 ### 1. 返回按钮
