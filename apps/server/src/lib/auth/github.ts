@@ -17,7 +17,7 @@ import https from "https";
 
 const GITHUB_PROXY = (process.env.GITHUB_PROXY || "").replace(/\/$/, "");
 
-function githubFetch(url: string, init: RequestInit, retries = 3): Promise<Response> {
+function githubFetch(url: string, init: RequestInit, retries = 5): Promise<Response> {
   const targetUrl = GITHUB_PROXY ? `${GITHUB_PROXY}/${url}` : url;
 
   const doRequest = (): Promise<Response> => {
@@ -29,7 +29,7 @@ function githubFetch(url: string, init: RequestInit, retries = 3): Promise<Respo
         path: u.pathname + u.search,
         method: init.method || "GET",
         headers: (init.headers as Record<string, string>) ?? {},
-        timeout: 10_000,
+        timeout: 30_000,
       };
 
       const req = https.request(opts, (res) => {
@@ -58,7 +58,7 @@ function githubFetch(url: string, init: RequestInit, retries = 3): Promise<Respo
 
     // TCP 握手超时：timeout 选项不管连接阶段，单独用 race 兜底
     const timeoutPromise = new Promise<Response>((_, reject) =>
-      setTimeout(() => reject(new Error("connect timeout")), 10_000)
+      setTimeout(() => reject(new Error("connect timeout")), 30_000)
     );
 
     return Promise.race([reqPromise, timeoutPromise]);
@@ -68,7 +68,7 @@ function githubFetch(url: string, init: RequestInit, retries = 3): Promise<Respo
   return doRequest().catch(async (err) => {
     lastErr = err;
     for (let i = 1; i < retries; i++) {
-      await new Promise((r) => setTimeout(r, 500)); // 500ms 间隔，快速重试
+      await new Promise((r) => setTimeout(r, 2000)); // 2s 间隔，给 GFW 干扰周期留出缓冲
       try {
         return await doRequest();
       } catch (e) {
