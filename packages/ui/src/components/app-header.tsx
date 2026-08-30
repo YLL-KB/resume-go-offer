@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, LogIn, MessageSquare, ClipboardList, LogOut, Loader2, Menu, X, Settings2 } from "lucide-react";
+import { FileText, LogIn, MessageSquare, ClipboardList, LogOut, Loader2, Menu, X, Settings2, HelpCircle, Mail } from "lucide-react";
 import { Button } from "./button";
 import { Avatar, AvatarImage, AvatarFallback } from "./avatar";
 import {
@@ -11,6 +11,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "./dropdown-menu";
 import { Separator } from "./separator";
 import { useAuth } from "../hooks/use-auth";
@@ -96,6 +99,21 @@ export function AppHeader() {
                   <ClipboardList className="size-4" />投递追踪
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="gap-2">
+                    <HelpCircle className="size-4" />有问题请联系
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent sideOffset={8} className="p-1">
+                    <a
+                      href="mailto:3263815680@qq.com"
+                      className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-slate-600 hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <Mail className="size-4 shrink-0" />
+                      3263815680@qq.com
+                    </a>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="gap-2 cursor-pointer text-red-500">
                   <LogOut className="size-4" />退出登录
                 </DropdownMenuItem>
@@ -173,6 +191,12 @@ export function AppHeader() {
                   >
                     <ClipboardList className="size-5" />投递追踪
                   </Link>
+                  <a
+                    href="mailto:3263815680@qq.com"
+                    className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                  >
+                    <HelpCircle className="size-5" />有问题请联系
+                  </a>
                   <button
                     onClick={handleLogout}
                     className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-red-500 hover:bg-red-50 transition-colors"
