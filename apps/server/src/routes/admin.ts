@@ -20,7 +20,9 @@ import {
   plans,
   userPlans,
   tokenUsage,
+  userAiApis,
 } from "../db/schema";
+import { decryptApiKey, maskApiKey } from "../lib/billing/byok";
 import { getAdminUser, getAdminPermissions, requirePermission } from "../lib/auth/admin";
 import { WILDCARD } from "../lib/auth/permissions";
 import type { AdminUser } from "../lib/auth/admin";
@@ -620,6 +622,82 @@ adminRoutes.get("/users/:id/conversations", async (c) => {
   } catch (err) {
     console.error("Admin conversations error:", err);
     return c.json({ error: "获取对话列表失败" }, 500);
+  }
+});
+
+// ── GET /api/admin/byok ── 谁添加了自带 API（BYOK），按用户聚合、key 掩码
+adminRoutes.get("/byok", async (c) => {
+  const admin = await requireAdmin(c, "admin.users");
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  try {
+    const db = getDb();
+    const rows = db.select().from(userAiApis).orderBy(asc(userAiApis.createdAt)).all();
+
+    const userIds = [...new Set(rows.map((r) => r.userId))];
+    const userRows = userIds.length
+      ? db
+          .select({ id: users.id, name: users.name, githubLogin: users.githubLogin, email: users.email })
+          .from(users)
+          .where(inArray(users.id, userIds))
+          .all()
+      : [];
+    const userMap = new Map(userRows.map((u) => [u.id, u]));
+
+    const byUser = new Map<string, {
+      userId: string;
+      name: string | null;
+      githubLogin: string | null;
+      email: string | null;
+      isAnonymous: boolean;
+      apis: unknown[];
+    }>();
+
+    for (const r of rows) {
+      const u = userMap.get(r.userId);
+      const plain = decryptApiKey(r.apiKeyEnc) ?? "";
+
+      let scopes: string[] = [];
+      try {
+        const v = JSON.parse(r.scopes);
+        if (Array.isArray(v)) scopes = v.filter((s): s is string => typeof s === "string");
+      } catch {
+        scopes = [];
+      }
+
+      let entry = byUser.get(r.userId);
+      if (!entry) {
+        entry = {
+          userId: r.userId,
+          name: u?.name ?? null,
+          githubLogin: u?.githubLogin ?? null,
+          email: u?.email ?? null,
+          isAnonymous: !u,
+          apis: [],
+        };
+        byUser.set(r.userId, entry);
+      }
+
+      entry.apis.push({
+        id: r.id,
+        name: r.name,
+        provider: r.provider,
+        baseUrl: r.baseUrl,
+        model: r.model,
+        scopes,
+        isActive: r.isActive === 1,
+        maskedKey: plain ? maskApiKey(plain) : "解密失败",
+        lastTestAt: r.lastTestAt,
+        lastTestOk: r.lastTestOk,
+        createdAt: r.createdAt,
+      });
+    }
+
+    const grouped = [...byUser.values()];
+    return c.json({ users: grouped, totalUsers: grouped.length, totalApis: rows.length });
+  } catch (err) {
+    console.error("[admin/byok]", err);
+    return c.json({ error: "获取自带 API 列表失败" }, 500);
   }
 });
 
