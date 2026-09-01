@@ -12,6 +12,8 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   XCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@resume/ui";
@@ -68,6 +70,19 @@ function formatDate(iso: string) {
   } catch {
     return iso;
   }
+}
+
+function getPageList(current: number, total: number): (number | "...")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const delta = 1;
+  const left = Math.max(2, current - delta);
+  const right = Math.min(total - 1, current + delta);
+  const pages: (number | "...")[] = [1];
+  if (left > 2) pages.push("...");
+  for (let i = left; i <= right; i++) pages.push(i);
+  if (right < total - 1) pages.push("...");
+  pages.push(total);
+  return pages;
 }
 
 function methodBadge(method: string) {
@@ -127,6 +142,9 @@ export default function AdminLogsPage() {
   // Expanded row
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Jump-to-page input
+  const [jumpValue, setJumpValue] = useState("");
+
   const pageSize = 50;
 
   // ── Fetch stats ──
@@ -184,6 +202,14 @@ export default function AdminLogsPage() {
     setFilterEndDate("");
     setPage(1);
     setAppliedFilters({});
+  };
+
+  // ── Jump to page ──
+  const handleJump = () => {
+    const n = parseInt(jumpValue, 10);
+    if (!Number.isFinite(n)) return;
+    setPage(Math.max(1, Math.min(totalPages || 1, n)));
+    setJumpValue("");
   };
 
   // ── Cleanup ──
@@ -474,27 +500,81 @@ export default function AdminLogsPage() {
               </div>
 
               {/* Pagination */}
-              <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-                <span className="text-sm text-slate-500">
-                  共 {total} 条，第 {page}/{totalPages || 1} 页
-                </span>
-                <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
+                <span className="text-sm text-slate-500">共 {total} 条</span>
+
+                <div className="flex items-center gap-1 flex-wrap">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage(1)}
+                    title="首页"
+                  >
+                    <ChevronsLeft className="size-4" />
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={page <= 1}
                     onClick={() => setPage((p) => p - 1)}
+                    title="上一页"
                   >
                     <ChevronLeft className="size-4" />
                   </Button>
+
+                  {getPageList(page, totalPages || 1).map((p, i) =>
+                    p === "..." ? (
+                      <span key={`ellipsis-${i}`} className="px-1.5 text-sm text-slate-400">…</span>
+                    ) : (
+                      <Button
+                        key={p}
+                        variant={p === page ? "default" : "outline"}
+                        size="sm"
+                        className="min-w-9 px-2"
+                        onClick={() => setPage(p)}
+                      >
+                        {p}
+                      </Button>
+                    ),
+                  )}
+
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={page >= totalPages}
                     onClick={() => setPage((p) => p + 1)}
+                    title="下一页"
                   >
                     <ChevronRight className="size-4" />
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage(totalPages)}
+                    title="末页"
+                  >
+                    <ChevronsRight className="size-4" />
+                  </Button>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-sm text-slate-500">
+                  <span>第 {page}/{totalPages || 1} 页</span>
+                  <span className="text-slate-300">|</span>
+                  <span>跳至</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalPages || 1}
+                    value={jumpValue}
+                    onChange={(e) => setJumpValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleJump(); }}
+                    placeholder={String(page)}
+                    className="w-16 rounded-md border border-slate-200 px-2 py-1 text-sm"
+                  />
+                  <span>页</span>
+                  <Button size="sm" variant="outline" onClick={handleJump}>跳转</Button>
                 </div>
               </div>
             </>
