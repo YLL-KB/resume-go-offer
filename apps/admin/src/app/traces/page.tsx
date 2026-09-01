@@ -414,8 +414,9 @@ export default function AdminTracesPage() {
               </div>
 
               {/* Pagination */}
-              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
-                <span className="text-sm text-slate-500">共 {total} 条</span>
+              {totalPages > 1 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
+                  <span className="text-sm text-slate-500">共 {total} 条</span>
 
                 <div className="flex items-center gap-1 flex-wrap">
                   <Button
@@ -490,7 +491,10 @@ export default function AdminTracesPage() {
                   <span>页</span>
                   <Button size="sm" variant="outline" onClick={handleJump}>跳转</Button>
                 </div>
-              </div>
+                </div>
+              ) : (
+                <div className="px-4 py-3 border-t border-slate-100 text-sm text-slate-500">共 {total} 条</div>
+              )}
             </>
           )}
         </CardContent>
