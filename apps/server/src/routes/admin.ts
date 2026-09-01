@@ -781,6 +781,44 @@ adminRoutes.get("/visitors", async (c) => {
   }
 });
 
+// ── GET /api/admin/stats ── 累计使用人数（注册用户 + 匿名访客去重 IP）
+adminRoutes.get("/stats", async (c) => {
+  const admin = await requireAdmin(c, "admin.users");
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  try {
+    const db = getDb();
+
+    const registeredUsers = db.select().from(users).all().length;
+
+    // 匿名访客：按 IP 去重，且排除「出现过登录用户」的 IP，避免登录用户的 IP 被重复算成访客
+    const loginIps = new Set(
+      db
+        .selectDistinct({ ip: requestLogs.ip })
+        .from(requestLogs)
+        .where(sql`${requestLogs.userId} IS NOT NULL AND ${requestLogs.userId} != ''`)
+        .all()
+        .map((r) => r.ip),
+    );
+
+    const anonymousVisitors = db
+      .selectDistinct({ ip: requestLogs.ip })
+      .from(requestLogs)
+      .where(sql`(${requestLogs.userId} IS NULL OR ${requestLogs.userId} = '')`)
+      .all()
+      .filter((r) => !loginIps.has(r.ip)).length;
+
+    return c.json({
+      registeredUsers,
+      anonymousVisitors,
+      totalUsers: registeredUsers + anonymousVisitors,
+    });
+  } catch (err) {
+    console.error("[admin/stats]", err);
+    return c.json({ error: "获取统计失败" }, 500);
+  }
+});
+
 // ── PUT /api/admin/users/:id/roles ── 授予/替换用户后台角色
 adminRoutes.put("/users/:id/roles", async (c) => {
   const admin = await requireAdmin(c, "admin.permissions");

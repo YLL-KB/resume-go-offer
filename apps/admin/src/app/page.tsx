@@ -74,6 +74,7 @@ interface Plan {
 
 export default function AdminPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
+  const [stats, setStats] = useState<{ registeredUsers: number; anonymousVisitors: number; totalUsers: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -105,6 +106,12 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
+
+  useEffect(() => {
+    fetch("/api/admin/stats")
+      .then(async (res) => { if (res.ok) setStats(await res.json()); })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/admin/me")
@@ -234,11 +241,18 @@ export default function AdminPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
-              <Users className="size-4" />总用户数
+              <Users className="size-4" />累计使用人数
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <span className="text-3xl font-bold text-slate-900">{users.length}</span>
+            <span className="text-3xl font-bold text-slate-900">
+              {stats ? stats.totalUsers : users.length}
+            </span>
+            <p className="mt-1 text-xs text-slate-400">
+              {stats
+                ? `注册 ${stats.registeredUsers} · 访客(去重IP) ${stats.anonymousVisitors}`
+                : `注册 ${users.length} 人`}
+            </p>
           </CardContent>
         </Card>
         <UsageCard />
