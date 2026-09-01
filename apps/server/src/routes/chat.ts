@@ -931,11 +931,19 @@ chatRoutes.post("/extract", async (c) => {
 
   const db = getDb();
   // 用量记账：提取在独立路由（无 trace collector），显式传入用户身份
-  const { userId } = await getAuthUserId(c.req.raw);
+  const { userId, isAnonymous } = await getAuthUserId(c.req.raw);
   const userExtractCfg = getUserAiConfigs(userId).extract;
   const extractRuntimeCfg = userExtractCfg
     ? { baseUrl: userExtractCfg.baseUrl, apiKey: userExtractCfg.apiKey, model: userExtractCfg.model }
     : null;
+
+  // 平台 key 免费额度：走平台（无 extract 自带 key）时受限，BYOK 不受限
+  if (!extractRuntimeCfg) {
+    const quota = await assertUsageAllowed(userId, isAnonymous, "extract");
+    if (!quota.allowed) {
+      return c.json({ error: quota.reason, code: quota.code }, 402);
+    }
+  }
 
   const history = await db
     .select()
@@ -1015,7 +1023,7 @@ chatRoutes.post("/extract", async (c) => {
 chatRoutes.post("/parse-attachment", async (c) => {
   try {
     const contentType = c.req.header("content-type") ?? "";
-    const { userId } = await getAuthUserId(c.req.raw);
+    const { userId, isAnonymous } = await getAuthUserId(c.req.raw);
     const userCfgs = getUserAiConfigs(userId);
     const extractUserCfg = userCfgs.extract;
     const visionUserCfg = userCfgs.vision;
@@ -1029,6 +1037,14 @@ chatRoutes.post("/parse-attachment", async (c) => {
       ? { extract: extractCfg ?? undefined, vision: visionCfg ?? undefined }
       : null;
     const usageCtx = { userId, provider: (extractCfg ? "byok" : "platform") as "platform" | "byok" };
+
+    // 平台 key 免费额度：完全无 BYOK 配置（全走平台）时受限
+    if (!extractCfg && !visionCfg) {
+      const quota = await assertUsageAllowed(userId, isAnonymous, "attachment");
+      if (!quota.allowed) {
+        return c.json({ error: quota.reason, code: quota.code }, 402);
+      }
+    }
 
     // ── URL 模式 ──
     if (contentType.includes("application/json")) {

@@ -193,8 +193,8 @@ export function getGlobalUsage(sinceIso?: string): UsageSummaryRow & { byModel: 
 /**
  * 额度检查钩子 — 平台 key 免费对话额度（自然月窗口）。
  *
- * 只对 provider=platform 且 source=chat 的主对话计数；BYOK 流量不计。
- * 登录用户默认每月 5 次，访客（isAnonymous）默认每月 2 次，均可环境变量覆盖。
+ * 只对 provider=platform 的指定 source 计数（chat 主对话 / extract 提取 / attachment 附件解析）；
+ * BYOK 流量不计。登录用户默认每月 5 次，访客（isAnonymous）默认每月 2 次，均可环境变量覆盖。
  * 超限返回 code 供前端区分引导方向（访客去登录 / 登录用户去设置页加自有 API）。
  */
 /** 免费对话额度阈值（env 可配，缺省访客 2 次/月、登录 5 次/月） */
@@ -216,7 +216,7 @@ export interface FreeTierStatus {
 }
 
 /** 查询某用户本月免费对话额度的消耗状态（供用户端展示与「新对话」前置引导） */
-export function getFreeTierStatus(userId: string, isAnonymous = false): FreeTierStatus {
+export function getFreeTierStatus(userId: string, isAnonymous = false, source = "chat"): FreeTierStatus {
   const limit = isAnonymous ? getFreeTierLimits().anon : getFreeTierLimits().loggedIn;
   // 未配置或非法值视为不限额（保留平台兜底），避免配置错误误伤用户
   if (!Number.isFinite(limit) || limit <= 0) {
@@ -232,7 +232,7 @@ export function getFreeTierStatus(userId: string, isAnonymous = false): FreeTier
       and(
         eq(tokenUsage.userId, userId),
         eq(tokenUsage.provider, "platform"),
-        eq(tokenUsage.source, "chat"),
+        eq(tokenUsage.source, source),
         gte(tokenUsage.createdAt, monthStart),
       ),
     )
@@ -249,8 +249,8 @@ export function getFreeTierStatus(userId: string, isAnonymous = false): FreeTier
   return { isAnonymous, limit, used, remaining, allowed: true, code: null, reason: null };
 }
 
-export async function assertUsageAllowed(userId: string, isAnonymous = false): Promise<{ allowed: true } | { allowed: false; reason: string; code: string }> {
-  const s = getFreeTierStatus(userId, isAnonymous);
+export async function assertUsageAllowed(userId: string, isAnonymous = false, source = "chat"): Promise<{ allowed: true } | { allowed: false; reason: string; code: string }> {
+  const s = getFreeTierStatus(userId, isAnonymous, source);
   if (s.allowed) return { allowed: true };
   return { allowed: false, reason: s.reason as string, code: s.code as string };
 }
