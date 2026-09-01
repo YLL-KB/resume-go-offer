@@ -26,7 +26,7 @@ import { decryptApiKey, maskApiKey } from "../lib/billing/byok";
 import { getAdminUser, getAdminPermissions, requirePermission } from "../lib/auth/admin";
 import { WILDCARD } from "../lib/auth/permissions";
 import type { AdminUser } from "../lib/auth/admin";
-import { and, gte, lte, desc, asc, like, eq, inArray, sql, count, isNull } from "drizzle-orm";
+import { and, gte, lte, desc, asc, like, eq, inArray, sql, count } from "drizzle-orm";
 
 export const adminRoutes = new Hono();
 
@@ -701,7 +701,7 @@ adminRoutes.get("/byok", async (c) => {
   }
 });
 
-// ── GET /api/admin/visitors ── 匿名访客来源（按 IP 聚合 request_logs 未登录请求）
+// ── GET /api/admin/visitors ── 访客来源（按 IP 聚合 request_logs，含登录用户，按天去重）
 adminRoutes.get("/visitors", async (c) => {
   const admin = await requireAdmin(c, "admin.users");
   if (!admin) return c.json({ error: "无权限" }, 403);
@@ -712,40 +712,66 @@ adminRoutes.get("/visitors", async (c) => {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     const rows = db
-      .select({ ip: requestLogs.ip, userAgent: requestLogs.userAgent, timestamp: requestLogs.timestamp })
+      .select({
+        ip: requestLogs.ip,
+        userId: requestLogs.userId,
+        userName: users.name,
+        userLogin: users.githubLogin,
+        userEmail: users.email,
+        userAgent: requestLogs.userAgent,
+        timestamp: requestLogs.timestamp,
+      })
       .from(requestLogs)
-      .where(and(isNull(requestLogs.userId), gte(requestLogs.timestamp, since)))
+      .leftJoin(users, eq(requestLogs.userId, users.id))
+      .where(gte(requestLogs.timestamp, since))
       .orderBy(asc(requestLogs.timestamp))
       .all();
 
     const map = new Map<string, {
       ip: string;
-      visits: number;
+      days: Set<string>;
       firstSeenAt: string;
       lastSeenAt: string;
       userAgent: string;
+      users: Set<string>;
     }>();
 
     for (const r of rows) {
+      const day = r.timestamp.slice(0, 10); // YYYY-MM-DD
       const entry = map.get(r.ip);
       if (!entry) {
         map.set(r.ip, {
           ip: r.ip,
-          visits: 1,
+          days: new Set([day]),
           firstSeenAt: r.timestamp,
           lastSeenAt: r.timestamp,
           userAgent: r.userAgent ?? "",
+          users: new Set(),
         });
       } else {
-        entry.visits++;
+        entry.days.add(day);
         if (r.timestamp >= entry.lastSeenAt) {
           entry.lastSeenAt = r.timestamp;
           entry.userAgent = r.userAgent ?? "";
         }
       }
+      if (r.userId) {
+        const label = r.userName ?? r.userLogin ?? r.userEmail ?? r.userId;
+        map.get(r.ip)!.users.add(label);
+      }
     }
 
-    const visitors = [...map.values()].sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+    const visitors = [...map.values()]
+      .map((v) => ({
+        ip: v.ip,
+        visits: v.days.size,
+        firstSeenAt: v.firstSeenAt,
+        lastSeenAt: v.lastSeenAt,
+        userAgent: v.userAgent,
+        users: [...v.users],
+      }))
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+
     const totalVisits = visitors.reduce((s, v) => s + v.visits, 0);
 
     return c.json({ visitors, totalIps: visitors.length, totalVisits, since });

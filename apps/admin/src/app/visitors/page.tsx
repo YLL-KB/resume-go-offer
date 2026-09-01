@@ -20,6 +20,7 @@ interface Visitor {
   firstSeenAt: string;
   lastSeenAt: string;
   userAgent: string;
+  users: string[];
 }
 
 function classifyDevice(ua: string): "bot" | "mobile" | "desktop" {
@@ -75,7 +76,7 @@ export default function VisitorsPage() {
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">访客来源</h1>
-          <p className="mt-1 text-sm text-slate-500">未登录访客的 IP 来源与访问情况</p>
+          <p className="mt-1 text-sm text-slate-500">按 IP 聚合的访客来源（含登录用户，同一天只计一次）</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={days} onValueChange={setDays}>
@@ -110,7 +111,7 @@ export default function VisitorsPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-slate-500 flex items-center gap-2">
-              <MonitorSmartphone className="size-4" />匿名请求总量
+              <MonitorSmartphone className="size-4" />总活跃天次
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -136,8 +137,9 @@ export default function VisitorsPage() {
               <thead>
                 <tr className="border-b border-slate-100 text-left">
                   <th className="py-3 px-4 text-xs font-medium text-slate-400">IP</th>
+                  <th className="py-3 px-4 text-xs font-medium text-slate-400">用户</th>
                   <th className="py-3 px-4 text-xs font-medium text-slate-400">设备</th>
-                  <th className="py-3 px-4 text-xs font-medium text-slate-400">访问次数</th>
+                  <th className="py-3 px-4 text-xs font-medium text-slate-400">活跃天数</th>
                   <th className="py-3 px-4 text-xs font-medium text-slate-400 hidden md:table-cell">最近访问</th>
                   <th className="py-3 px-4 text-xs font-medium text-slate-400 hidden lg:table-cell">首次访问</th>
                   <th className="py-3 px-4 text-xs font-medium text-slate-400 hidden xl:table-cell">User-Agent</th>
@@ -152,6 +154,16 @@ export default function VisitorsPage() {
                         <code className="rounded bg-slate-50 px-1.5 py-0.5 text-sm text-slate-700 border border-slate-200">
                           {v.ip}
                         </code>
+                      </td>
+                      <td className="py-3 px-4">
+                        {v.users.length === 0 ? (
+                          <Badge variant="secondary" className="text-[10px]">访客</Badge>
+                        ) : (
+                          <Badge className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            {v.users[0]}
+                            {v.users.length > 1 ? ` +${v.users.length - 1}` : ""}
+                          </Badge>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         {device === "bot" ? (
