@@ -16,9 +16,9 @@ import { recordUsage } from "../billing/ledger";
 
 function checkApiKey(key: string | undefined, name: string): string {
   if (!key || key === "sk-placeholder") {
-    const msg = `[AI] ⚠️ ${name} 未配置 — AI 功能将不可用。请在 .env.local 中设置 ${name}。`;
-    if (process.env.NODE_ENV === "production") throw new Error(msg);
-    console.warn(msg);
+    // 缺 key 只告警不抛错：生产 fail-fast 会叠加 PM2 autorestart 变成无限崩溃循环，
+    // 宁可让进程起来、AI 调用时再报错，也不要整个服务不可用。
+    console.error(`[AI] ⚠️ ${name} 未配置 — AI 功能将不可用。请在 .env.local 中设置 ${name}。`);
     return key ?? "sk-placeholder";
   }
   return key;
