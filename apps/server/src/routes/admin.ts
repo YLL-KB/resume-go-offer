@@ -26,7 +26,7 @@ import { decryptApiKey, maskApiKey } from "../lib/billing/byok";
 import { getAdminUser, getAdminPermissions, requirePermission } from "../lib/auth/admin";
 import { WILDCARD } from "../lib/auth/permissions";
 import type { AdminUser } from "../lib/auth/admin";
-import { and, gte, lte, desc, asc, like, eq, inArray, sql, count } from "drizzle-orm";
+import { and, gte, lte, desc, asc, like, eq, inArray, sql, count, isNull } from "drizzle-orm";
 
 export const adminRoutes = new Hono();
 
@@ -698,6 +698,60 @@ adminRoutes.get("/byok", async (c) => {
   } catch (err) {
     console.error("[admin/byok]", err);
     return c.json({ error: "获取自带 API 列表失败" }, 500);
+  }
+});
+
+// ── GET /api/admin/visitors ── 匿名访客来源（按 IP 聚合 request_logs 未登录请求）
+adminRoutes.get("/visitors", async (c) => {
+  const admin = await requireAdmin(c, "admin.users");
+  if (!admin) return c.json({ error: "无权限" }, 403);
+
+  try {
+    const db = getDb();
+    const days = Math.max(1, Math.min(90, Number(c.req.query("days")) || 30));
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    const rows = db
+      .select({ ip: requestLogs.ip, userAgent: requestLogs.userAgent, timestamp: requestLogs.timestamp })
+      .from(requestLogs)
+      .where(and(isNull(requestLogs.userId), gte(requestLogs.timestamp, since)))
+      .orderBy(asc(requestLogs.timestamp))
+      .all();
+
+    const map = new Map<string, {
+      ip: string;
+      visits: number;
+      firstSeenAt: string;
+      lastSeenAt: string;
+      userAgent: string;
+    }>();
+
+    for (const r of rows) {
+      const entry = map.get(r.ip);
+      if (!entry) {
+        map.set(r.ip, {
+          ip: r.ip,
+          visits: 1,
+          firstSeenAt: r.timestamp,
+          lastSeenAt: r.timestamp,
+          userAgent: r.userAgent ?? "",
+        });
+      } else {
+        entry.visits++;
+        if (r.timestamp >= entry.lastSeenAt) {
+          entry.lastSeenAt = r.timestamp;
+          entry.userAgent = r.userAgent ?? "";
+        }
+      }
+    }
+
+    const visitors = [...map.values()].sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+    const totalVisits = visitors.reduce((s, v) => s + v.visits, 0);
+
+    return c.json({ visitors, totalIps: visitors.length, totalVisits, since });
+  } catch (err) {
+    console.error("[admin/visitors]", err);
+    return c.json({ error: "获取访客来源失败" }, 500);
   }
 });
 

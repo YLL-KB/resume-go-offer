@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Loader2, ShieldOff, ShieldCheck, Users, Activity, Workflow, Key } from "lucide-react";
+import { Loader2, ShieldOff, ShieldCheck, Users, Activity, Workflow, Key, MapPin } from "lucide-react";
 import { Button } from "@resume/ui";
 import { useAuth } from "@resume/ui";
 import { cn } from "@resume/ui";
@@ -69,6 +69,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const navItems = [
     { href: "/", label: "用户管理", icon: Users, perm: "" },
     { href: "/byok", label: "自带 API", icon: Key, perm: "admin.users" },
+    { href: "/visitors", label: "访客来源", icon: MapPin, perm: "admin.users" },
     { href: "/logs", label: "请求监控", icon: Activity, perm: "admin.logs" },
     { href: "/traces", label: "AI Traces", icon: Workflow, perm: "admin.traces" },
     { href: "/permissions", label: "权限管理", icon: ShieldCheck, perm: "admin.permissions" },
